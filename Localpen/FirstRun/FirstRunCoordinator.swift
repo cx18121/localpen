@@ -65,6 +65,17 @@ final class FirstRunCoordinator {
             step = .downloadError("No active model configured")
             return
         }
+
+        // Disk-full pre-check (M6.5): require model size + 100MB headroom.
+        let available = HardwareFingerprint.collect().freeDiskBytes
+        let required = descriptor.downloadSizeBytes + 100_000_000
+        if available < required {
+            let neededGB = Double(required) / 1_073_741_824
+            let availableGB = Double(available) / 1_073_741_824
+            step = .downloadError(String(format: "Not enough space — need %.1f GB, have %.1f GB.", neededGB, availableGB))
+            return
+        }
+
         let dest = registry.modelPath(for: descriptor)
         step = .downloading(bytesDone: 0, bytesTotal: descriptor.downloadSizeBytes)
         do {

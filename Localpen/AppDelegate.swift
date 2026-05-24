@@ -35,7 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             streaming: streaming,
             persistence: persistence,
             registry: registry,
-            anchorStore: anchorStore
+            anchorStore: anchorStore,
+            llamaServer: server
         )
         panelController = panel
         llamaServer = server

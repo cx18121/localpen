@@ -73,7 +73,7 @@ struct PanelView: View {
                 )
 
             case .error(let err):
-                ErrorBanner(error: err)
+                ErrorBanner(error: err, onAction: { controller.retryFromError() })
             }
         }
         .frame(width: 360)

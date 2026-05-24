@@ -47,10 +47,21 @@ final class TextIO {
         )
     }
 
-    func pasteBack(result: String, capture: Capture) async {
+    enum PasteBackResult {
+        case pasted
+        case skipped  // bundle in deny-list; result remains on pasteboard for manual ⌘V
+    }
+
+    func pasteBack(result: String, capture: Capture) async -> PasteBackResult {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(result, forType: .string)
+
+        if PasteBackDenyList.shouldSkip(capture.sourceBundleID) {
+            log.info("pasteBack skipped (deny-list) for \(capture.sourceBundleID ?? "nil", privacy: .public)")
+            // Do NOT restore the original pasteboard — user needs the result on the clipboard.
+            return .skipped
+        }
 
         capture.savedFrontmostApp?.activate(options: [])
         try? await Task.sleep(for: .milliseconds(80))
@@ -59,6 +70,7 @@ final class TextIO {
         try? await Task.sleep(for: .milliseconds(120))
 
         restorePasteboard(capture.savedItems)
+        return .pasted
     }
 
     private func restorePasteboard(_ items: [[NSPasteboard.PasteboardType: Data]]) {

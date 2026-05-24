@@ -14,24 +14,29 @@ final class PanelController {
     @ObservationIgnored private let persistence: Persistence?
     @ObservationIgnored private let registry: ModelRegistry
     @ObservationIgnored private let anchorStore: AnchorStore
+    @ObservationIgnored private weak var llamaServer: LlamaServerController?
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
     @ObservationIgnored private var activeCapture: TextIO.Capture?
     @ObservationIgnored private var streamingTask: Task<Void, Never>?
+    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var hotkeyTime: ContinuousClock.Instant?
     @ObservationIgnored private var moveObserver: Any?
     @ObservationIgnored private var pendingInteraction: Interaction?
+    @ObservationIgnored private var lastAttemptedAction: Action?
 
     init(textIO: TextIO,
          streaming: StreamingClient,
          persistence: Persistence?,
          registry: ModelRegistry,
-         anchorStore: AnchorStore) {
+         anchorStore: AnchorStore,
+         llamaServer: LlamaServerController?) {
         self.textIO = textIO
         self.streaming = streaming
         self.persistence = persistence
         self.registry = registry
         self.anchorStore = anchorStore
+        self.llamaServer = llamaServer
     }
 
     deinit {
@@ -49,14 +54,14 @@ final class PanelController {
     }
 
     func dismiss() {
-        streamingTask?.cancel()
-        streamingTask = nil
+        cancelStreaming()
         persistRejectedIfNeeded()
         hidePanelAnimated { [weak self] in
             self?.state = .hidden
             self?.activeCapture = nil
             self?.hotkeyTime = nil
             self?.pendingInteraction = nil
+            self?.lastAttemptedAction = nil
         }
     }
 
@@ -78,8 +83,7 @@ final class PanelController {
     }
 
     func backToMenu() {
-        streamingTask?.cancel()
-        streamingTask = nil
+        cancelStreaming()
         if let sel = currentSelection() {
             state = .captured(sel)
         } else {
@@ -109,17 +113,21 @@ final class PanelController {
         }
         pendingInteraction = nil
 
-        hidePanelAnimated { [weak self] in
-            self?.state = .hidden
-        }
-
         Task {
+            let result: TextIO.PasteBackResult
             if let cap = snapshot {
-                await textIO.pasteBack(result: text, capture: cap)
+                result = await textIO.pasteBack(result: text, capture: cap)
+            } else {
+                result = .pasted
             }
             await MainActor.run {
-                self.activeCapture = nil
-                self.hotkeyTime = nil
+                if result == .skipped {
+                    self.state = .error(.pasteBackFallback)
+                } else {
+                    self.hidePanelAnimated { [weak self] in self?.state = .hidden }
+                    self.activeCapture = nil
+                    self.hotkeyTime = nil
+                }
             }
         }
     }
@@ -134,6 +142,43 @@ final class PanelController {
         if case .result(let sel, let action, _, let editing) = state {
             state = .result(sel, action, finalResult: newText, isEditing: editing)
         }
+    }
+
+    // MARK: - Error retry
+
+    func retryFromError() {
+        guard case .error(let err) = state else { return }
+        switch err {
+        case .serverDown:
+            Task { @MainActor [weak self] in
+                await self?.restartServer()
+                self?.backToMenu()
+                if let action = self?.lastAttemptedAction {
+                    self?.startGeneration(action: action)
+                }
+            }
+        case .timeout, .network:
+            if let action = lastAttemptedAction {
+                startGeneration(action: action)
+            } else {
+                backToMenu()
+            }
+        case .pasteBackFallback:
+            dismiss()
+        case .diskFull:
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.settings.Storage")!)
+            backToMenu()
+        case .hotkeyConflict:
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            backToMenu()
+        }
+    }
+
+    private func restartServer() async {
+        guard let server = llamaServer, let descriptor = registry.activeModel else { return }
+        server.stop()
+        let modelPath = registry.modelPath(for: descriptor).path
+        try? await server.start(modelPath: modelPath)
     }
 
     // MARK: - Capture + show
@@ -170,8 +215,6 @@ final class PanelController {
 
         let screen = NSScreen.main
         let origin = anchorStore.read(bundleID: activeCapture?.sourceBundleID, screen: screen)
-
-        // Appear: 8pt slide-down + opacity 0→1 over 180ms (DESIGN.md §2.6).
         let startOrigin = NSPoint(x: origin.x, y: origin.y + 8)
         panel?.setFrameOrigin(startOrigin)
         panel?.alphaValue = 0
@@ -226,12 +269,30 @@ final class PanelController {
 
     // MARK: - Streaming
 
+    private func cancelStreaming() {
+        streamingTask?.cancel()
+        streamingTask = nil
+        watchdogTask?.cancel()
+        watchdogTask = nil
+    }
+
     private func startGeneration(action: Action) {
         let sel = currentSelection()
+        lastAttemptedAction = action
         state = .generating(sel, action, partial: "")
-        streamingTask?.cancel()
+        cancelStreaming()
         streamingTask = Task { @MainActor [weak self] in
             await self?.runStream(action: action, selection: sel)
+        }
+    }
+
+    private func armWatchdog() {
+        watchdogTask?.cancel()
+        watchdogTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            self?.streamingTask?.cancel()
+            self?.state = .error(.timeout)
         }
     }
 
@@ -246,6 +307,9 @@ final class PanelController {
             return userText
         }()
 
+        armWatchdog()
+        defer { watchdogTask?.cancel() }
+
         var partial = ""
         var firstTokenLogged = false
         do {
@@ -258,6 +322,7 @@ final class PanelController {
                 }
                 partial += token
                 state = .generating(selection, action, partial: partial)
+                armWatchdog()
             }
             if Task.isCancelled { return }
             pendingInteraction = buildInteraction(
@@ -267,7 +332,14 @@ final class PanelController {
             state = .result(selection, action, finalResult: partial, isEditing: false)
         } catch {
             if Task.isCancelled { return }
-            state = .error(.network)
+            let ns = error as NSError
+            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCannotConnectToHost {
+                state = .error(.serverDown(reason: ns.localizedDescription))
+            } else if ns.domain == NSURLErrorDomain {
+                state = .error(.network)
+            } else {
+                state = .error(.network)
+            }
         }
     }
 
@@ -297,10 +369,9 @@ final class PanelController {
         }
     }
 
-    /// If the user dismisses with a result still on screen (no accept), persist as rejected.
     private func persistRejectedIfNeeded() {
         if let pending = pendingInteraction {
-            persistInteraction(pending)  // accepted defaults to false on pending
+            persistInteraction(pending)
         }
     }
 
