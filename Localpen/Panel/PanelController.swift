@@ -8,6 +8,10 @@ import os
 @Observable
 final class PanelController {
     var state: PanelState = .hidden
+    /// The editable working text. Initialized from the captured selection on
+    /// hotkey; bound to the input TextEditor in .empty/.captured states so
+    /// the user can fix typos / rewrite before picking an action.
+    var inputText: String = ""
     /// Index into ActionMenuView's row list (Action.fixed + [.custom]).
     /// Lives here so it survives state transitions and is the single source
     /// of truth for keyboard navigation.
@@ -164,9 +168,9 @@ final class PanelController {
     func pick(_ action: Action) {
         switch action {
         case .custom:
-            state = .customPrompt(currentSelection())
+            state = .customPrompt(selectionWithCurrentInput())
         default:
-            startGeneration(action: action)
+            startGeneration(action: action, selection: selectionWithCurrentInput())
         }
     }
 
@@ -287,11 +291,14 @@ final class PanelController {
         let mySession = sessionID
         hotkeyTime = ContinuousClock.now
         focusedActionIndex = 1
-        lastInputSource = .keyboard   // hotkey is keyboard-initiated
+        lastInputSource = .keyboard
 
         let capture = await textIO.captureSelection()
         guard sessionID == mySession else { return }
         activeCapture = capture
+
+        // Seed the editable input field with the captured selection (if any).
+        inputText = capture.selection ?? ""
 
         if let text = capture.selection, !text.isEmpty {
             let sel = Selection(
@@ -304,6 +311,18 @@ final class PanelController {
             state = .empty
         }
         showPanel()
+    }
+
+    /// Builds a Selection that reflects the user's current edits to inputText,
+    /// preserving the source-app metadata from the original capture.
+    private func selectionWithCurrentInput() -> Selection? {
+        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Selection(
+            text: inputText,
+            sourceBundleID: activeCapture?.sourceBundleID,
+            sourceAppName: activeCapture?.sourceAppName
+        )
     }
 
     /// Fixed sidebar anchor — right edge of the main screen, vertically

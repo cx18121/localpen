@@ -31,6 +31,12 @@ targets:
         type: file
     info:
       path: Localpen/Info.plist
+      properties:
+        LSUIElement: true
+        NSQuitAlwaysKeepsWindows: false
+        LSMinimumSystemVersion: "14.0"
+        LSApplicationCategoryType: public.app-category.productivity
+        NSHumanReadableCopyright: "Copyright © 2026 Localpen."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.localpen.Localpen

@@ -11,14 +11,14 @@ struct PanelView: View {
                 EmptyView()
 
             case .empty:
-                EmptySelectionHeader()
+                InputEditor(text: $controller.inputText, sourceAppName: nil)
                 Hairline()
-                CustomPromptView(
-                    onSubmit: { controller.submitCustomPrompt($0) }
-                )
+                ActionMenuView(controller: controller)
+                Hairline()
+                PanelFooter()
 
             case .captured(let sel):
-                SelectionBlock(selection: sel)
+                InputEditor(text: $controller.inputText, sourceAppName: sel.sourceAppName)
                 Hairline()
                 ActionMenuView(controller: controller)
                 Hairline()
@@ -115,21 +115,5 @@ struct Hairline: View {
         Rectangle()
             .fill(Tokens.hairline)
             .frame(height: 1)
-    }
-}
-
-private struct EmptySelectionHeader: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.s1) {
-            Text("No text selected.")
-                .italic()
-                .font(Typography.selection)
-                .foregroundStyle(Tokens.textSoft)
-            Text("Type a prompt to use Localpen.")
-                .font(Typography.selectionMeta)
-                .foregroundStyle(Tokens.textMute)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Spacing.s7)
     }
 }
