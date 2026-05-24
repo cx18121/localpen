@@ -10,66 +10,73 @@ struct PanelView: View {
             case .hidden:
                 EmptyView()
 
-            case .empty:
-                InputEditor(text: $controller.inputText, sourceAppName: nil)
-                Hairline()
-                ActionMenuView(controller: controller)
-                Hairline()
-                PanelFooter()
-
-            case .captured(let sel):
-                InputEditor(text: $controller.inputText, sourceAppName: sel.sourceAppName)
-                Hairline()
-                ActionMenuView(controller: controller)
-                Hairline()
-                PanelFooter()
-
-            case .customPrompt(let sel):
-                if let sel = sel {
-                    SelectionBlock(selection: sel)
+            case .visible(let ctx, let phase):
+                switch phase {
+                case .empty:
+                    InputEditor(text: $controller.inputText, sourceAppName: nil)
                     Hairline()
-                }
-                CustomPromptView(
-                    onSubmit: { controller.submitCustomPrompt($0) }
-                )
-
-            case .generating(let sel, let action, let partial):
-                if let sel = sel {
-                    SelectionBlock(selection: sel)
+                    ActionMenuView(controller: controller)
                     Hairline()
-                }
-                ResultView(
-                    text: .constant(partial),
-                    isStreaming: true,
-                    isEditing: false
-                )
-                Hairline()
-                ResultToolbar(action: action, mode: .streaming)
+                    PanelFooter()
 
-            case .result(let sel, let action, let finalText, let isEditing):
-                if let sel = sel {
-                    SelectionBlock(selection: sel)
+                case .captured:
+                    InputEditor(text: $controller.inputText, sourceAppName: ctx.selection?.sourceAppName)
                     Hairline()
-                }
-                ResultView(
-                    text: Binding(
-                        get: { finalText },
-                        set: { controller.updateEditedResult($0) }
-                    ),
-                    isStreaming: false,
-                    isEditing: isEditing,
-                    onClickToEdit: { controller.setEditing(true) }
-                )
-                Hairline()
-                ResultToolbar(
-                    action: action,
-                    mode: isEditing ? .editing : .result,
-                    onAccept: { controller.acceptResult() },
-                    onBack: { controller.backToMenu() }
-                )
+                    ActionMenuView(controller: controller)
+                    Hairline()
+                    PanelFooter()
 
-            case .error(let err, _):
-                ErrorBanner(error: err, onAction: { controller.retryFromError() })
+                case .customPrompt:
+                    if let sel = ctx.selection {
+                        SelectionBlock(selection: sel)
+                        Hairline()
+                    }
+                    CustomPromptView(
+                        onSubmit: { controller.submitCustomPrompt($0) }
+                    )
+
+                case .generating(let partial):
+                    if let sel = ctx.selection {
+                        SelectionBlock(selection: sel)
+                        Hairline()
+                    }
+                    ResultView(
+                        text: .constant(partial),
+                        isStreaming: true,
+                        isEditing: false
+                    )
+                    Hairline()
+                    if let action = ctx.action {
+                        ResultToolbar(action: action, mode: .streaming)
+                    }
+
+                case .result(let finalText, let isEditing):
+                    if let sel = ctx.selection {
+                        SelectionBlock(selection: sel)
+                        Hairline()
+                    }
+                    ResultView(
+                        text: Binding(
+                            get: { finalText },
+                            set: { controller.updateEditedResult($0) }
+                        ),
+                        isStreaming: false,
+                        isEditing: isEditing,
+                        onClickToEdit: { controller.setEditing(true) }
+                    )
+                    Hairline()
+                    if let action = ctx.action {
+                        ResultToolbar(
+                            action: action,
+                            mode: isEditing ? .editing : .result,
+                            onAccept: { controller.acceptResult() },
+                            onBack: { controller.backToMenu() }
+                        )
+                    }
+
+                case .error(let err):
+                    ErrorBanner(error: err, onAction: { controller.retryFromError() })
+                }
             }
         }
         .frame(width: 360)
@@ -81,7 +88,7 @@ struct PanelView: View {
         )
         .animation(Motion.menuToResult, value: controller.state.renderKey)
         .contextMenu {
-            if case .result(_, _, let text, _) = controller.state {
+            if case .visible(_, .result(let text, _)) = controller.state {
                 Button("Copy Result") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)

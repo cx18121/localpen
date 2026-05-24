@@ -1,40 +1,55 @@
 import Foundation
 
+// Selection + active action, shared by every visible state. Carrying these in
+// one place (rather than re-threading them through each case, and re-carrying
+// them in an error envelope) means retry-after-error is "same context, new
+// phase" and there is exactly one place to read the selection from. See
+// THERMO-REVIEW #7.
+struct PanelContext: Equatable {
+    var selection: Selection?
+    var action: Action?
+}
+
 // State machine per SWIFTUI-SPEC.md §6 / DESIGN.md §4.
 // Owned by PanelController; SwiftUI views observe via @Observable.
 enum PanelState: Equatable {
     case hidden
-    case empty
-    case captured(Selection)
-    case customPrompt(Selection?)
-    case generating(Selection?, Action, partial: String)
-    case result(Selection?, Action, finalResult: String, isEditing: Bool)
-    case error(PanelError, prior: ErrorContext?)
+    case visible(PanelContext, Phase)
 
-    /// Captures enough state to retry whatever the user was doing when the
-    /// error fired — selection + the action that was running (if any).
-    struct ErrorContext: Equatable {
-        let selection: Selection?
-        let action: Action?
+    // What the visible panel is currently showing. The selection/action it
+    // operates on live in the accompanying PanelContext, not here.
+    enum Phase: Equatable {
+        case empty
+        case captured
+        case customPrompt
+        case generating(partial: String)
+        case result(finalResult: String, isEditing: Bool)
+        case error(PanelError)
     }
 
     var isVisible: Bool {
-        if case .hidden = self { return false }
-        return true
+        if case .visible = self { return true }
+        return false
+    }
+
+    /// The selection + action the panel is operating on, or nil when hidden.
+    var context: PanelContext? {
+        if case .visible(let ctx, _) = self { return ctx }
+        return nil
     }
 
     /// Stable per-phase key driving the menu→result cross-fade. Editing vs
     /// non-editing result get distinct keys so toggling edit mode animates;
-    /// every other state maps to its case.
+    /// every other state maps to its phase.
     var renderKey: Int {
-        switch self {
-        case .hidden:        return 0
-        case .empty:         return 1
-        case .captured:      return 2
-        case .customPrompt:  return 3
-        case .generating:    return 4
-        case .result(_, _, _, let editing): return editing ? 6 : 5
-        case .error:         return 7
+        guard case .visible(_, let phase) = self else { return 0 }
+        switch phase {
+        case .empty:        return 1
+        case .captured:     return 2
+        case .customPrompt: return 3
+        case .generating:   return 4
+        case .result(_, let editing): return editing ? 6 : 5
+        case .error:        return 7
         }
     }
 }

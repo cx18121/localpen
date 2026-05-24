@@ -94,10 +94,8 @@ final class PanelController {
         let cmd = mods.contains(.command)
         let shift = mods.contains(.shift)
 
-        switch state {
-        case .hidden:
-            return false
-
+        guard case .visible(_, let phase) = state else { return false }
+        switch phase {
         case .empty, .captured:
             // Both states render InputEditor + ActionMenu; share nav.
             switch code {
@@ -125,7 +123,7 @@ final class PanelController {
             if code == kVK_Escape { backToMenu(); return true }
             return false
 
-        case .result(_, _, _, let isEditing):
+        case .result(_, let isEditing):
             if isEditing {
                 if code == kVK_Escape { setEditing(false); return true }
                 if (code == kVK_Return || code == kVK_ANSI_KeypadEnter) && cmd {
@@ -165,7 +163,7 @@ final class PanelController {
     func pick(_ action: Action) {
         switch action {
         case .custom:
-            state = .customPrompt(selectionWithCurrentInput())
+            state = .visible(PanelContext(selection: selectionWithCurrentInput()), .customPrompt)
         default:
             startGeneration(action: action, selection: selectionWithCurrentInput())
         }
@@ -181,14 +179,17 @@ final class PanelController {
         current?.cancelStreaming()
         flushPendingAsRejected()
         if let sel = currentSelection() {
-            state = .captured(sel)
+            state = .visible(PanelContext(selection: sel), .captured)
         } else {
-            state = .empty
+            state = .visible(PanelContext(), .empty)
         }
     }
 
     func acceptResult() {
-        guard case .result(let sel, let action, let text, _) = state, let session = current else { return }
+        guard case .visible(let ctx, .result(let text, _)) = state,
+              let action = ctx.action,
+              let session = current else { return }
+        let sel = ctx.selection
         let capture = session.capture
 
         if var pending = session.pendingInteraction {
@@ -205,7 +206,7 @@ final class PanelController {
             let result = await self.textIO.pasteBack(result: text, capture: capture)
             guard self.current === session else { return }
             if result == .skipped {
-                self.state = .error(.pasteBackFallback, prior: PanelState.ErrorContext(selection: sel, action: action))
+                self.state = .visible(PanelContext(selection: sel, action: action), .error(.pasteBackFallback))
             } else {
                 self.state = .hidden
                 self.current = nil
@@ -215,32 +216,30 @@ final class PanelController {
     }
 
     func setEditing(_ editing: Bool) {
-        if case .result(let sel, let action, let text, _) = state {
-            state = .result(sel, action, finalResult: text, isEditing: editing)
-        }
+        guard case .visible(let ctx, .result(let text, _)) = state else { return }
+        state = .visible(ctx, .result(finalResult: text, isEditing: editing))
     }
 
     func updateEditedResult(_ newText: String) {
-        if case .result(let sel, let action, _, let editing) = state {
-            state = .result(sel, action, finalResult: newText, isEditing: editing)
-        }
+        guard case .visible(let ctx, .result(_, let editing)) = state else { return }
+        state = .visible(ctx, .result(finalResult: newText, isEditing: editing))
     }
 
     func retryFromError() {
-        guard case .error(let err, let prior) = state else { return }
+        guard case .visible(let ctx, .error(let err)) = state else { return }
         switch err {
         case .serverDown:
             Task { @MainActor [weak self] in
                 await self?.restartServer()
-                if let action = prior?.action {
-                    self?.startGeneration(action: action, selection: prior?.selection)
+                if let action = ctx.action {
+                    self?.startGeneration(action: action, selection: ctx.selection)
                 } else {
                     self?.backToMenu()
                 }
             }
         case .timeout, .network:
-            if let action = prior?.action {
-                startGeneration(action: action, selection: prior?.selection)
+            if let action = ctx.action {
+                startGeneration(action: action, selection: ctx.selection)
             } else {
                 backToMenu()
             }
@@ -290,9 +289,9 @@ final class PanelController {
                 sourceBundleID: capture.sourceBundleID,
                 sourceAppName: capture.sourceAppName
             )
-            state = .captured(sel)
+            state = .visible(PanelContext(selection: sel), .captured)
         } else {
-            state = .empty
+            state = .visible(PanelContext(), .empty)
         }
         showPanel()
     }
@@ -400,7 +399,7 @@ final class PanelController {
     private func startGeneration(action: Action, selection explicitSel: Selection? = nil) {
         guard let session = current else { return }
         let sel = explicitSel ?? currentSelection()
-        state = .generating(sel, action, partial: "")
+        state = .visible(PanelContext(selection: sel, action: action), .generating(partial: ""))
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
             await self?.runStream(action: action, selection: sel)
@@ -414,7 +413,7 @@ final class PanelController {
             try? await Task.sleep(for: .seconds(30))
             guard !Task.isCancelled, let self else { return }
             self.current?.streamingTask?.cancel()
-            self.state = .error(.timeout, prior: PanelState.ErrorContext(selection: selection, action: action))
+            self.state = .visible(PanelContext(selection: selection, action: action), .error(.timeout))
         }
     }
 
@@ -437,7 +436,7 @@ final class PanelController {
                     firstTokenLogged = true
                 }
                 partial += token
-                state = .generating(selection, action, partial: partial)
+                state = .visible(PanelContext(selection: selection, action: action), .generating(partial: partial))
                 armWatchdog(action: action, selection: selection)
             }
             if Task.isCancelled { return }
@@ -445,11 +444,10 @@ final class PanelController {
                 selection: selection, action: action, output: partial,
                 accepted: false, edited: nil
             )
-            state = .result(selection, action, finalResult: partial, isEditing: false)
+            state = .visible(PanelContext(selection: selection, action: action), .result(finalResult: partial, isEditing: false))
         } catch {
             if Task.isCancelled { return }
-            state = .error(PanelError(streamingError: error),
-                           prior: PanelState.ErrorContext(selection: selection, action: action))
+            state = .visible(PanelContext(selection: selection, action: action), .error(PanelError(streamingError: error)))
         }
     }
 
@@ -491,13 +489,6 @@ final class PanelController {
     // MARK: - Helpers
 
     func currentSelection() -> Selection? {
-        switch state {
-        case .captured(let s):                  return s
-        case .customPrompt(let s):              return s
-        case .generating(let s, _, _):          return s
-        case .result(let s, _, _, _):           return s
-        case .error(_, let prior):              return prior?.selection
-        case .empty, .hidden:                   return nil
-        }
+        state.context?.selection
     }
 }
