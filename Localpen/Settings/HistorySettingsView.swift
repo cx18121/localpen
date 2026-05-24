@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import GRDB
 
 struct HistorySettingsView: View {
     let persistence: Persistence?
@@ -79,28 +80,5 @@ struct HistorySettingsView: View {
         }) ?? "[]"
         exportDocument = HistoryDocument(text: json)
         showingExporter = true
-    }
-}
-
-import GRDB
-import UniformTypeIdentifiers
-
-struct HistoryDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
-    let text: String
-
-    init(text: String) { self.text = text }
-
-    init(configuration: ReadConfiguration) throws {
-        if let data = configuration.file.regularFileContents,
-           let str = String(data: data, encoding: .utf8) {
-            self.text = str
-        } else {
-            self.text = ""
-        }
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: text.data(using: .utf8) ?? Data())
     }
 }
