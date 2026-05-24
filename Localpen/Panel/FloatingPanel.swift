@@ -21,6 +21,7 @@ final class FloatingPanel: NSPanel {
         self.standardWindowButton(.closeButton)?.isHidden = true
         self.standardWindowButton(.miniaturizeButton)?.isHidden = true
         self.standardWindowButton(.zoomButton)?.isHidden = true
+        self.appearance = NSAppearance(named: .darkAqua)
     }
 
     override var canBecomeKey: Bool { true }

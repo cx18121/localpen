@@ -1,89 +1,123 @@
 import SwiftUI
+import AppKit
 
-// M1 tracer bullet — minimal happy-path UI.
-// Replaced in M2 by the full state-machine-driven PanelView.
-struct TracerBulletView: View {
-    let selection: String
-    let sourceAppName: String?
-    let polishStream: () -> AsyncThrowingStream<String, Error>
-    let onAccept: (String) -> Void
-    let onDismiss: () -> Void
-
-    @State private var result: String = ""
-    @State private var isStreaming: Bool = false
-    @State private var errorText: String? = nil
+struct PanelView: View {
+    @Bindable var controller: PanelController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(selection.isEmpty ? "(no selection)" : selection)
-                    .italic()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
-                    .truncationMode(.tail)
-                if let app = sourceAppName {
-                    Text("from \(app)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 0) {
+            switch controller.state {
+            case .hidden:
+                EmptyView()
+
+            case .empty:
+                EmptySelectionHeader()
+                Hairline()
+                CustomPromptView(
+                    onSubmit: { controller.submitCustomPrompt($0) },
+                    onEscape: { controller.dismiss() }
+                )
+
+            case .captured(let sel):
+                SelectionBlock(selection: sel)
+                Hairline()
+                ActionMenuView(onPick: { controller.pick($0) })
+                Hairline()
+                PanelFooter()
+
+            case .customPrompt(let sel):
+                if let sel = sel {
+                    SelectionBlock(selection: sel)
+                    Hairline()
                 }
-            }
+                CustomPromptView(
+                    onSubmit: { controller.submitCustomPrompt($0) },
+                    onEscape: { controller.handleEscape() }
+                )
 
-            Divider()
-
-            HStack {
-                Button("Polish") {
-                    Task { await stream() }
+            case .generating(let sel, let action, let partial):
+                if let sel = sel {
+                    SelectionBlock(selection: sel)
+                    Hairline()
                 }
-                .disabled(isStreaming || selection.isEmpty)
-                .keyboardShortcut(.defaultAction)
+                ResultView(
+                    text: .constant(partial),
+                    isStreaming: true,
+                    isEditing: false
+                )
+                Hairline()
+                ResultToolbar(action: action, mode: .streaming)
 
-                Spacer()
-
-                Button("Dismiss") { onDismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-
-            if !result.isEmpty {
-                Divider()
-                ScrollView {
-                    Text(result)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            case .result(let sel, let action, let finalText, let isEditing):
+                if let sel = sel {
+                    SelectionBlock(selection: sel)
+                    Hairline()
                 }
-                .frame(maxHeight: 160)
+                ResultView(
+                    text: Binding(
+                        get: { finalText },
+                        set: { controller.updateEditedResult($0) }
+                    ),
+                    isStreaming: false,
+                    isEditing: isEditing,
+                    onClickToEdit: { controller.setEditing(true) },
+                    onSubmitEdit: { controller.setEditing(false) },
+                    onCancelEdit: { controller.setEditing(false) }
+                )
+                Hairline()
+                ResultToolbar(
+                    action: action,
+                    mode: isEditing ? .editing : .result,
+                    onAccept: { controller.acceptResult() },
+                    onBack: { controller.backToMenu() }
+                )
 
-                HStack {
-                    Spacer()
-                    Button("Accept ⌘↩") { onAccept(result) }
-                        .keyboardShortcut(.return, modifiers: [.command])
-                        .disabled(isStreaming)
-                }
-            }
-
-            if let err = errorText {
-                Text(err)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
+            case .error(let err):
+                ErrorBanner(error: err)
             }
         }
-        .padding(16)
-        .frame(width: 360, alignment: .topLeading)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 360)
+        .background(Tokens.panelBG)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func stream() async {
-        result = ""
-        errorText = nil
-        isStreaming = true
-        defer { isStreaming = false }
-
-        do {
-            for try await token in polishStream() {
-                result += token
-            }
-        } catch {
-            errorText = "Stream error: \(error.localizedDescription)"
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Tokens.panelBorder, lineWidth: 1)
+        )
+        .preferredColorScheme(.dark)
+        .onKeyPress(.escape) {
+            controller.handleEscape()
+            return .handled
         }
+        .onKeyPress(.return, phases: .down) { _ in
+            if case .result(_, _, _, let editing) = controller.state, !editing {
+                controller.acceptResult()
+                return .handled
+            }
+            return .ignored
+        }
+    }
+}
+
+struct Hairline: View {
+    var body: some View {
+        Rectangle()
+            .fill(Tokens.hairline)
+            .frame(height: 1)
+    }
+}
+
+private struct EmptySelectionHeader: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("No text selected.")
+                .italic()
+                .font(.system(size: 13))
+                .foregroundStyle(Tokens.textSoft)
+            Text("Type a prompt to use Localpen.")
+                .font(.system(size: 11))
+                .foregroundStyle(Tokens.textMute)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
     }
 }

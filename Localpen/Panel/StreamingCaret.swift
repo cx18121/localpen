@@ -1,6 +1,18 @@
 import SwiftUI
 
-// StreamingCaret per DESIGN.md §2.6. Implementation lands in M2/M5.
 struct StreamingCaret: View {
-    var body: some View { EmptyView() }
+    @State private var opacity: Double = 1.0
+
+    var body: some View {
+        Rectangle()
+            .fill(Tokens.accent)
+            .frame(width: 7, height: 16)
+            .opacity(opacity)
+            .padding(.leading, 2)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.425).repeatForever()) {
+                    opacity = 0.35
+                }
+            }
+    }
 }
