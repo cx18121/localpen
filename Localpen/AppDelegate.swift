@@ -57,8 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if coordinator.isComplete {
             startServerIfNeeded()
         } else {
+            coordinator.onComplete = { [weak self] in
+                self?.firstRunWindow?.close()
+                self?.firstRunWindow = nil
+                self?.startServerIfNeeded()
+            }
             showFirstRunWindow()
-            observeFirstRunCompletion()
         }
     }
 
@@ -81,18 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         firstRunWindow = window
-    }
-
-    private func observeFirstRunCompletion() {
-        Task { @MainActor in
-            guard let coordinator = firstRunCoordinator else { return }
-            while !coordinator.isComplete {
-                try? await Task.sleep(for: .milliseconds(300))
-            }
-            firstRunWindow?.close()
-            firstRunWindow = nil
-            startServerIfNeeded()
-        }
     }
 
     // MARK: - Settings window (AppKit-controlled)

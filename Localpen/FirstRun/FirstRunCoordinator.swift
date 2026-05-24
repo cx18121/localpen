@@ -17,6 +17,10 @@ final class FirstRunCoordinator {
     var step: Step = .permission
     var isComplete: Bool { step == .ready }
 
+    /// Fired once when first-run reaches `.ready`. The owner uses it to close
+    /// the first-run window and start the server — replacing a polling loop.
+    @ObservationIgnored var onComplete: (@MainActor () -> Void)?
+
     @ObservationIgnored private let registry: ModelRegistry
     @ObservationIgnored private let downloader = ModelDownloader()
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "FirstRun")
@@ -30,7 +34,7 @@ final class FirstRunCoordinator {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.evaluate() }
+            Task { @MainActor in self?.recheckPermission() }
         }
     }
 
@@ -40,19 +44,33 @@ final class FirstRunCoordinator {
         }
     }
 
+    /// Determines the initial step. Safe to call only when no operation is in
+    /// flight (i.e. at init, or from `recheckPermission` while on `.permission`).
+    /// Does NOT auto-start the download — it just surfaces the download prompt;
+    /// the user clicks "Download" to begin (ADR 0002).
     func evaluate() {
         if !isAXTrusted() {
             step = .permission
             return
         }
         if !isModelInstalled() {
-            // Don't auto-start: let the user click "Download" so it's explicit.
-            if case .downloading = step { return }
-            if case .downloadError = step { return }
             step = .downloading(bytesDone: 0, bytesTotal: registry.activeModel?.downloadSizeBytes ?? 0)
             return
         }
+        markReady()
+    }
+
+    /// Bound to app reactivation (user returning from System Settings after
+    /// granting Accessibility). Only ever advances *out of* `.permission`, so
+    /// it can never clobber an in-flight download, a download error, or ready.
+    func recheckPermission() {
+        guard step == .permission else { return }
+        evaluate()
+    }
+
+    private func markReady() {
         step = .ready
+        onComplete?()
     }
 
     func openSystemSettings() {
@@ -86,7 +104,7 @@ final class FirstRunCoordinator {
             try await downloader.download(from: url, to: dest) { [weak self] p in
                 self?.step = .downloading(bytesDone: p.bytesDone, bytesTotal: p.bytesTotal)
             }
-            step = .ready
+            markReady()
         } catch {
             log.error("download failed: \(error.localizedDescription)")
             step = .downloadError(error.localizedDescription)
