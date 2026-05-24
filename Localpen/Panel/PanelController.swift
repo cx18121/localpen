@@ -98,11 +98,8 @@ final class PanelController {
         case .hidden:
             return false
 
-        case .empty:
-            if code == kVK_Escape { dismiss(); return true }
-            return false
-
-        case .captured:
+        case .empty, .captured:
+            // Both states render InputEditor + ActionMenu; share nav.
             switch code {
             case kVK_UpArrow:
                 focusedActionIndex = (focusedActionIndex - 1 + Self.menuItems.count) % Self.menuItems.count
@@ -325,10 +322,15 @@ final class PanelController {
         )
     }
 
-    /// Fixed sidebar anchor — right edge of the main screen, vertically
-    /// centered. No per-bundle remembering (per user request: stop bouncing).
+    /// Fixed sidebar anchor — right edge of the screen the cursor is on,
+    /// vertically centered. Multi-monitor aware (works regardless of which
+    /// display the user is currently working on).
     private func sidebarOrigin() -> NSPoint {
-        guard let frame = NSScreen.main?.visibleFrame else { return .zero }
+        let cursor = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(cursor) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let frame = screen?.visibleFrame else { return .zero }
         return NSPoint(
             x: frame.maxX - Self.panelSize.width - Self.panelEdgeMargin,
             y: frame.midY - Self.panelSize.height / 2
@@ -392,11 +394,16 @@ final class PanelController {
             }
         }
         // Track input source — any mouse event in our own app means "mouse".
-        // Local monitor passes events through (returns the event unmodified).
+        // Local monitor delivers on the main thread, so we can set the
+        // @MainActor-isolated property synchronously here. Doing this via
+        // a Task created a race where a delayed mouse-set could land after
+        // a later keyboard-set and overwrite it.
         mouseInputMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel]
         ) { [weak self] event in
-            Task { @MainActor in self?.lastInputSource = .mouse }
+            MainActor.assumeIsolated {
+                self?.lastInputSource = .mouse
+            }
             return event
         }
     }

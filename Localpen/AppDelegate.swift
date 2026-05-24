@@ -22,6 +22,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // SwiftUI's `Settings` scene auto-presents on launch on macOS 14
+        // (no `.defaultLaunchBehavior(.suppressed)` until macOS 15). Close
+        // any non-panel window macOS spawned. User-initiated Settings opens
+        // (⌘, / SettingsLink) still work — they create the window again on
+        // demand.
+        for window in NSApp.windows where !(window is FloatingPanel) {
+            window.close()
+        }
+        // Run again on the next runloop tick in case the scene hasn't
+        // materialized yet at this point in the launch sequence.
+        DispatchQueue.main.async {
+            for window in NSApp.windows where !(window is FloatingPanel) && window !== self.firstRunWindow {
+                window.close()
+            }
+        }
+
         HardwareFingerprint.collectAndPersistIfNeeded()
 
         do {
