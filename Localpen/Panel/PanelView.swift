@@ -79,7 +79,7 @@ struct PanelView: View {
             RoundedRectangle(cornerRadius: Spacing.panelRadius)
                 .stroke(Tokens.panelBorder, lineWidth: 1)
         )
-        .animation(Motion.menuToResult, value: stateKey(controller.state))
+        .animation(Motion.menuToResult, value: controller.state.renderKey)
         .contextMenu {
             if case .result(_, _, let text, _) = controller.state {
                 Button("Copy Result") {
@@ -92,18 +92,6 @@ struct PanelView: View {
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.orderFrontStandardAboutPanel(nil)
             }
-        }
-    }
-
-    private func stateKey(_ s: PanelState) -> Int {
-        switch s {
-        case .hidden:        return 0
-        case .empty:         return 1
-        case .captured:      return 2
-        case .customPrompt:  return 3
-        case .generating:    return 4
-        case .result(_, _, _, let editing): return editing ? 6 : 5
-        case .error:         return 7
         }
     }
 }
