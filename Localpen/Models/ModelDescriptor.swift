@@ -9,7 +9,6 @@ struct ModelDescriptor: Codable, Equatable {
     let downloadSizeBytes: Int64
     let sha256: String
     let contextSize: Int
-    let chatTemplate: String
     let isDefault: Bool?
     let prompts: Prompts
     let sampling: Sampling
@@ -47,7 +46,6 @@ struct ModelDescriptor: Codable, Equatable {
         case downloadURLString = "download_url"
         case downloadSizeBytes = "download_size_bytes"
         case contextSize = "context_size"
-        case chatTemplate = "chat_template"
         case isDefault = "default"
     }
 }

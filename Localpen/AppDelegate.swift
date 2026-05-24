@@ -19,8 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        HardwareFingerprint.collectAndPersistIfNeeded()
-
         do {
             persistence = try Persistence()
         } catch {

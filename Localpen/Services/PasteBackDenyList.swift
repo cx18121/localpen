@@ -3,7 +3,7 @@ import TOMLKit
 import os
 
 // Loads bundle IDs from Resources/known-bad-paste-apps.toml per ADR 0003 §9.3.
-// Populated empirically during M7 manual testing.
+// Populated empirically from manual testing in apps where synthetic ⌘V fails.
 enum PasteBackDenyList {
     private static let log = Logger(subsystem: "app.localpen.Localpen", category: "PasteDeny")
 

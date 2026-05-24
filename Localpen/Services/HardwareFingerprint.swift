@@ -1,9 +1,8 @@
 import Foundation
-import os
 
-// sysctl + memory probe per SWIFTUI-SPEC.md §12.4 / ADR 0005.
-// Written once on first launch to ~/Library/Application Support/Localpen/hardware.json.
-// Phase 2 auto-pick reads this; Phase 1 just collects.
+// sysctl + memory + free-disk probe per SWIFTUI-SPEC.md §12.4 / ADR 0005.
+// Phase 1 only consumes `freeDiskBytes` (the model-download disk-full
+// pre-check); the other fields exist for Phase 2 hardware-aware auto-pick.
 enum HardwareFingerprint {
     struct Snapshot: Codable {
         let hwModel: String
@@ -11,22 +10,6 @@ enum HardwareFingerprint {
         let physicalMemoryBytes: UInt64
         let freeDiskBytes: Int64
         let collectedAt: Date
-    }
-
-    static let log = Logger(subsystem: "app.localpen.Localpen", category: "Hardware")
-
-    static func collectAndPersistIfNeeded() {
-        let path = persistencePath()
-        if FileManager.default.fileExists(atPath: path.path) { return }
-        let snap = collect()
-        try? FileManager.default.createDirectory(
-            at: path.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if let data = try? JSONEncoder.iso8601.encode(snap) {
-            try? data.write(to: path)
-            log.info("hardware fingerprint written")
-        }
     }
 
     static func collect() -> Snapshot {
@@ -37,16 +20,6 @@ enum HardwareFingerprint {
             freeDiskBytes: freeDiskBytes(),
             collectedAt: Date()
         )
-    }
-
-    private static func persistencePath() -> URL {
-        ((try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support"))
-            .appendingPathComponent("Localpen/hardware.json")
     }
 
     private static func sysctlString(_ name: String) -> String {
@@ -63,13 +36,4 @@ enum HardwareFingerprint {
               let size = attrs[.systemFreeSize] as? NSNumber else { return 0 }
         return size.int64Value
     }
-}
-
-extension JSONEncoder {
-    static let iso8601: JSONEncoder = {
-        let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return e
-    }()
 }
