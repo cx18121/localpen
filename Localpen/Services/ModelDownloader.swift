@@ -1,10 +1,12 @@
 import Foundation
 import os
 
-// URLSessionDownloadTask wrapper that exposes progress + atomic move.
-// NOT @MainActor — URLSession delegate callbacks arrive on the session's
-// delegate queue. State accessed from both API surface and delegate methods
-// is serialized via NSLock. The progress closure is hopped to @MainActor.
+// URLSessionDownloadTask wrapper exposing progress + an atomic move into place.
+// The public surface (download/cancel) is @MainActor-confined, so its mutable
+// state is only ever touched on the main actor. The URLSession delegate
+// callbacks are nonisolated but only read state established *before* resume()
+// (a happens-before edge URLSession guarantees) or resume the continuation —
+// so no lock is needed.
 final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     struct Progress: Equatable, Sendable {
         let bytesDone: Int64
@@ -15,61 +17,43 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Se
         }
     }
 
-    private let lock = NSLock()
-    private var destination: URL?
+    private let log = Logger(subsystem: "app.localpen.Localpen", category: "ModelDownloader")
     private var partialURL: URL?
-    private var session: URLSession?
-    private var task: URLSessionDownloadTask?
     private var progressHandler: (@MainActor (Progress) -> Void)?
     private var continuation: CheckedContinuation<Void, Error>?
-    private let log = Logger(subsystem: "app.localpen.Localpen", category: "ModelDownloader")
+    private var downloadTask: URLSessionDownloadTask?
 
+    @MainActor
     func download(from url: URL, to destination: URL, progress: @escaping @MainActor (Progress) -> Void) async throws {
         try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = destination.appendingPathExtension("partial")
         try? FileManager.default.removeItem(at: partial)
 
-        lock.lock()
-        self.destination = destination
-        self.partialURL = partial
-        self.progressHandler = progress
-        lock.unlock()
+        partialURL = partial
+        progressHandler = progress
 
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForResource = 60 * 60
         let session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
-        lock.lock()
-        self.session = session
-        lock.unlock()
+        defer { session.finishTasksAndInvalidate() }
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            lock.lock()
-            self.continuation = cont
-            lock.unlock()
+            continuation = cont
             let task = session.downloadTask(with: url)
-            lock.lock()
-            self.task = task
-            lock.unlock()
+            downloadTask = task
             task.resume()
         }
 
-        // didFinishDownloadingTo moved temp → partial. Now atomically rename partial → destination.
+        // didFinishDownloadingTo moved the temp file → partial. Rename
+        // partial → destination (same volume → fast atomic move).
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: partial, to: destination)
         log.info("download complete: \(destination.lastPathComponent, privacy: .public)")
-
-        lock.lock()
-        let s = self.session
-        self.session = nil
-        lock.unlock()
-        s?.finishTasksAndInvalidate()
     }
 
+    @MainActor
     func cancel() {
-        lock.lock()
-        let t = task
-        lock.unlock()
-        t?.cancel()
+        downloadTask?.cancel()
     }
 
     // MARK: - URLSessionDownloadDelegate (nonisolated)
@@ -79,10 +63,7 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Se
                     didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        lock.lock()
-        let handler = progressHandler
-        lock.unlock()
-        guard let handler else { return }
+        guard let handler = progressHandler else { return }
         let p = Progress(bytesDone: totalBytesWritten, bytesTotal: totalBytesExpectedToWrite)
         Task { @MainActor in handler(p) }
     }
@@ -90,34 +71,25 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Se
     func urlSession(_ session: URLSession,
                     downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
-        // Move SYNCHRONOUSLY here — `location` is invalid after we return.
-        lock.lock()
-        let partial = partialURL
-        lock.unlock()
-        guard let partial else { return }
+        // Move SYNCHRONOUSLY — `location` is invalid after we return.
+        guard let partial = partialURL else { return }
         do {
             try? FileManager.default.removeItem(at: partial)
             try FileManager.default.moveItem(at: location, to: partial)
         } catch {
-            lock.lock()
-            let cont = continuation
+            continuation?.resume(throwing: error)
             continuation = nil
-            lock.unlock()
-            cont?.resume(throwing: error)
         }
     }
 
     func urlSession(_ session: URLSession,
                     task: URLSessionTask,
                     didCompleteWithError error: Error?) {
-        lock.lock()
-        let cont = continuation
-        continuation = nil
-        lock.unlock()
         if let error {
-            cont?.resume(throwing: error)
+            continuation?.resume(throwing: error)
         } else {
-            cont?.resume()
+            continuation?.resume()
         }
+        continuation = nil
     }
 }
