@@ -5,6 +5,17 @@ import Foundation
 // live in Resources/models.toml and are loaded via ModelRegistry. The Custom
 // action's prompt always comes from here — it isn't model-specific.
 enum ActionPrompts {
+    /// Assembles the user-role message for a generation. Fixed actions send the
+    /// selection verbatim; `.custom` wraps the instruction around the text (or
+    /// sends the instruction alone when there's no selection).
+    static func userMessage(for action: Action, text: String) -> String {
+        if case let .custom(instruction) = action {
+            if text.isEmpty { return instruction }
+            return "Instruction: \(instruction)\n\nText:\n\(text)"
+        }
+        return text
+    }
+
     static func systemPrompt(for action: Action) -> String {
         switch action {
         case .proofread:

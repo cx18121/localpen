@@ -8,6 +8,18 @@ enum PanelError: Error, Equatable {
     case hotkeyConflict
     case network
 
+    /// Classifies a transport/streaming failure: a refused connection means
+    /// the llama-server process is down (retry re-spawns it); anything else is
+    /// treated as a generic network fault.
+    init(streamingError error: Error) {
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCannotConnectToHost {
+            self = .serverDown(reason: ns.localizedDescription)
+        } else {
+            self = .network
+        }
+    }
+
     var displayMessage: String {
         switch self {
         case .serverDown:        return "Model server stopped. Restarting…"

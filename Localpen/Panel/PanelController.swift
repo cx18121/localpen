@@ -441,15 +441,8 @@ final class PanelController {
     }
 
     private func runStream(action: Action, selection: Selection?) async {
-        let userText = selection?.text ?? ""
         let systemPrompt = registry.systemPrompt(for: action)
-        let userPrompt: String = {
-            if case let .custom(instruction) = action {
-                if userText.isEmpty { return instruction }
-                return "Instruction: \(instruction)\n\nText:\n\(userText)"
-            }
-            return userText
-        }()
+        let userPrompt = ActionPrompts.userMessage(for: action, text: selection?.text ?? "")
 
         armWatchdog(action: action, selection: selection)
         defer { watchdogTask?.cancel() }
@@ -477,13 +470,8 @@ final class PanelController {
             state = .result(selection, action, finalResult: partial, isEditing: false)
         } catch {
             if Task.isCancelled { return }
-            let ns = error as NSError
-            let ctx = PanelState.ErrorContext(selection: selection, action: action)
-            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCannotConnectToHost {
-                state = .error(.serverDown(reason: ns.localizedDescription), prior: ctx)
-            } else {
-                state = .error(.network, prior: ctx)
-            }
+            state = .error(PanelError(streamingError: error),
+                           prior: PanelState.ErrorContext(selection: selection, action: action))
         }
     }
 
