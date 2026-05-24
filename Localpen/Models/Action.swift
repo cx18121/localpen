@@ -32,5 +32,9 @@ enum Action: Hashable, Identifiable {
         }
     }
 
+    /// Same as `label` without the trailing affordance ellipsis — used where
+    /// the action is shown as a static pill rather than a tappable menu item.
+    var pillLabel: String { label.replacingOccurrences(of: "…", with: "") }
+
     static let fixed: [Action] = [.proofread, .polish, .moreFormal, .moreCasual, .shorter]
 }

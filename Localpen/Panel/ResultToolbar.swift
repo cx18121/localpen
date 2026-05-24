@@ -10,7 +10,7 @@ struct ResultToolbar: View {
 
     var body: some View {
         HStack(spacing: Spacing.s6) {
-            Text(actionPillLabel)
+            Text(action.pillLabel)
                 .font(Typography.pill)
                 .foregroundStyle(Tokens.accent)
                 .padding(.horizontal, Spacing.s3)
@@ -43,16 +43,5 @@ struct ResultToolbar: View {
         Text(text)
             .font(Typography.footerHint)
             .foregroundStyle(Tokens.textMute)
-    }
-
-    private var actionPillLabel: String {
-        switch action {
-        case .proofread:   return "Proofread"
-        case .polish:      return "Polish"
-        case .moreFormal:  return "More formal"
-        case .moreCasual:  return "More casual"
-        case .shorter:     return "Shorter"
-        case .custom:      return "Custom"
-        }
     }
 }
