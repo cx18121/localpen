@@ -3,20 +3,26 @@ import SwiftUI
 import ApplicationServices
 import os
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
-    @Published var firstRunCoordinator: FirstRunCoordinator?
-    @Published var registry: ModelRegistry?
+    // Initialized at property declaration so SwiftUI bodies that read these
+    // never see a transient nil during launch. (Previously: race between
+    // applicationDidFinishLaunching populating registry and the Settings
+    // scene's body being first evaluated.)
+    let registry = ModelRegistry()
+    let anchorStore = AnchorStore()
     var persistence: Persistence?
+
+    @Published var firstRunCoordinator: FirstRunCoordinator?
 
     private var hotkey: HotkeyService?
     private var panelController: PanelController?
     private var llamaServer: LlamaServerController?
-    private var anchorStore: AnchorStore?
     private var firstRunWindow: NSWindow?
     private var serverStartedForModel: String?
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
-    @MainActor func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_ notification: Notification) {
         HardwareFingerprint.collectAndPersistIfNeeded()
 
         do {
@@ -31,12 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             alert.runModal()
             persistence = nil
         }
-
-        let registry = ModelRegistry()
-        self.registry = registry
-
-        let anchorStore = AnchorStore()
-        self.anchorStore = anchorStore
 
         let textIO = TextIO()
         let server = LlamaServerController()
@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // MARK: - First-run window
 
-    @MainActor private func showFirstRunWindow() {
+    private func showFirstRunWindow() {
         guard let coordinator = firstRunCoordinator, firstRunWindow == nil else { return }
 
         let host = NSHostingController(rootView: FirstRunView(coordinator: coordinator))
@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         firstRunWindow = window
     }
 
-    @MainActor private func observeFirstRunCompletion() {
+    private func observeFirstRunCompletion() {
         Task { @MainActor in
             guard let coordinator = firstRunCoordinator else { return }
             while !coordinator.isComplete {
@@ -103,8 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // MARK: - Server
 
-    @MainActor private func startServerIfNeeded() {
-        guard let registry, let server = llamaServer, let descriptor = registry.activeModel else { return }
+    private func startServerIfNeeded() {
+        guard let server = llamaServer, let descriptor = registry.activeModel else { return }
         if serverStartedForModel == descriptor.id, case .ready = server.state { return }
         serverStartedForModel = descriptor.id
 
@@ -121,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // MARK: - Hotkey
 
-    @MainActor private func handleHotkey() {
+    private func handleHotkey() {
         guard let coordinator = firstRunCoordinator, coordinator.isComplete else {
             firstRunWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -129,14 +129,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
         guard let server = llamaServer, server.isReady else {
             log.info("hotkey ignored — llama-server not ready yet")
-            // Beep so the user knows it registered but the model isn't ready.
             NSSound.beep()
             return
         }
         panelController?.toggleFromHotkey()
     }
 
-    @MainActor func openPanel() {
+    func openPanel() {
         handleHotkey()
     }
 }

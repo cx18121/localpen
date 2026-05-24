@@ -7,13 +7,9 @@ struct LocalpenApp: App {
 
     var body: some Scene {
         Settings {
-            if let registry = appDelegate.registry {
-                SettingsView(persistence: appDelegate.persistence)
-                    .environment(registry)
-            } else {
-                Text("Loading…")
-                    .padding()
-            }
+            SettingsView(persistence: appDelegate.persistence)
+                .environment(appDelegate.registry)
+                .frame(width: 480, height: 320)
         }
 
         MenuBarExtra("Localpen", systemImage: "pencil.tip") {
