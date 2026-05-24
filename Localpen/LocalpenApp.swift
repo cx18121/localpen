@@ -7,11 +7,17 @@ struct LocalpenApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            if let registry = appDelegate.registry {
+                SettingsView(persistence: appDelegate.persistence)
+                    .environment(registry)
+            } else {
+                Text("Loading…")
+                    .padding()
+            }
         }
+
         MenuBarExtra("Localpen", systemImage: "pencil.tip") {
-            Button("Quit Localpen") { NSApp.terminate(nil) }
-                .keyboardShortcut("q")
+            StatusMenu(onOpenPanel: { appDelegate.openPanel() })
         }
     }
 }

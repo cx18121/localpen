@@ -1,38 +1,32 @@
 import AppKit
+import SwiftUI
 import ApplicationServices
 import os
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    @Published var firstRunCoordinator: FirstRunCoordinator?
+    @Published var registry: ModelRegistry?
+    var persistence: Persistence?
+
     private var hotkey: HotkeyService?
     private var panelController: PanelController?
     private var llamaServer: LlamaServerController?
-    private var persistence: Persistence?
-    private var registry: ModelRegistry?
     private var anchorStore: AnchorStore?
+    private var firstRunWindow: NSWindow?
+    private var serverStartedForModel: String?
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
     @MainActor func applicationDidFinishLaunching(_ notification: Notification) {
-        // AX permission (M4 will route into a proper FirstRun flow).
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        let trusted = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
-        log.info("AX trusted at launch: \(trusted)")
-
-        // Hardware fingerprint — collect once on first launch.
         HardwareFingerprint.collectAndPersistIfNeeded()
 
-        // Persistence (best-effort: failures don't block the app).
-        let persistence = try? Persistence()
-        self.persistence = persistence
+        persistence = try? Persistence()
 
-        // Model registry.
         let registry = ModelRegistry()
         self.registry = registry
 
-        // Anchor store.
         let anchorStore = AnchorStore()
         self.anchorStore = anchorStore
 
-        // Services.
         let textIO = TextIO()
         let server = LlamaServerController()
         let streaming = StreamingClient(port: server.port)
@@ -43,24 +37,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             registry: registry,
             anchorStore: anchorStore
         )
-        self.panelController = panel
-        self.llamaServer = server
+        panelController = panel
+        llamaServer = server
 
         let hk = HotkeyService()
-        hk.onFire = { [weak panel] in panel?.toggleFromHotkey() }
+        hk.onFire = { [weak self] in self?.handleHotkey() }
         hk.install()
-        self.hotkey = hk
+        hotkey = hk
 
-        // Boot the model server. Use the active model's resolved on-disk path.
-        let modelPath: String = {
-            if let descriptor = registry.activeModel {
-                return registry.modelPath(for: descriptor).path
+        let coordinator = FirstRunCoordinator(registry: registry)
+        firstRunCoordinator = coordinator
+
+        if coordinator.isComplete {
+            startServerIfNeeded()
+        } else {
+            showFirstRunWindow()
+            observeFirstRunCompletion()
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        llamaServer?.stop()
+    }
+
+    // MARK: - First-run window
+
+    @MainActor private func showFirstRunWindow() {
+        guard let coordinator = firstRunCoordinator, firstRunWindow == nil else { return }
+
+        let host = NSHostingController(rootView: FirstRunView(coordinator: coordinator))
+        let window = NSWindow(contentViewController: host)
+        window.title = "Welcome to Localpen"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 480, height: 320))
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        firstRunWindow = window
+    }
+
+    @MainActor private func observeFirstRunCompletion() {
+        Task { @MainActor in
+            guard let coordinator = firstRunCoordinator else { return }
+            while !coordinator.isComplete {
+                try? await Task.sleep(for: .milliseconds(300))
             }
-            // Fallback for first-run before registry loaded a default.
-            return ("~/Library/Application Support/Localpen/models/qwen-2.5-7b-instruct-q4-km.gguf" as NSString)
-                .expandingTildeInPath
-        }()
+            firstRunWindow?.close()
+            firstRunWindow = nil
+            startServerIfNeeded()
+        }
+    }
 
+    // MARK: - Server
+
+    @MainActor private func startServerIfNeeded() {
+        guard let registry, let server = llamaServer, let descriptor = registry.activeModel else { return }
+        if serverStartedForModel == descriptor.id, case .ready = server.state { return }
+        serverStartedForModel = descriptor.id
+
+        let modelPath = registry.modelPath(for: descriptor).path
         Task { @MainActor in
             do {
                 try await server.start(modelPath: modelPath)
@@ -71,7 +107,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        llamaServer?.stop()
+    // MARK: - Hotkey
+
+    @MainActor private func handleHotkey() {
+        guard let coordinator = firstRunCoordinator, coordinator.isComplete else {
+            firstRunWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        panelController?.toggleFromHotkey()
+    }
+
+    @MainActor func openPanel() {
+        handleHotkey()
     }
 }
