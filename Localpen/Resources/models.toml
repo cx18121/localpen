@@ -1,0 +1,25 @@
+# Localpen model registry per SWIFTUI-SPEC.md §12.2.
+# M1 ignores this; PanelController uses inline M1Prompts.polish.
+# M3 wires ModelRegistry to load this file.
+
+[[models]]
+id = "qwen-2.5-7b-instruct-q4-km"
+name = "Qwen 2.5 7B Instruct"
+download_url = "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+download_size_bytes = 4683074240
+sha256 = ""  # populate in M3 before download verification ships
+context_size = 4096
+chat_template = "chatml"
+default = true
+
+[models.prompts]
+proofread = "Fix only grammar, spelling, and punctuation in the user's text. Preserve voice and length exactly. Output only the corrected text."
+polish = "Polish the user's text: fix grammar, smooth awkward phrasing, minor rephrasing only. Preserve meaning, tone, and approximate length. Output only the polished text."
+more_formal = "Rewrite the user's text in a more formal, professional tone. Preserve meaning. Length may shift slightly. Output only the rewritten text."
+more_casual = "Rewrite the user's text in a more casual, friendly tone. Preserve meaning. Length may shift slightly. Output only the rewritten text."
+shorter = "Shorten the user's text. Preserve meaning. Cut words. Output only the shortened text."
+
+[models.sampling]
+temperature = 0.4
+top_p = 0.9
+repeat_penalty = 1.05

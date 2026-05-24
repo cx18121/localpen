@@ -1,0 +1,37 @@
+# Localpen — Context & Glossary
+
+Domain language for Localpen. Update inline as terms get sharpened. Don't include implementation details here — only terms that are meaningful to product/domain conversations.
+
+See also: [PRD.md](./PRD.md), [docs/adr/](./docs/adr/).
+
+---
+
+## Surfaces
+
+The user-facing UI is a single `NSPanel`. It hosts two distinct **surfaces**, shipped in stages. "Surface" is the canonical term — not "mode", "view", or "screen".
+
+### Quick-action surface
+The Phase 1 surface. Transient. Triggered by global hotkey while text is selected in any app. The panel appears with the captured selection and an action menu. The user picks an action; the model streams a result into the panel; the result pastes back into the source app; the panel dismisses.
+
+Stateless across invocations — no conversation history, no follow-up turns. One shot. The latency target (<500ms hotkey-to-first-token) belongs to this surface.
+
+### Conversational surface
+The Phase 1.5 surface. Persistent. The same NSPanel stays open and accepts multi-turn input. Free-form chat over the selection. Proactive nudges ("this email reads tense — soften?"). Visible history.
+
+Latency target does *not* apply here — what matters is response quality and coherence, not speed-to-first-token.
+
+---
+
+## Core operations
+
+### Selection
+The text the user has highlighted in the active app's text field, captured by synthetic ⌘C at hotkey time. The captured value lives on the system pasteboard briefly and is then read into the panel. The original pasteboard contents are saved beforehand and restored afterward. See [ADR 0003](./docs/adr/0003-clipboard-mediated-text-io.md).
+
+### Paste-back
+The operation that writes a model result back into the source app's text field. Implemented by writing the result to the pasteboard, re-activating the original frontmost app, posting synthetic ⌘V, and restoring the original pasteboard contents after the paste lands. No direct AX tree-walking. See [ADR 0003](./docs/adr/0003-clipboard-mediated-text-io.md).
+
+### Action
+A pre-defined transformation applied to the selection. The Phase 1 menu is six items: **Proofread**, **Polish**, **More formal**, **More casual**, **Shorter**, **Custom**. Each non-Custom action maps to a fixed system prompt with precise, predictable behavior. Custom takes a free-form user prompt. Translate is deferred to Phase 1.5+. See [ADR 0004](./docs/adr/0004-v1-action-set.md).
+
+### Interaction
+A single hotkey-to-accept cycle: selection → action → model output → accept-or-reject (with optional edit before accept). Every interaction is persisted to local SQLite from Phase 1, ready for Phase 2's memory inference. See [ADR 0006](./docs/adr/0006-persist-interactions-from-day-1.md).
