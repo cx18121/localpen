@@ -12,13 +12,21 @@ final class PanelController {
     /// Lives here so it survives state transitions and is the single source
     /// of truth for keyboard navigation.
     var focusedActionIndex: Int = 1   // Polish default
+    /// Tracks whether the user last drove the panel with the keyboard or the
+    /// mouse. `.onHover` only updates focus when the last input was mouse —
+    /// otherwise an idle mouse parked over a different row would steal focus
+    /// from arrow-key navigation.
+    var lastInputSource: InputSource = .keyboard
+    enum InputSource { case keyboard, mouse }
+
+    static let panelSize = NSSize(width: 360, height: 480)
+    static let panelEdgeMargin: CGFloat = 24
 
     @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private let textIO: TextIO
     @ObservationIgnored private let streaming: StreamingClient
     @ObservationIgnored private let persistence: Persistence?
     @ObservationIgnored private let registry: ModelRegistry
-    @ObservationIgnored private let anchorStore: AnchorStore
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
@@ -26,8 +34,8 @@ final class PanelController {
     @ObservationIgnored private var streamingTask: Task<Void, Never>?
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var hotkeyTime: ContinuousClock.Instant?
-    @ObservationIgnored private var moveObserver: Any?
     @ObservationIgnored private var clickOutsideMonitor: Any?
+    @ObservationIgnored private var mouseInputMonitor: Any?
     @ObservationIgnored private var pendingInteraction: Interaction?
     @ObservationIgnored private var sessionID: UInt64 = 0
 
@@ -37,25 +45,22 @@ final class PanelController {
          streaming: StreamingClient,
          persistence: Persistence?,
          registry: ModelRegistry,
-         anchorStore: AnchorStore,
          llamaServer: LlamaServerController?) {
         self.textIO = textIO
         self.streaming = streaming
         self.persistence = persistence
         self.registry = registry
-        self.anchorStore = anchorStore
         self.llamaServer = llamaServer
     }
 
     deinit {
-        if let obs = moveObserver { NotificationCenter.default.removeObserver(obs) }
         if let mon = clickOutsideMonitor { NSEvent.removeMonitor(mon) }
+        if let mon = mouseInputMonitor { NSEvent.removeMonitor(mon) }
     }
 
     // MARK: - Entry / dismiss
 
     func toggleFromHotkey() {
-        // Per DESIGN.md §5.5: hotkey re-press while open is a no-op.
         if state.isVisible { return }
         Task { await captureAndShow() }
     }
@@ -78,8 +83,8 @@ final class PanelController {
 
     // MARK: - Unified keyboard handler
 
-    /// Returns true if the event was consumed.
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        lastInputSource = .keyboard
         let code = Int(event.keyCode)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let cmd = mods.contains(.command)
@@ -90,8 +95,6 @@ final class PanelController {
             return false
 
         case .empty:
-            // Only Esc dismisses in empty state; CustomPromptView's TextEditor
-            // owns the rest (typing + Return-to-submit + Shift+Return newline).
             if code == kVK_Escape { dismiss(); return true }
             return false
 
@@ -114,7 +117,6 @@ final class PanelController {
             }
 
         case .customPrompt:
-            // Let TextEditor handle typing. Only Esc bubbles up here.
             if code == kVK_Escape { backToMenu(); return true }
             return false
 
@@ -124,13 +126,11 @@ final class PanelController {
 
         case .result(_, _, _, let isEditing):
             if isEditing {
-                // Editor owns typing; Esc cancels edit, ⌘↩ accepts.
                 if code == kVK_Escape { setEditing(false); return true }
                 if (code == kVK_Return || code == kVK_ANSI_KeypadEnter) && cmd {
                     acceptResult()
                     return true
                 }
-                // Plain Return submits the edit (per DESIGN.md §S6 editing toolbar).
                 if (code == kVK_Return || code == kVK_ANSI_KeypadEnter) && !shift {
                     setEditing(false)
                     return true
@@ -142,12 +142,7 @@ final class PanelController {
                     backToMenu()
                     return true
                 case kVK_Return, kVK_ANSI_KeypadEnter:
-                    if cmd {
-                        acceptResult()
-                    } else {
-                        // Plain Return also accepts when not editing.
-                        acceptResult()
-                    }
+                    acceptResult()
                     return true
                 default:
                     return false
@@ -291,7 +286,8 @@ final class PanelController {
         sessionID += 1
         let mySession = sessionID
         hotkeyTime = ContinuousClock.now
-        focusedActionIndex = 1   // Reset Polish-default on every new session.
+        focusedActionIndex = 1
+        lastInputSource = .keyboard   // hotkey is keyboard-initiated
 
         let capture = await textIO.captureSelection()
         guard sessionID == mySession else { return }
@@ -310,24 +306,31 @@ final class PanelController {
         showPanel()
     }
 
+    /// Fixed sidebar anchor — right edge of the main screen, vertically
+    /// centered. No per-bundle remembering (per user request: stop bouncing).
+    private func sidebarOrigin() -> NSPoint {
+        guard let frame = NSScreen.main?.visibleFrame else { return .zero }
+        return NSPoint(
+            x: frame.maxX - Self.panelSize.width - Self.panelEdgeMargin,
+            y: frame.midY - Self.panelSize.height / 2
+        )
+    }
+
     private func showPanel() {
-        let view = PanelView(controller: self)
-        let hosting = NSHostingView(rootView: view)
-        let rect = NSRect(x: 0, y: 0, width: 360, height: 320)
-        hosting.frame = rect
+        let rect = NSRect(origin: .zero, size: Self.panelSize)
 
         if panel == nil {
             let p = FloatingPanel(contentRect: rect)
             p.onKeyDown = { [weak self] event in
                 self?.handleKeyDown(event) ?? false
             }
+            let host = NSHostingController(rootView: PanelView(controller: self))
+            p.contentViewController = host
             panel = p
             installObservers()
         }
-        panel?.contentView = hosting
 
-        let screen = NSScreen.main
-        let origin = anchorStore.read(bundleID: activeCapture?.sourceBundleID, screen: screen)
+        let origin = sidebarOrigin()
         let startOrigin = NSPoint(x: origin.x, y: origin.y + 8)
         panel?.setFrameOrigin(startOrigin)
         panel?.alphaValue = 0
@@ -363,29 +366,20 @@ final class PanelController {
     }
 
     private func installObservers() {
-        guard let panel else { return }
-        moveObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification,
-            object: panel,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.persistAnchor() }
-        }
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state.isVisible else { return }
                 self.dismiss()
             }
         }
-    }
-
-    private func persistAnchor() {
-        guard let panel else { return }
-        anchorStore.write(
-            bundleID: activeCapture?.sourceBundleID,
-            screen: panel.screen ?? NSScreen.main,
-            origin: panel.frame.origin
-        )
+        // Track input source — any mouse event in our own app means "mouse".
+        // Local monitor passes events through (returns the event unmodified).
+        mouseInputMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel]
+        ) { [weak self] event in
+            Task { @MainActor in self?.lastInputSource = .mouse }
+            return event
+        }
     }
 
     // MARK: - Streaming

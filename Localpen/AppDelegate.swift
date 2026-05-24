@@ -10,7 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // applicationDidFinishLaunching populating registry and the Settings
     // scene's body being first evaluated.)
     let registry = ModelRegistry()
-    let anchorStore = AnchorStore()
     var persistence: Persistence?
 
     @Published var firstRunCoordinator: FirstRunCoordinator?
@@ -46,7 +45,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             streaming: streaming,
             persistence: persistence,
             registry: registry,
-            anchorStore: anchorStore,
             llamaServer: server
         )
         panelController = panel

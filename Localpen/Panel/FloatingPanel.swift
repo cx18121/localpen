@@ -15,7 +15,7 @@ final class FloatingPanel: NSPanel {
         )
         self.titlebarAppearsTransparent = true
         self.titleVisibility = .hidden
-        self.isMovableByWindowBackground = true
+        self.isMovableByWindowBackground = false   // sidebar feel — pinned, not draggable
         self.hasShadow = true
         self.backgroundColor = .clear
         self.isOpaque = false

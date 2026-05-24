@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// Pure renderer. Keyboard nav is handled in `PanelController.handleKeyDown`
-/// via the panel's `keyDown(with:)` override — no `@FocusState`, no
-/// `.onKeyPress`. Click + hover update `focusedIndex` for visual continuity.
+/// via the panel's `keyDown(with:)` override. Click + hover update the
+/// controller's `focusedActionIndex` for visual continuity — but hover only
+/// wins when the user's last input was actually a mouse event, so an idle
+/// cursor parked over a different row can't fight with arrow keys.
 struct ActionMenuView: View {
     @Bindable var controller: PanelController
 
@@ -19,7 +21,9 @@ struct ActionMenuView: View {
                     controller.pick(PanelController.menuItems[i])
                 }
                 .onHover { hovering in
-                    if hovering { controller.focusedActionIndex = i }
+                    if hovering && controller.lastInputSource == .mouse {
+                        controller.focusedActionIndex = i
+                    }
                 }
             }
         }

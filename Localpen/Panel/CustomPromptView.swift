@@ -11,7 +11,7 @@ struct CustomPromptView: View {
             HStack(alignment: .top, spacing: Spacing.s3) {
                 Text("›")
                     .foregroundStyle(Tokens.accent)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 14, weight: .medium))
 
                 ZStack(alignment: .topLeading) {
                     if text.isEmpty {
