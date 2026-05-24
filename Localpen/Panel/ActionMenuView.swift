@@ -1,43 +1,28 @@
 import SwiftUI
 
+/// Pure renderer. Keyboard nav is handled in `PanelController.handleKeyDown`
+/// via the panel's `keyDown(with:)` override — no `@FocusState`, no
+/// `.onKeyPress`. Click + hover update `focusedIndex` for visual continuity.
 struct ActionMenuView: View {
-    let onPick: (Action) -> Void
-
-    @State private var focusedIndex: Int = 1 // Polish default per DESIGN.md §S4
-    @FocusState private var menuFocused: Bool
-
-    private let items: [Action] = Action.fixed + [.custom("")]
+    @Bindable var controller: PanelController
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(items.indices, id: \.self) { i in
-                ActionRow(action: items[i], isFocused: focusedIndex == i)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        focusedIndex = i
-                        onPick(items[i])
-                    }
-                    .onHover { hovering in
-                        if hovering { focusedIndex = i }
-                    }
+            ForEach(PanelController.menuItems.indices, id: \.self) { i in
+                ActionRow(
+                    action: PanelController.menuItems[i],
+                    isFocused: controller.focusedActionIndex == i
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    controller.focusedActionIndex = i
+                    controller.pick(PanelController.menuItems[i])
+                }
+                .onHover { hovering in
+                    if hovering { controller.focusedActionIndex = i }
+                }
             }
         }
-        .padding(.vertical, 6)
-        .focusable(true)
-        .focused($menuFocused)
-        .focusEffectDisabled()
-        .onAppear { menuFocused = true }
-        .onKeyPress(.upArrow) {
-            focusedIndex = (focusedIndex - 1 + items.count) % items.count
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            focusedIndex = (focusedIndex + 1) % items.count
-            return .handled
-        }
-        .onKeyPress(.return) {
-            onPick(items[focusedIndex])
-            return .handled
-        }
+        .padding(.vertical, Spacing.s2)
     }
 }

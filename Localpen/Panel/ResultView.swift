@@ -1,12 +1,13 @@
 import SwiftUI
 
+/// Streaming display + edit-on-click. All keyboard handling for the result
+/// view lives in `PanelController.handleKeyDown` — including ⌘↩ / Esc / Return
+/// in editing mode — so this view is purely visual.
 struct ResultView: View {
     @Binding var text: String
     let isStreaming: Bool
     let isEditing: Bool
     var onClickToEdit: (() -> Void)? = nil
-    var onSubmitEdit: (() -> Void)? = nil
-    var onCancelEdit: (() -> Void)? = nil
 
     @FocusState private var editorFocused: Bool
 
@@ -23,11 +24,6 @@ struct ResultView: View {
                     .padding(.horizontal, Spacing.s7)
                     .padding(.vertical, Spacing.s6)
                     .onAppear { editorFocused = true }
-                    .onKeyPress(.return, phases: .down) { _ in
-                        if NSEvent.modifierFlags.contains(.shift) { return .ignored }
-                        onSubmitEdit?()
-                        return .handled
-                    }
             } else {
                 ScrollView {
                     HStack(alignment: .top, spacing: 0) {

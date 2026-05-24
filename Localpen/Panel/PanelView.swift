@@ -14,14 +14,13 @@ struct PanelView: View {
                 EmptySelectionHeader()
                 Hairline()
                 CustomPromptView(
-                    onSubmit: { controller.submitCustomPrompt($0) },
-                    onEscape: { controller.dismiss() }
+                    onSubmit: { controller.submitCustomPrompt($0) }
                 )
 
             case .captured(let sel):
                 SelectionBlock(selection: sel)
                 Hairline()
-                ActionMenuView(onPick: { controller.pick($0) })
+                ActionMenuView(controller: controller)
                 Hairline()
                 PanelFooter()
 
@@ -31,8 +30,7 @@ struct PanelView: View {
                     Hairline()
                 }
                 CustomPromptView(
-                    onSubmit: { controller.submitCustomPrompt($0) },
-                    onEscape: { controller.handleEscape() }
+                    onSubmit: { controller.submitCustomPrompt($0) }
                 )
 
             case .generating(let sel, let action, let partial):
@@ -60,9 +58,7 @@ struct PanelView: View {
                     ),
                     isStreaming: false,
                     isEditing: isEditing,
-                    onClickToEdit: { controller.setEditing(true) },
-                    onSubmitEdit: { controller.setEditing(false) },
-                    onCancelEdit: { controller.setEditing(false) }
+                    onClickToEdit: { controller.setEditing(true) }
                 )
                 Hairline()
                 ResultToolbar(
@@ -99,20 +95,8 @@ struct PanelView: View {
                 NSApp.orderFrontStandardAboutPanel(nil)
             }
         }
-        .onKeyPress(.escape) {
-            controller.handleEscape()
-            return .handled
-        }
-        .onKeyPress(.return, phases: .down) { _ in
-            if case .result(_, _, _, let editing) = controller.state, !editing {
-                controller.acceptResult()
-                return .handled
-            }
-            return .ignored
-        }
     }
 
-    /// Drives top-level region animations — we animate on the kind-change, not on every streamed token.
     private func stateKey(_ s: PanelState) -> Int {
         switch s {
         case .hidden:        return 0

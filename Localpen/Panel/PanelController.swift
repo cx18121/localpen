@@ -1,12 +1,17 @@
 import AppKit
 import SwiftUI
 import Observation
+import Carbon.HIToolbox
 import os
 
 @MainActor
 @Observable
 final class PanelController {
     var state: PanelState = .hidden
+    /// Index into ActionMenuView's row list (Action.fixed + [.custom]).
+    /// Lives here so it survives state transitions and is the single source
+    /// of truth for keyboard navigation.
+    var focusedActionIndex: Int = 1   // Polish default
 
     @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private let textIO: TextIO
@@ -25,6 +30,8 @@ final class PanelController {
     @ObservationIgnored private var clickOutsideMonitor: Any?
     @ObservationIgnored private var pendingInteraction: Interaction?
     @ObservationIgnored private var sessionID: UInt64 = 0
+
+    static let menuItems: [Action] = Action.fixed + [.custom("")]
 
     init(textIO: TextIO,
          streaming: StreamingClient,
@@ -48,7 +55,7 @@ final class PanelController {
     // MARK: - Entry / dismiss
 
     func toggleFromHotkey() {
-        // Per DESIGN.md §5.5: hotkey re-press while open is a no-op (avoid accidental dismiss).
+        // Per DESIGN.md §5.5: hotkey re-press while open is a no-op.
         if state.isVisible { return }
         Task { await captureAndShow() }
     }
@@ -56,9 +63,6 @@ final class PanelController {
     func dismiss() {
         cancelStreaming()
         persistRejectedIfNeeded()
-        // P1.1: restore the user's clipboard on EVERY dismissal path.
-        // pasteBack handles its own restoration when it succeeds; dismiss
-        // covers Esc / click-outside / explicit dismissal.
         if let cap = activeCapture {
             textIO.restoreClipboard(cap)
         }
@@ -69,6 +73,94 @@ final class PanelController {
             self.activeCapture = nil
             self.hotkeyTime = nil
             self.pendingInteraction = nil
+        }
+    }
+
+    // MARK: - Unified keyboard handler
+
+    /// Returns true if the event was consumed.
+    func handleKeyDown(_ event: NSEvent) -> Bool {
+        let code = Int(event.keyCode)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let cmd = mods.contains(.command)
+        let shift = mods.contains(.shift)
+
+        switch state {
+        case .hidden:
+            return false
+
+        case .empty:
+            // Only Esc dismisses in empty state; CustomPromptView's TextEditor
+            // owns the rest (typing + Return-to-submit + Shift+Return newline).
+            if code == kVK_Escape { dismiss(); return true }
+            return false
+
+        case .captured:
+            switch code {
+            case kVK_UpArrow:
+                focusedActionIndex = (focusedActionIndex - 1 + Self.menuItems.count) % Self.menuItems.count
+                return true
+            case kVK_DownArrow:
+                focusedActionIndex = (focusedActionIndex + 1) % Self.menuItems.count
+                return true
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                pick(Self.menuItems[focusedActionIndex])
+                return true
+            case kVK_Escape:
+                dismiss()
+                return true
+            default:
+                return false
+            }
+
+        case .customPrompt:
+            // Let TextEditor handle typing. Only Esc bubbles up here.
+            if code == kVK_Escape { backToMenu(); return true }
+            return false
+
+        case .generating:
+            if code == kVK_Escape { backToMenu(); return true }
+            return false
+
+        case .result(_, _, _, let isEditing):
+            if isEditing {
+                // Editor owns typing; Esc cancels edit, ⌘↩ accepts.
+                if code == kVK_Escape { setEditing(false); return true }
+                if (code == kVK_Return || code == kVK_ANSI_KeypadEnter) && cmd {
+                    acceptResult()
+                    return true
+                }
+                // Plain Return submits the edit (per DESIGN.md §S6 editing toolbar).
+                if (code == kVK_Return || code == kVK_ANSI_KeypadEnter) && !shift {
+                    setEditing(false)
+                    return true
+                }
+                return false
+            } else {
+                switch code {
+                case kVK_Escape:
+                    backToMenu()
+                    return true
+                case kVK_Return, kVK_ANSI_KeypadEnter:
+                    if cmd {
+                        acceptResult()
+                    } else {
+                        // Plain Return also accepts when not editing.
+                        acceptResult()
+                    }
+                    return true
+                default:
+                    return false
+                }
+            }
+
+        case .error:
+            if code == kVK_Escape { backToMenu(); return true }
+            if code == kVK_Return || code == kVK_ANSI_KeypadEnter {
+                retryFromError()
+                return true
+            }
+            return false
         }
     }
 
@@ -91,23 +183,12 @@ final class PanelController {
 
     func backToMenu() {
         cancelStreaming()
-        // P1.6: rejected results MUST be persisted before we clear them
-        // (ADR 0006 requires the rejection signal for Phase 2 memory inference).
         persistRejectedIfNeeded()
         pendingInteraction = nil
         if let sel = currentSelection() {
             state = .captured(sel)
         } else {
             state = .empty
-        }
-    }
-
-    func handleEscape() {
-        switch state {
-        case .hidden, .empty, .captured:
-            dismiss()
-        case .customPrompt, .generating, .result, .error:
-            backToMenu()
         }
     }
 
@@ -133,7 +214,6 @@ final class PanelController {
                 result = .pasted
             }
             await MainActor.run {
-                // P1.4: only act if our session is still current.
                 guard self.sessionID == mySession else { return }
                 if result == .skipped {
                     self.state = .error(.pasteBackFallback, prior: PanelState.ErrorContext(selection: sel, action: action))
@@ -161,8 +241,6 @@ final class PanelController {
         }
     }
 
-    // MARK: - Error retry
-
     func retryFromError() {
         guard case .error(let err, let prior) = state else { return }
         switch err {
@@ -182,7 +260,6 @@ final class PanelController {
                 backToMenu()
             }
         case .pasteBackFallback:
-            // Result is on the clipboard; just dismiss (skip clipboard restore — user wants the result).
             cancelStreaming()
             persistRejectedIfNeeded()
             let mySession = sessionID
@@ -214,9 +291,9 @@ final class PanelController {
         sessionID += 1
         let mySession = sessionID
         hotkeyTime = ContinuousClock.now
+        focusedActionIndex = 1   // Reset Polish-default on every new session.
 
         let capture = await textIO.captureSelection()
-        // P1.4: bail if a newer session has started.
         guard sessionID == mySession else { return }
         activeCapture = capture
 
@@ -240,8 +317,12 @@ final class PanelController {
         hosting.frame = rect
 
         if panel == nil {
-            panel = FloatingPanel(contentRect: rect)
-            installMoveObserver()
+            let p = FloatingPanel(contentRect: rect)
+            p.onKeyDown = { [weak self] event in
+                self?.handleKeyDown(event) ?? false
+            }
+            panel = p
+            installObservers()
         }
         panel?.contentView = hosting
 
@@ -272,8 +353,6 @@ final class PanelController {
             panel.animator().setFrameOrigin(NSPoint(x: origin.x, y: origin.y + 4))
             panel.animator().alphaValue = 0
         }, completionHandler: {
-            // Animation completion fires on the main thread but is typed as
-            // nonisolated by the API. Hop to MainActor cleanly via Task.
             Task { @MainActor in
                 panel.orderOut(nil)
                 panel.alphaValue = 1
@@ -283,7 +362,7 @@ final class PanelController {
         })
     }
 
-    private func installMoveObserver() {
+    private func installObservers() {
         guard let panel else { return }
         moveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification,
@@ -292,8 +371,6 @@ final class PanelController {
         ) { [weak self] _ in
             Task { @MainActor in self?.persistAnchor() }
         }
-        // P2: click-outside dismiss. Global monitor sees clicks in OTHER apps
-        // (the source app, the dock, etc.) and dismisses the panel.
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state.isVisible else { return }

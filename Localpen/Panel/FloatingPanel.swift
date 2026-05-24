@@ -1,6 +1,11 @@
 import AppKit
 
 final class FloatingPanel: NSPanel {
+    /// All non-text-input keyboard events flow through here.
+    /// Return `true` to consume the event; `false` to let it propagate
+    /// (e.g., so NSTextView still handles text input).
+    var onKeyDown: ((NSEvent) -> Bool)?
+
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
@@ -26,4 +31,24 @@ final class FloatingPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func keyDown(with event: NSEvent) {
+        if onKeyDown?(event) == true {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        // NSResponder's Escape handler. Catches Esc even when an NSTextView
+        // is first responder (which otherwise swallows it silently).
+        let esc = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: windowNumber, context: nil,
+            characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false, keyCode: 53
+        )
+        if let esc, onKeyDown?(esc) == true { return }
+        super.cancelOperation(sender)
+    }
 }
