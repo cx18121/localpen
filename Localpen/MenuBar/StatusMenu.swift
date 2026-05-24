@@ -3,15 +3,14 @@ import AppKit
 
 struct StatusMenu: View {
     let onOpenPanel: () -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
         Button("Open Panel") { onOpenPanel() }
             .keyboardShortcut(",", modifiers: [.command, .shift])
 
-        SettingsLink {
-            Text("Settings…")
-        }
-        .keyboardShortcut(",", modifiers: .command)
+        Button("Settings…") { onOpenSettings() }
+            .keyboardShortcut(",", modifiers: .command)
 
         Divider()
 

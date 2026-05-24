@@ -87,9 +87,7 @@ struct PanelView: View {
                     NSPasteboard.general.setString(text, forType: .string)
                 }
             }
-            SettingsLink {
-                Text("Settings…")
-            }
+            Button("Settings…") { controller.openSettings() }
             Button("About Localpen") {
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.orderFrontStandardAboutPanel(nil)

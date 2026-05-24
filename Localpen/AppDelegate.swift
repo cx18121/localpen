@@ -5,10 +5,6 @@ import os
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
-    // Initialized at property declaration so SwiftUI bodies that read these
-    // never see a transient nil during launch. (Previously: race between
-    // applicationDidFinishLaunching populating registry and the Settings
-    // scene's body being first evaluated.)
     let registry = ModelRegistry()
     var persistence: Persistence?
 
@@ -18,26 +14,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var panelController: PanelController?
     private var llamaServer: LlamaServerController?
     private var firstRunWindow: NSWindow?
+    private var settingsWindow: NSWindow?
     private var serverStartedForModel: String?
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // SwiftUI's `Settings` scene auto-presents on launch on macOS 14
-        // (no `.defaultLaunchBehavior(.suppressed)` until macOS 15). Close
-        // any non-panel window macOS spawned. User-initiated Settings opens
-        // (⌘, / SettingsLink) still work — they create the window again on
-        // demand.
-        for window in NSApp.windows where !(window is FloatingPanel) {
-            window.close()
-        }
-        // Run again on the next runloop tick in case the scene hasn't
-        // materialized yet at this point in the launch sequence.
-        DispatchQueue.main.async {
-            for window in NSApp.windows where !(window is FloatingPanel) && window !== self.firstRunWindow {
-                window.close()
-            }
-        }
-
         HardwareFingerprint.collectAndPersistIfNeeded()
 
         do {
@@ -61,7 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             streaming: streaming,
             persistence: persistence,
             registry: registry,
-            llamaServer: server
+            llamaServer: server,
+            openSettings: { [weak self] in self?.openSettings() }
         )
         panelController = panel
         llamaServer = server
@@ -113,6 +95,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             firstRunWindow = nil
             startServerIfNeeded()
         }
+    }
+
+    // MARK: - Settings window (AppKit-controlled)
+
+    func openSettings() {
+        if let existing = settingsWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+        let view = SettingsView(persistence: persistence)
+            .environment(registry)
+        let host = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: host)
+        window.title = "Localpen Settings"
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.setContentSize(NSSize(width: 480, height: 320))
+        window.isReleasedWhenClosed = false
+        window.center()
+        settingsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - Server

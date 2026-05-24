@@ -45,16 +45,20 @@ final class PanelController {
 
     static let menuItems: [Action] = Action.fixed + [.custom("")]
 
+    @ObservationIgnored let openSettings: () -> Void
+
     init(textIO: TextIO,
          streaming: StreamingClient,
          persistence: Persistence?,
          registry: ModelRegistry,
-         llamaServer: LlamaServerController?) {
+         llamaServer: LlamaServerController?,
+         openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
         self.persistence = persistence
         self.registry = registry
         self.llamaServer = llamaServer
+        self.openSettings = openSettings
     }
 
     deinit {
@@ -269,7 +273,7 @@ final class PanelController {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.settings.Storage")!)
             backToMenu()
         case .hotkeyConflict:
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            openSettings()
             backToMenu()
         }
     }
