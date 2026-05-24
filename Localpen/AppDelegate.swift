@@ -19,7 +19,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @MainActor func applicationDidFinishLaunching(_ notification: Notification) {
         HardwareFingerprint.collectAndPersistIfNeeded()
 
-        persistence = try? Persistence()
+        do {
+            persistence = try Persistence()
+        } catch {
+            log.error("Persistence init failed: \(error.localizedDescription, privacy: .public)")
+            let alert = NSAlert()
+            alert.messageText = "Localpen couldn't open its history database."
+            alert.informativeText = "\(error.localizedDescription)\n\nLocalpen will run, but interactions won't be saved (ADR 0006). Check disk permissions on ~/Library/Application Support/Localpen/."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Continue")
+            alert.runModal()
+            persistence = nil
+        }
 
         let registry = ModelRegistry()
         self.registry = registry
@@ -100,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let modelPath = registry.modelPath(for: descriptor).path
         Task { @MainActor in
             do {
-                try await server.start(modelPath: modelPath)
+                try await server.start(modelPath: modelPath, contextSize: descriptor.contextSize)
                 self.log.info("llama-server ready on port \(server.port)")
             } catch {
                 self.log.error("llama-server failed: \(error.localizedDescription)")
@@ -114,6 +125,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         guard let coordinator = firstRunCoordinator, coordinator.isComplete else {
             firstRunWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        guard let server = llamaServer, server.isReady else {
+            log.info("hotkey ignored — llama-server not ready yet")
+            // Beep so the user knows it registered but the model isn't ready.
+            NSSound.beep()
             return
         }
         panelController?.toggleFromHotkey()

@@ -15,7 +15,7 @@ final class LlamaServerController {
     private var process: Process?
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "LlamaServer")
 
-    func start(modelPath: String) async throws {
+    func start(modelPath: String, contextSize: Int = 4096) async throws {
         guard FileManager.default.fileExists(atPath: modelPath) else {
             throw NSError(domain: "Localpen", code: 100,
                           userInfo: [NSLocalizedDescriptionKey: "Model file not found at \(modelPath)"])
@@ -31,7 +31,7 @@ final class LlamaServerController {
             "--model", modelPath,
             "--host", "127.0.0.1",
             "--port", "\(port)",
-            "--ctx-size", "4096",
+            "--ctx-size", "\(contextSize)",
             "--n-gpu-layers", "999",
             "--mlock"
         ]
@@ -56,14 +56,17 @@ final class LlamaServerController {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
             try? await Task.sleep(for: .milliseconds(250))
-            if await isHealthy() {
-                state = .ready
-                return
-            }
+            // Verify our process is still alive BEFORE accepting the health response —
+            // otherwise a foreign service on port 11434 (e.g., Ollama) could be
+            // accepted as our llama-server.
             if !proc.isRunning {
                 state = .crashed("exited before health check")
                 throw NSError(domain: "Localpen", code: 102,
                               userInfo: [NSLocalizedDescriptionKey: "llama-server exited before becoming healthy"])
+            }
+            if await isHealthy() {
+                state = .ready
+                return
             }
         }
         state = .crashed("health check timed out")
@@ -77,11 +80,19 @@ final class LlamaServerController {
         state = .stopped
     }
 
+    /// Whether the server is currently in the `.ready` state.
+    var isReady: Bool {
+        if case .ready = state { return true }
+        return false
+    }
+
     private func isHealthy() async -> Bool {
         guard let url = URL(string: "http://127.0.0.1:\(port)/health") else { return false }
         do {
             let (_, response) = try await URLSession.shared.data(from: url)
-            return (response as? HTTPURLResponse)?.statusCode == 200
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
+            // Defence-in-depth: only trust the health response if our spawned process is still alive.
+            return process?.isRunning == true
         } catch {
             return false
         }

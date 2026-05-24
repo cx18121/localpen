@@ -76,10 +76,14 @@ final class FirstRunCoordinator {
             return
         }
 
+        guard let url = descriptor.downloadURL else {
+            step = .downloadError("Invalid download URL for \(descriptor.id)")
+            return
+        }
         let dest = registry.modelPath(for: descriptor)
         step = .downloading(bytesDone: 0, bytesTotal: descriptor.downloadSizeBytes)
         do {
-            try await downloader.download(from: descriptor.downloadURL, to: dest) { [weak self] p in
+            try await downloader.download(from: url, to: dest) { [weak self] p in
                 self?.step = .downloading(bytesDone: p.bytesDone, bytesTotal: p.bytesTotal)
             }
             step = .ready

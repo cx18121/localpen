@@ -5,7 +5,7 @@ import Foundation
 struct ModelDescriptor: Codable, Equatable {
     let id: String
     let name: String
-    let downloadURL: URL
+    let downloadURLString: String
     let downloadSizeBytes: Int64
     let sha256: String
     let contextSize: Int
@@ -13,6 +13,8 @@ struct ModelDescriptor: Codable, Equatable {
     let isDefault: Bool?
     let prompts: Prompts
     let sampling: Sampling
+
+    var downloadURL: URL? { URL(string: downloadURLString) }
 
     struct Prompts: Codable, Equatable {
         let proofread: String
@@ -42,7 +44,7 @@ struct ModelDescriptor: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, sha256, prompts, sampling
-        case downloadURL = "download_url"
+        case downloadURLString = "download_url"
         case downloadSizeBytes = "download_size_bytes"
         case contextSize = "context_size"
         case chatTemplate = "chat_template"

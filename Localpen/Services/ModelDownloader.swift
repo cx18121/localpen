@@ -1,11 +1,12 @@
 import Foundation
 import os
 
-// URLSessionDownloadTask wrapper that exposes progress + atomic move per
-// SWIFTUI-SPEC.md §M4.6. Save to a `.partial` filename; rename on success.
-@MainActor
-final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
-    struct Progress: Equatable {
+// URLSessionDownloadTask wrapper that exposes progress + atomic move.
+// NOT @MainActor — URLSession delegate callbacks arrive on the session's
+// delegate queue. State accessed from both API surface and delegate methods
+// is serialized via NSLock. The progress closure is hopped to @MainActor.
+final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    struct Progress: Equatable, Sendable {
         let bytesDone: Int64
         let bytesTotal: Int64
         var fraction: Double {
@@ -14,80 +15,109 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         }
     }
 
-    @ObservationIgnored private var session: URLSession?
-    @ObservationIgnored private var task: URLSessionDownloadTask?
-    @ObservationIgnored private var destination: URL?
-    @ObservationIgnored private var progressHandler: ((Progress) -> Void)?
-    @ObservationIgnored private var continuation: CheckedContinuation<Void, Error>?
-    @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "ModelDownloader")
+    private let lock = NSLock()
+    private var destination: URL?
+    private var partialURL: URL?
+    private var session: URLSession?
+    private var task: URLSessionDownloadTask?
+    private var progressHandler: (@MainActor (Progress) -> Void)?
+    private var continuation: CheckedContinuation<Void, Error>?
+    private let log = Logger(subsystem: "app.localpen.Localpen", category: "ModelDownloader")
 
-    func download(from url: URL, to destination: URL, progress: @escaping (Progress) -> Void) async throws {
+    func download(from url: URL, to destination: URL, progress: @escaping @MainActor (Progress) -> Void) async throws {
         try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = destination.appendingPathExtension("partial")
         try? FileManager.default.removeItem(at: partial)
 
-        self.destination = partial
+        lock.lock()
+        self.destination = destination
+        self.partialURL = partial
         self.progressHandler = progress
+        lock.unlock()
+
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForResource = 60 * 60   // 1h for big GGUFs
+        cfg.timeoutIntervalForResource = 60 * 60
         let session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
+        lock.lock()
         self.session = session
+        lock.unlock()
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            lock.lock()
             self.continuation = cont
+            lock.unlock()
             let task = session.downloadTask(with: url)
+            lock.lock()
             self.task = task
+            lock.unlock()
             task.resume()
         }
 
-        // On success: atomic rename .partial → final
+        // didFinishDownloadingTo moved temp → partial. Now atomically rename partial → destination.
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: partial, to: destination)
         log.info("download complete: \(destination.lastPathComponent, privacy: .public)")
 
-        self.session?.finishTasksAndInvalidate()
+        lock.lock()
+        let s = self.session
         self.session = nil
+        lock.unlock()
+        s?.finishTasksAndInvalidate()
     }
 
     func cancel() {
-        task?.cancel()
+        lock.lock()
+        let t = task
+        lock.unlock()
+        t?.cancel()
     }
 
-    // MARK: - URLSessionDownloadDelegate
+    // MARK: - URLSessionDownloadDelegate (nonisolated)
 
-    nonisolated func urlSession(_ session: URLSession,
-                                downloadTask: URLSessionDownloadTask,
-                                didWriteData bytesWritten: Int64,
-                                totalBytesWritten: Int64,
-                                totalBytesExpectedToWrite: Int64) {
-        let progress = Progress(bytesDone: totalBytesWritten, bytesTotal: totalBytesExpectedToWrite)
-        Task { @MainActor in self.progressHandler?(progress) }
+    func urlSession(_ session: URLSession,
+                    downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        lock.lock()
+        let handler = progressHandler
+        lock.unlock()
+        guard let handler else { return }
+        let p = Progress(bytesDone: totalBytesWritten, bytesTotal: totalBytesExpectedToWrite)
+        Task { @MainActor in handler(p) }
     }
 
-    nonisolated func urlSession(_ session: URLSession,
-                                downloadTask: URLSessionDownloadTask,
-                                didFinishDownloadingTo location: URL) {
-        // Move from temp to .partial synchronously here — once we return, location is invalid.
-        let destURL: URL? = MainActor.assumeIsolated { self.destination }
-        guard let dest = destURL else { return }
+    func urlSession(_ session: URLSession,
+                    downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        // Move SYNCHRONOUSLY here — `location` is invalid after we return.
+        lock.lock()
+        let partial = partialURL
+        lock.unlock()
+        guard let partial else { return }
         do {
-            try? FileManager.default.removeItem(at: dest)
-            try FileManager.default.moveItem(at: location, to: dest)
+            try? FileManager.default.removeItem(at: partial)
+            try FileManager.default.moveItem(at: location, to: partial)
         } catch {
-            Task { @MainActor in self.continuation?.resume(throwing: error); self.continuation = nil }
+            lock.lock()
+            let cont = continuation
+            continuation = nil
+            lock.unlock()
+            cont?.resume(throwing: error)
         }
     }
 
-    nonisolated func urlSession(_ session: URLSession,
-                                task: URLSessionTask,
-                                didCompleteWithError error: Error?) {
-        Task { @MainActor in
-            if let error {
-                self.continuation?.resume(throwing: error)
-            } else {
-                self.continuation?.resume()
-            }
-            self.continuation = nil
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        lock.lock()
+        let cont = continuation
+        continuation = nil
+        lock.unlock()
+        if let error {
+            cont?.resume(throwing: error)
+        } else {
+            cont?.resume()
         }
     }
 }

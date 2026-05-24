@@ -7,9 +7,16 @@ final class StreamingClient {
         self.port = port
     }
 
-    func complete(systemPrompt: String, userText: String, temperature: Double = 0.4) -> AsyncThrowingStream<String, Error> {
+    func complete(
+        systemPrompt: String,
+        userText: String,
+        sampling: ModelDescriptor.Sampling? = nil
+    ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            // Capture producer task so consumer cancellation tears down the
+            // underlying URLSession request (otherwise llama-server keeps
+            // generating after we stop reading).
+            let producer = Task {
                 do {
                     var request = URLRequest(url: URL(string: "http://127.0.0.1:\(self.port)/v1/chat/completions")!)
                     request.httpMethod = "POST"
@@ -23,7 +30,9 @@ final class StreamingClient {
                             ["role": "user", "content": userText]
                         ],
                         "stream": true,
-                        "temperature": temperature
+                        "temperature": sampling?.temperature ?? 0.4,
+                        "top_p": sampling?.topP ?? 0.9,
+                        "repeat_penalty": sampling?.repeatPenalty ?? 1.05
                     ]
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -34,6 +43,7 @@ final class StreamingClient {
                     }
 
                     for try await line in bytes.lines {
+                        if Task.isCancelled { break }
                         guard line.hasPrefix("data: ") else { continue }
                         let payload = String(line.dropFirst(6))
                         if payload == "[DONE]" { break }
@@ -45,9 +55,15 @@ final class StreamingClient {
                         continuation.yield(content)
                     }
                     continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+
+            continuation.onTermination = { _ in
+                producer.cancel()
             }
         }
     }

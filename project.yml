@@ -45,7 +45,7 @@ targets:
         "CODE_SIGN_IDENTITY[sdk=macosx*]": B34F936CCB151247A80B25244A2BF6E35AFC66DC
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-        SWIFT_STRICT_CONCURRENCY: minimal
+        SWIFT_STRICT_CONCURRENCY: targeted
     dependencies:
       - package: KeyboardShortcuts
         product: KeyboardShortcuts

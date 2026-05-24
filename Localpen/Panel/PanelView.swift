@@ -72,7 +72,7 @@ struct PanelView: View {
                     onBack: { controller.backToMenu() }
                 )
 
-            case .error(let err):
+            case .error(let err, _):
                 ErrorBanner(error: err, onAction: { controller.retryFromError() })
             }
         }
@@ -84,6 +84,21 @@ struct PanelView: View {
                 .stroke(Tokens.panelBorder, lineWidth: 1)
         )
         .animation(Motion.menuToResult, value: stateKey(controller.state))
+        .contextMenu {
+            if case .result(_, _, let text, _) = controller.state {
+                Button("Copy Result") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                }
+            }
+            SettingsLink {
+                Text("Settings…")
+            }
+            Button("About Localpen") {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.orderFrontStandardAboutPanel(nil)
+            }
+        }
         .onKeyPress(.escape) {
             controller.handleEscape()
             return .handled

@@ -78,7 +78,9 @@ final class ModelRegistry {
                 ?? ""
             log.info("loaded \(doc.models.count) model(s); active=\(self.activeModelID, privacy: .public)")
         } catch {
-            log.error("models.toml decode failed: \(error.localizedDescription)")
+            // Surface the full Codable error chain to Console so we can diagnose schema issues.
+            log.error("models.toml decode failed: \(String(describing: error), privacy: .public)")
+            fputs("Localpen: models.toml decode failed: \(error)\n", stderr)
         }
     }
 }

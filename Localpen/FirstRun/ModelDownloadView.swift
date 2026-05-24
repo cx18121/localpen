@@ -63,13 +63,6 @@ struct ModelDownloadView: View {
         }
         .padding(Spacing.s8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear {
-            // Auto-start if user is on this screen (skip if already started or in progress).
-            if !didStart && bytesDone == 0 {
-                didStart = true
-                onStart()
-            }
-        }
     }
 
     private var fraction: Double {

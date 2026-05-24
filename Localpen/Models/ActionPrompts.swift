@@ -1,7 +1,9 @@
 import Foundation
 
-// M2.14: system prompts per action. Inline here as placeholders;
-// M3 moves these into models.toml and loads them via ModelRegistry.
+// Fallback action prompts used when the active model's `prompts` table is
+// missing a field (or no active model is configured). The canonical prompts
+// live in Resources/models.toml and are loaded via ModelRegistry. The Custom
+// action's prompt always comes from here — it isn't model-specific.
 enum ActionPrompts {
     static func systemPrompt(for action: Action) -> String {
         switch action {

@@ -73,6 +73,14 @@ final class TextIO {
         return .pasted
     }
 
+    /// Restore the pasteboard captured at hotkey time. Call on any dismissal
+    /// path that didn't go through `pasteBack` (e.g., Escape, back-to-menu
+    /// followed by Escape). Without this, every cancel leaks the user's
+    /// pasteboard with the captured selection.
+    func restoreClipboard(_ capture: Capture) {
+        restorePasteboard(capture.savedItems)
+    }
+
     private func restorePasteboard(_ items: [[NSPasteboard.PasteboardType: Data]]) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
