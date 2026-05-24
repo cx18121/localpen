@@ -34,14 +34,15 @@ final class PanelController {
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
-    @ObservationIgnored private var activeCapture: TextIO.Capture?
-    @ObservationIgnored private var streamingTask: Task<Void, Never>?
-    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
-    @ObservationIgnored private var hotkeyTime: ContinuousClock.Instant?
+    /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
+    /// everything scoped to one summon (capture, tasks, pending result) so a
+    /// "did the world move on?" check is `current === session`, not a token.
+    @ObservationIgnored private var current: PanelSession?
+    /// Monotonic session-ID source. Also detects supersession during the
+    /// pre-capture await, before a PanelSession object exists yet.
+    @ObservationIgnored private var sessionCounter: UInt64 = 0
     @ObservationIgnored private var clickOutsideMonitor: Any?
     @ObservationIgnored private var mouseInputMonitor: Any?
-    @ObservationIgnored private var pendingInteraction: Interaction?
-    @ObservationIgnored private var sessionID: UInt64 = 0
 
     static let menuItems: [Action] = Action.fixed + [.custom("")]
 
@@ -74,19 +75,14 @@ final class PanelController {
     }
 
     func dismiss() {
-        cancelStreaming()
-        persistRejectedIfNeeded()
-        if let cap = activeCapture {
-            textIO.restoreClipboard(cap)
+        current?.cancelStreaming()
+        flushPendingAsRejected()
+        if let session = current {
+            textIO.restoreClipboard(session.capture)
         }
-        let mySession = sessionID
-        hidePanelAnimated { [weak self] in
-            guard let self, self.sessionID == mySession else { return }
-            self.state = .hidden
-            self.activeCapture = nil
-            self.hotkeyTime = nil
-            self.pendingInteraction = nil
-        }
+        state = .hidden
+        current = nil
+        hidePanelAnimated()
     }
 
     // MARK: - Unified keyboard handler
@@ -182,9 +178,8 @@ final class PanelController {
     }
 
     func backToMenu() {
-        cancelStreaming()
-        persistRejectedIfNeeded()
-        pendingInteraction = nil
+        current?.cancelStreaming()
+        flushPendingAsRejected()
         if let sel = currentSelection() {
             state = .captured(sel)
         } else {
@@ -193,38 +188,28 @@ final class PanelController {
     }
 
     func acceptResult() {
-        guard case .result(let sel, let action, let text, _) = state else { return }
-        let snapshot = activeCapture
-        let mySession = sessionID
+        guard case .result(let sel, let action, let text, _) = state, let session = current else { return }
+        let capture = session.capture
 
-        if var pending = pendingInteraction {
+        if var pending = session.pendingInteraction {
             pending.accepted = true
             pending.editedOutput = (text == pending.modelOutput) ? nil : text
             persistInteraction(pending)
         } else {
             persistInteraction(buildInteraction(selection: sel, action: action, output: text, accepted: true, edited: nil))
         }
-        pendingInteraction = nil
+        session.pendingInteraction = nil
 
-        Task {
-            let result: TextIO.PasteBackResult
-            if let cap = snapshot {
-                result = await textIO.pasteBack(result: text, capture: cap)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.textIO.pasteBack(result: text, capture: capture)
+            guard self.current === session else { return }
+            if result == .skipped {
+                self.state = .error(.pasteBackFallback, prior: PanelState.ErrorContext(selection: sel, action: action))
             } else {
-                result = .pasted
-            }
-            await MainActor.run {
-                guard self.sessionID == mySession else { return }
-                if result == .skipped {
-                    self.state = .error(.pasteBackFallback, prior: PanelState.ErrorContext(selection: sel, action: action))
-                } else {
-                    self.hidePanelAnimated { [weak self] in
-                        guard let self, self.sessionID == mySession else { return }
-                        self.state = .hidden
-                    }
-                    self.activeCapture = nil
-                    self.hotkeyTime = nil
-                }
+                self.state = .hidden
+                self.current = nil
+                self.hidePanelAnimated()
             }
         }
     }
@@ -260,15 +245,11 @@ final class PanelController {
                 backToMenu()
             }
         case .pasteBackFallback:
-            cancelStreaming()
-            persistRejectedIfNeeded()
-            let mySession = sessionID
-            hidePanelAnimated { [weak self] in
-                guard let self, self.sessionID == mySession else { return }
-                self.state = .hidden
-                self.activeCapture = nil
-                self.pendingInteraction = nil
-            }
+            current?.cancelStreaming()
+            flushPendingAsRejected()
+            state = .hidden
+            current = nil
+            hidePanelAnimated()
         case .diskFull:
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.settings.Storage")!)
             backToMenu()
@@ -288,15 +269,17 @@ final class PanelController {
     // MARK: - Capture + show
 
     private func captureAndShow() async {
-        sessionID += 1
-        let mySession = sessionID
-        hotkeyTime = ContinuousClock.now
+        sessionCounter += 1
+        let myID = sessionCounter
+        let hotkeyTime = ContinuousClock.now
         focusedActionIndex = 1
         lastInputSource = .keyboard
 
         let capture = await textIO.captureSelection()
-        guard sessionID == mySession else { return }
-        activeCapture = capture
+        guard sessionCounter == myID else { return }   // superseded during capture
+
+        let session = PanelSession(id: myID, capture: capture, hotkeyTime: hotkeyTime)
+        current = session
 
         // Seed the editable input field with the captured selection (if any).
         inputText = capture.selection ?? ""
@@ -321,8 +304,8 @@ final class PanelController {
         guard !trimmed.isEmpty else { return nil }
         return Selection(
             text: inputText,
-            sourceBundleID: activeCapture?.sourceBundleID,
-            sourceAppName: activeCapture?.sourceAppName
+            sourceBundleID: current?.capture.sourceBundleID,
+            sourceAppName: current?.capture.sourceAppName
         )
     }
 
@@ -369,11 +352,8 @@ final class PanelController {
         }
     }
 
-    private func hidePanelAnimated(completion: (@Sendable @MainActor () -> Void)? = nil) {
-        guard let panel else {
-            completion?()
-            return
-        }
+    private func hidePanelAnimated() {
+        guard let panel else { return }
         let origin = panel.frame.origin
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.12
@@ -381,11 +361,14 @@ final class PanelController {
             panel.animator().setFrameOrigin(NSPoint(x: origin.x, y: origin.y + 4))
             panel.animator().alphaValue = 0
         }, completionHandler: {
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                // The state already moved to .hidden synchronously. Only finish
+                // the hide if nothing re-summoned the panel meanwhile; showPanel()
+                // owns alpha/origin when it did.
+                guard let self, !self.state.isVisible else { return }
                 panel.orderOut(nil)
                 panel.alphaValue = 1
                 panel.setFrameOrigin(origin)
-                completion?()
             }
         })
     }
@@ -414,28 +397,23 @@ final class PanelController {
 
     // MARK: - Streaming
 
-    private func cancelStreaming() {
-        streamingTask?.cancel()
-        streamingTask = nil
-        watchdogTask?.cancel()
-        watchdogTask = nil
-    }
-
     private func startGeneration(action: Action, selection explicitSel: Selection? = nil) {
+        guard let session = current else { return }
         let sel = explicitSel ?? currentSelection()
         state = .generating(sel, action, partial: "")
-        cancelStreaming()
-        streamingTask = Task { @MainActor [weak self] in
+        session.cancelStreaming()
+        session.streamingTask = Task { @MainActor [weak self] in
             await self?.runStream(action: action, selection: sel)
         }
     }
 
     private func armWatchdog(action: Action, selection: Selection?) {
-        watchdogTask?.cancel()
-        watchdogTask = Task { @MainActor [weak self] in
+        guard let session = current else { return }
+        session.watchdogTask?.cancel()
+        session.watchdogTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(30))
             guard !Task.isCancelled, let self else { return }
-            self.streamingTask?.cancel()
+            self.current?.streamingTask?.cancel()
             self.state = .error(.timeout, prior: PanelState.ErrorContext(selection: selection, action: action))
         }
     }
@@ -445,7 +423,7 @@ final class PanelController {
         let userPrompt = ActionPrompts.userMessage(for: action, text: selection?.text ?? "")
 
         armWatchdog(action: action, selection: selection)
-        defer { watchdogTask?.cancel() }
+        defer { current?.watchdogTask?.cancel() }
 
         var partial = ""
         var firstTokenLogged = false
@@ -453,7 +431,7 @@ final class PanelController {
             let sampling = registry.activeModel?.sampling
             for try await token in streaming.complete(systemPrompt: systemPrompt, userText: userPrompt, sampling: sampling) {
                 if Task.isCancelled { return }
-                if !firstTokenLogged, let t = hotkeyTime {
+                if !firstTokenLogged, let t = current?.hotkeyTime {
                     let elapsed = ContinuousClock.now - t
                     log.info("hotkey→first-token: \(elapsed)")
                     firstTokenLogged = true
@@ -463,7 +441,7 @@ final class PanelController {
                 armWatchdog(action: action, selection: selection)
             }
             if Task.isCancelled { return }
-            pendingInteraction = buildInteraction(
+            current?.pendingInteraction = buildInteraction(
                 selection: selection, action: action, output: partial,
                 accepted: false, edited: nil
             )
@@ -501,10 +479,13 @@ final class PanelController {
         }
     }
 
-    private func persistRejectedIfNeeded() {
-        if let pending = pendingInteraction {
-            persistInteraction(pending)
-        }
+    /// Persists the current session's completed-but-unaccepted result as
+    /// rejected, then clears it. The single choke point for "we left a result
+    /// without accepting it" — every such transition routes through here.
+    private func flushPendingAsRejected() {
+        guard let session = current, let pending = session.pendingInteraction else { return }
+        persistInteraction(pending)
+        session.pendingInteraction = nil
     }
 
     // MARK: - Helpers
