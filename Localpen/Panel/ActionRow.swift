@@ -11,15 +11,16 @@ struct ActionRow: View {
                 .frame(width: 2)
 
             Text(action.label)
-                .font(.system(size: 13, weight: isFocused ? .medium : .regular))
+                .font(isFocused ? Typography.menuRowFocused : Typography.menuRow)
                 .foregroundStyle(isFocused ? Tokens.text : Tokens.textSoft)
-                .padding(.leading, 10)
-                .padding(.vertical, 6)
+                .padding(.leading, Spacing.s4)
+                .padding(.vertical, Spacing.s2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: 32)
         .background(isFocused ? Tokens.accentTint : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .padding(.horizontal, 10)
+        .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
+        .padding(.horizontal, Spacing.s4)
+        .animation(Motion.focusMove, value: isFocused)
     }
 }

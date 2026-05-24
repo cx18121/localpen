@@ -78,12 +78,12 @@ struct PanelView: View {
         }
         .frame(width: 360)
         .background(Tokens.panelBG)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: Spacing.panelRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: Spacing.panelRadius)
                 .stroke(Tokens.panelBorder, lineWidth: 1)
         )
-        .preferredColorScheme(.dark)
+        .animation(Motion.menuToResult, value: stateKey(controller.state))
         .onKeyPress(.escape) {
             controller.handleEscape()
             return .handled
@@ -94,6 +94,19 @@ struct PanelView: View {
                 return .handled
             }
             return .ignored
+        }
+    }
+
+    /// Drives top-level region animations — we animate on the kind-change, not on every streamed token.
+    private func stateKey(_ s: PanelState) -> Int {
+        switch s {
+        case .hidden:        return 0
+        case .empty:         return 1
+        case .captured:      return 2
+        case .customPrompt:  return 3
+        case .generating:    return 4
+        case .result(_, _, _, let editing): return editing ? 6 : 5
+        case .error:         return 7
         }
     }
 }
@@ -108,16 +121,16 @@ struct Hairline: View {
 
 private struct EmptySelectionHeader: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Spacing.s1) {
             Text("No text selected.")
                 .italic()
-                .font(.system(size: 13))
+                .font(Typography.selection)
                 .foregroundStyle(Tokens.textSoft)
             Text("Type a prompt to use Localpen.")
-                .font(.system(size: 11))
+                .font(Typography.selectionMeta)
                 .foregroundStyle(Tokens.textMute)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(Spacing.s7)
     }
 }

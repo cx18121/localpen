@@ -21,7 +21,7 @@ final class FloatingPanel: NSPanel {
         self.standardWindowButton(.closeButton)?.isHidden = true
         self.standardWindowButton(.miniaturizeButton)?.isHidden = true
         self.standardWindowButton(.zoomButton)?.isHidden = true
-        self.appearance = NSAppearance(named: .darkAqua)
+        // Per DESIGN.md §7: follow macOS system appearance. No forced theme.
     }
 
     override var canBecomeKey: Bool { true }

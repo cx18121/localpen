@@ -10,7 +10,7 @@ struct StreamingCaret: View {
             .opacity(opacity)
             .padding(.leading, 2)
             .onAppear {
-                withAnimation(.easeInOut(duration: 0.425).repeatForever()) {
+                withAnimation(Motion.caretBlink.repeatForever()) {
                     opacity = 0.35
                 }
             }

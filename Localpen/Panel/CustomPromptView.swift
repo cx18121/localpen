@@ -9,7 +9,7 @@ struct CustomPromptView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Spacing.s3) {
                 Text("›")
                     .foregroundStyle(Tokens.accent)
                     .font(.system(size: 16, weight: .semibold))
@@ -18,37 +18,31 @@ struct CustomPromptView: View {
                     if text.isEmpty {
                         Text("Type a custom prompt…")
                             .foregroundStyle(Tokens.textFaint)
-                            .font(.system(size: 13))
-                            .padding(.top, 8)
+                            .font(Typography.menuRow)
+                            .padding(.top, Spacing.s3)
                             .padding(.leading, 4)
                             .allowsHitTesting(false)
                     }
                     TextEditor(text: $text)
                         .focused($inputFocused)
-                        .font(.system(size: 13))
+                        .font(Typography.menuRow)
                         .foregroundStyle(Tokens.text)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 40, maxHeight: 96)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Spacing.s7)
+            .padding(.vertical, Spacing.s4)
 
             Hairline()
 
-            HStack(spacing: 14) {
-                Text("↩ submit")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
-                Text("⇧↩ newline")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
-                Text("esc back")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
+            HStack(spacing: Spacing.s6) {
+                hint("↩ submit")
+                hint("⇧↩ newline")
+                hint("esc back")
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Spacing.s6)
+            .padding(.vertical, Spacing.s3)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Tokens.panelBG2)
         }
@@ -62,5 +56,11 @@ struct CustomPromptView: View {
             onSubmit(trimmed)
             return .handled
         }
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text)
+            .font(Typography.footerHint)
+            .foregroundStyle(Tokens.textMute)
     }
 }

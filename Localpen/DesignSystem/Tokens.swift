@@ -1,23 +1,60 @@
 import SwiftUI
 
-// Approximate dark-theme tokens from DESIGN.md §2.1.
-// M5 replaces these with proper OKLCH→sRGB conversion + light theme.
+// Color tokens per DESIGN.md §2.1 (dark) and §2.2 (light).
+// All values translated from OKLCH via Color.oklch.
+// Each token is dynamic: appearance flips dark↔light automatically.
 enum Tokens {
     // Surfaces
-    static let panelBG       = Color(red: 0.155, green: 0.155, blue: 0.175)
-    static let panelBG2      = Color(red: 0.180, green: 0.180, blue: 0.200)
-    static let panelBorder   = Color(red: 0.240, green: 0.240, blue: 0.270)
-    static let hairline      = Color(red: 0.205, green: 0.205, blue: 0.235)
+    static let panelBG     = Color.dynamic(
+        light: .oklch(0.98, 0.003, 240),
+        dark:  .oklch(0.22, 0.008, 240)
+    )
+    static let panelBG2    = Color.dynamic(
+        light: .oklch(0.96, 0.004, 240),
+        dark:  .oklch(0.24, 0.009, 240)
+    )
+    static let panelBorder = Color.dynamic(
+        light: .oklch(0.88, 0.008, 240),
+        dark:  .oklch(0.32, 0.012, 240)
+    )
+    static let hairline    = Color.dynamic(
+        light: .oklch(0.92, 0.006, 240),
+        dark:  .oklch(0.28, 0.010, 240)
+    )
 
     // Text
-    static let text          = Color(red: 0.920, green: 0.920, blue: 0.940)
-    static let textSoft      = Color(red: 0.740, green: 0.740, blue: 0.760)
-    static let textMute      = Color(red: 0.520, green: 0.520, blue: 0.550)
-    static let textFaint     = Color(red: 0.380, green: 0.380, blue: 0.410)
+    static let text        = Color.dynamic(
+        light: .oklch(0.20, 0.008, 240),
+        dark:  .oklch(0.94, 0.006, 240)
+    )
+    static let textSoft    = Color.dynamic(
+        light: .oklch(0.36, 0.008, 240),
+        dark:  .oklch(0.78, 0.008, 240)
+    )
+    static let textMute    = Color.dynamic(
+        light: .oklch(0.50, 0.008, 240),
+        dark:  .oklch(0.58, 0.008, 240)
+    )
+    static let textFaint   = Color.dynamic(
+        light: .oklch(0.66, 0.008, 240),
+        dark:  .oklch(0.44, 0.008, 240)
+    )
 
     // Accent (desaturated teal)
-    static let accent        = Color(red: 0.450, green: 0.780, blue: 0.850)
-    static let accentTint    = Color(red: 0.450, green: 0.780, blue: 0.850).opacity(0.18)
-    static let accentMute    = Color(red: 0.380, green: 0.640, blue: 0.700).opacity(0.6)
-    static let accentError   = Color(red: 0.880, green: 0.500, blue: 0.460)
+    static let accent      = Color.dynamic(
+        light: .oklch(0.52, 0.10, 200),
+        dark:  .oklch(0.78, 0.085, 200)
+    )
+    static let accentTint  = Color.dynamic(
+        light: .oklch(0.52, 0.10, 200, opacity: 0.14),
+        dark:  .oklch(0.32, 0.022, 200, opacity: 0.5)
+    )
+    static let accentMute  = Color.dynamic(
+        light: .oklch(0.52, 0.08, 200, opacity: 0.5),
+        dark:  .oklch(0.40, 0.030, 200, opacity: 0.6)
+    )
+    static let accentError = Color.dynamic(
+        light: .oklch(0.55, 0.14, 28),
+        dark:  .oklch(0.72, 0.10, 28)
+    )
 }

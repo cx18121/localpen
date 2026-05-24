@@ -15,13 +15,13 @@ struct ResultView: View {
             if isEditing {
                 TextEditor(text: $text)
                     .focused($editorFocused)
-                    .font(.system(size: 14))
+                    .font(Typography.result)
                     .foregroundStyle(Tokens.text)
                     .lineSpacing(4)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 96, maxHeight: 320)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+                    .padding(.horizontal, Spacing.s7)
+                    .padding(.vertical, Spacing.s6)
                     .onAppear { editorFocused = true }
                     .onKeyPress(.return, phases: .down) { _ in
                         if NSEvent.modifierFlags.contains(.shift) { return .ignored }
@@ -32,7 +32,7 @@ struct ResultView: View {
                 ScrollView {
                     HStack(alignment: .top, spacing: 0) {
                         Text(text)
-                            .font(.system(size: 14))
+                            .font(Typography.result)
                             .foregroundStyle(Tokens.text)
                             .lineSpacing(4)
                             .textSelection(.enabled)
@@ -45,8 +45,8 @@ struct ResultView: View {
                     }
                 }
                 .frame(minHeight: 96, maxHeight: 320)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.horizontal, Spacing.s7)
+                .padding(.vertical, Spacing.s6)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if !isStreaming { onClickToEdit?() }

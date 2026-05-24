@@ -52,11 +52,12 @@ final class PanelController {
         streamingTask?.cancel()
         streamingTask = nil
         persistRejectedIfNeeded()
-        state = .hidden
-        panel?.orderOut(nil)
-        activeCapture = nil
-        hotkeyTime = nil
-        pendingInteraction = nil
+        hidePanelAnimated { [weak self] in
+            self?.state = .hidden
+            self?.activeCapture = nil
+            self?.hotkeyTime = nil
+            self?.pendingInteraction = nil
+        }
     }
 
     // MARK: - State transitions
@@ -98,9 +99,6 @@ final class PanelController {
     func acceptResult() {
         guard case .result(let sel, let action, let text, _) = state else { return }
         let snapshot = activeCapture
-        let panelRef = panel
-        state = .hidden
-        panelRef?.orderOut(nil)
 
         if var pending = pendingInteraction {
             pending.accepted = true
@@ -110,6 +108,10 @@ final class PanelController {
             persistInteraction(buildInteraction(selection: sel, action: action, output: text, accepted: true, edited: nil))
         }
         pendingInteraction = nil
+
+        hidePanelAnimated { [weak self] in
+            self?.state = .hidden
+        }
 
         Task {
             if let cap = snapshot {
@@ -168,9 +170,38 @@ final class PanelController {
 
         let screen = NSScreen.main
         let origin = anchorStore.read(bundleID: activeCapture?.sourceBundleID, screen: screen)
-        panel?.setFrameOrigin(origin)
+
+        // Appear: 8pt slide-down + opacity 0→1 over 180ms (DESIGN.md §2.6).
+        let startOrigin = NSPoint(x: origin.x, y: origin.y + 8)
+        panel?.setFrameOrigin(startOrigin)
+        panel?.alphaValue = 0
         panel?.orderFrontRegardless()
         panel?.makeKey()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+            panel?.animator().setFrameOrigin(origin)
+            panel?.animator().alphaValue = 1
+        }
+    }
+
+    private func hidePanelAnimated(completion: (() -> Void)? = nil) {
+        guard let panel else {
+            completion?()
+            return
+        }
+        let origin = panel.frame.origin
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.12
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+            panel.animator().setFrameOrigin(NSPoint(x: origin.x, y: origin.y + 4))
+            panel.animator().alphaValue = 0
+        }, completionHandler: {
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            panel.setFrameOrigin(origin)
+            completion?()
+        })
     }
 
     private func installMoveObserver() {

@@ -9,11 +9,11 @@ struct ResultToolbar: View {
     var onBack: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Spacing.s6) {
             Text(actionPillLabel)
-                .font(.system(size: 11, weight: .medium))
+                .font(Typography.pill)
                 .foregroundStyle(Tokens.accent)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, Spacing.s3)
                 .padding(.vertical, 3)
                 .background(Tokens.accentTint)
                 .clipShape(Capsule())
@@ -22,31 +22,27 @@ struct ResultToolbar: View {
 
             switch mode {
             case .streaming:
-                Text("esc cancel")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
+                hint("esc cancel")
 
             case .result:
-                Text("esc back")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
-                Text("⌘↩ accept")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
+                hint("esc back")
+                hint("⌘↩ accept")
 
             case .editing:
-                Text("↩ submit edit")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
-                Text("esc cancel")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.textMute)
+                hint("↩ submit edit")
+                hint("esc cancel")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.s6)
+        .padding(.vertical, Spacing.s3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Tokens.panelBG2)
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text)
+            .font(Typography.footerHint)
+            .foregroundStyle(Tokens.textMute)
     }
 
     private var actionPillLabel: String {
