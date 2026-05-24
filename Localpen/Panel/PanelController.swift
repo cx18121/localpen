@@ -11,15 +11,31 @@ final class PanelController {
     @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private let textIO: TextIO
     @ObservationIgnored private let streaming: StreamingClient
+    @ObservationIgnored private let persistence: Persistence?
+    @ObservationIgnored private let registry: ModelRegistry
+    @ObservationIgnored private let anchorStore: AnchorStore
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
     @ObservationIgnored private var activeCapture: TextIO.Capture?
     @ObservationIgnored private var streamingTask: Task<Void, Never>?
     @ObservationIgnored private var hotkeyTime: ContinuousClock.Instant?
+    @ObservationIgnored private var moveObserver: Any?
+    @ObservationIgnored private var pendingInteraction: Interaction?
 
-    init(textIO: TextIO, streaming: StreamingClient) {
+    init(textIO: TextIO,
+         streaming: StreamingClient,
+         persistence: Persistence?,
+         registry: ModelRegistry,
+         anchorStore: AnchorStore) {
         self.textIO = textIO
         self.streaming = streaming
+        self.persistence = persistence
+        self.registry = registry
+        self.anchorStore = anchorStore
+    }
+
+    deinit {
+        if let obs = moveObserver { NotificationCenter.default.removeObserver(obs) }
     }
 
     // MARK: - Entry / dismiss
@@ -35,13 +51,15 @@ final class PanelController {
     func dismiss() {
         streamingTask?.cancel()
         streamingTask = nil
+        persistRejectedIfNeeded()
         state = .hidden
         panel?.orderOut(nil)
         activeCapture = nil
         hotkeyTime = nil
+        pendingInteraction = nil
     }
 
-    // MARK: - State transitions driven by views
+    // MARK: - State transitions
 
     func pick(_ action: Action) {
         switch action {
@@ -68,7 +86,6 @@ final class PanelController {
         }
     }
 
-    /// Context-aware Esc: from menu/empty → dismiss; from a sub-state → back to menu.
     func handleEscape() {
         switch state {
         case .hidden, .empty, .captured:
@@ -79,11 +96,21 @@ final class PanelController {
     }
 
     func acceptResult() {
-        guard case .result(_, _, let text, _) = state else { return }
+        guard case .result(let sel, let action, let text, _) = state else { return }
         let snapshot = activeCapture
         let panelRef = panel
         state = .hidden
         panelRef?.orderOut(nil)
+
+        if var pending = pendingInteraction {
+            pending.accepted = true
+            pending.editedOutput = (text == pending.modelOutput) ? nil : text
+            persistInteraction(pending)
+        } else {
+            persistInteraction(buildInteraction(selection: sel, action: action, output: text, accepted: true, edited: nil))
+        }
+        pendingInteraction = nil
+
         Task {
             if let cap = snapshot {
                 await textIO.pasteBack(result: text, capture: cap)
@@ -135,16 +162,35 @@ final class PanelController {
 
         if panel == nil {
             panel = FloatingPanel(contentRect: rect)
+            installMoveObserver()
         }
         panel?.contentView = hosting
 
-        if let screen = NSScreen.main?.visibleFrame {
-            let x = screen.maxX - rect.width - 24
-            let y = screen.midY - rect.height / 2
-            panel?.setFrameOrigin(NSPoint(x: x, y: y))
-        }
+        let screen = NSScreen.main
+        let origin = anchorStore.read(bundleID: activeCapture?.sourceBundleID, screen: screen)
+        panel?.setFrameOrigin(origin)
         panel?.orderFrontRegardless()
         panel?.makeKey()
+    }
+
+    private func installMoveObserver() {
+        guard let panel else { return }
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.persistAnchor() }
+        }
+    }
+
+    private func persistAnchor() {
+        guard let panel else { return }
+        anchorStore.write(
+            bundleID: activeCapture?.sourceBundleID,
+            screen: panel.screen ?? NSScreen.main,
+            origin: panel.frame.origin
+        )
     }
 
     // MARK: - Streaming
@@ -160,12 +206,10 @@ final class PanelController {
 
     private func runStream(action: Action, selection: Selection?) async {
         let userText = selection?.text ?? ""
-        let systemPrompt = ActionPrompts.systemPrompt(for: action)
+        let systemPrompt = registry.systemPrompt(for: action)
         let userPrompt: String = {
             if case let .custom(instruction) = action {
-                if userText.isEmpty {
-                    return instruction
-                }
+                if userText.isEmpty { return instruction }
                 return "Instruction: \(instruction)\n\nText:\n\(userText)"
             }
             return userText
@@ -185,10 +229,47 @@ final class PanelController {
                 state = .generating(selection, action, partial: partial)
             }
             if Task.isCancelled { return }
+            pendingInteraction = buildInteraction(
+                selection: selection, action: action, output: partial,
+                accepted: false, edited: nil
+            )
             state = .result(selection, action, finalResult: partial, isEditing: false)
         } catch {
             if Task.isCancelled { return }
             state = .error(.network)
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func buildInteraction(selection: Selection?, action: Action, output: String?, accepted: Bool, edited: String?) -> Interaction {
+        var customPrompt: String? = nil
+        if case let .custom(text) = action { customPrompt = text }
+        return Interaction(
+            id: nil,
+            timestamp: Int64(Date().timeIntervalSince1970),
+            sourceApp: selection?.sourceBundleID,
+            selection: selection?.text,
+            action: action.rawValue,
+            customPrompt: customPrompt,
+            modelID: registry.activeModelID,
+            modelOutput: output,
+            accepted: accepted,
+            editedOutput: edited
+        )
+    }
+
+    private func persistInteraction(_ interaction: Interaction) {
+        guard let persistence else { return }
+        Task.detached(priority: .background) {
+            await persistence.save(interaction)
+        }
+    }
+
+    /// If the user dismisses with a result still on screen (no accept), persist as rejected.
+    private func persistRejectedIfNeeded() {
+        if let pending = pendingInteraction {
+            persistInteraction(pending)  // accepted defaults to false on pending
         }
     }
 
