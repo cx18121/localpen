@@ -23,7 +23,7 @@ final class PanelController {
     var lastInputSource: InputSource = .keyboard
     enum InputSource { case keyboard, mouse }
 
-    static let panelSize = NSSize(width: 360, height: 480)
+    static let panelSize = NSSize(width: 400, height: 480)
     static let panelEdgeMargin: CGFloat = 24
 
     @ObservationIgnored private var panel: FloatingPanel?

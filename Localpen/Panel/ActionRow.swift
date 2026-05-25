@@ -13,11 +13,11 @@ struct ActionRow: View {
             Text(action.label)
                 .font(isFocused ? Typography.menuRowFocused : Typography.menuRow)
                 .foregroundStyle(isFocused ? Tokens.text : Tokens.textSoft)
-                .padding(.leading, Spacing.s4)
+                .padding(.leading, Spacing.s5)
                 .padding(.vertical, Spacing.s2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 32)
+        .frame(height: 38)
         .background(isFocused ? Tokens.accentTint : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
         .padding(.horizontal, Spacing.s4)
