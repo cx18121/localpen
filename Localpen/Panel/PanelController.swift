@@ -16,6 +16,10 @@ final class PanelController {
     /// PanelState so each token re-renders only the result region (via
     /// StreamingResultView) rather than the whole panel.
     var streamingText: String = ""
+    /// Incremented to request keyboard focus on the input field (Tab from the
+    /// menu). InputEditor focuses itself when this changes. Initial open
+    /// auto-focuses via the editor's onAppear.
+    var inputFocusTick: Int = 0
     /// Index into ActionMenuView's row list (Action.fixed + [.custom]).
     /// Lives here so it survives state transitions and is the single source
     /// of truth for keyboard navigation.
@@ -112,6 +116,9 @@ final class PanelController {
             case kVK_Return, kVK_ANSI_KeypadEnter:
                 pick(Self.menuItems[focusedActionIndex])
                 return true
+            case kVK_Tab:
+                inputFocusTick += 1   // move focus up into the input field
+                return true
             case kVK_Escape:
                 dismiss()
                 return true
@@ -146,6 +153,9 @@ final class PanelController {
                     return true
                 case kVK_Return, kVK_ANSI_KeypadEnter:
                     acceptResult()
+                    return true
+                case kVK_Tab:
+                    setEditing(true)   // Tab into the result to edit it
                     return true
                 default:
                     return false

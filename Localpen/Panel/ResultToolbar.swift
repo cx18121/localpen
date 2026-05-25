@@ -22,26 +22,21 @@ struct ResultToolbar: View {
 
             switch mode {
             case .streaming:
-                hint("esc cancel")
+                KbdHint("esc", "cancel")
 
             case .result:
-                hint("esc back")
-                hint("⌘↩ accept")
+                KbdHint("⌘↩", "accept")
+                KbdHint("⇥", "edit")
+                KbdHint("esc", "back")
 
             case .editing:
-                hint("↩ submit edit")
-                hint("esc cancel")
+                KbdHint("↩", "save")
+                KbdHint("esc", "cancel")
             }
         }
         .padding(.horizontal, Spacing.s6)
         .padding(.vertical, Spacing.s3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Tokens.chromeTint)
-    }
-
-    private func hint(_ text: String) -> some View {
-        Text(text)
-            .font(Typography.footerHint)
-            .foregroundStyle(Tokens.textMute)
     }
 }

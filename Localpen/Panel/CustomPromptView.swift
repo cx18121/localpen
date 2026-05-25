@@ -32,18 +32,20 @@ struct CustomPromptView: View {
             }
             .padding(.horizontal, Spacing.s7)
             .padding(.vertical, Spacing.s4)
+            .contentShape(Rectangle())
+            .onTapGesture { inputFocused = true }
 
             Hairline()
 
-            HStack(spacing: Spacing.s6) {
-                hint("↩ submit")
-                hint("⇧↩ newline")
-                hint("esc back")
+            HStack(spacing: Spacing.s5) {
+                KbdHint("↩", "submit")
+                KbdHint("⇧↩", "newline")
+                KbdHint("esc", "back")
             }
             .padding(.horizontal, Spacing.s6)
             .padding(.vertical, Spacing.s3)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Tokens.panelBG2)
+            .background(Tokens.chromeTint)
         }
         .onAppear { inputFocused = true }
         // Plain Return submits; Shift+Return inserts a newline.
@@ -56,11 +58,5 @@ struct CustomPromptView: View {
             onSubmit(trimmed)
             return .handled
         }
-    }
-
-    private func hint(_ text: String) -> some View {
-        Text(text)
-            .font(Typography.footerHint)
-            .foregroundStyle(Tokens.textMute)
     }
 }

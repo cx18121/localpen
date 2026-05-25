@@ -14,6 +14,8 @@ import SwiftUI
 struct InputEditor: View {
     @Binding var text: String
     let sourceAppName: String?
+    /// Bumped by the controller (Tab from the menu) to pull focus here.
+    var focusTick: Int = 0
 
     @FocusState private var focused: Bool
 
@@ -56,6 +58,11 @@ struct InputEditor: View {
                             focused = false
                             return .handled
                         }
+                        // Tab moves focus down to the action menu.
+                        .onKeyPress(.tab) {
+                            focused = false
+                            return .handled
+                        }
                 }
                 .background(Tokens.panelBG2)
                 .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
@@ -71,5 +78,9 @@ struct InputEditor: View {
             }
         }
         .padding(Spacing.s7)
+        // Auto-focus on open so you can edit the captured text immediately.
+        .onAppear { focused = true }
+        // Re-focus when the controller asks (Tab from the menu).
+        .onChange(of: focusTick) { _, _ in focused = true }
     }
 }
