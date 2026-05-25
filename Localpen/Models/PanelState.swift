@@ -22,7 +22,10 @@ enum PanelState: Equatable {
         case empty
         case captured
         case customPrompt
-        case generating(partial: String)
+        // The streamed text lives in PanelController.streamingText (a separate
+        // observed property) so per-token updates re-render only the result
+        // region, not the whole panel.
+        case generating
         case result(finalResult: String, isEditing: Bool)
         case error(PanelError)
     }

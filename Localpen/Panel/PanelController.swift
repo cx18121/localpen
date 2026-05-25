@@ -12,6 +12,10 @@ final class PanelController {
     /// hotkey; bound to the input TextEditor in .empty/.captured states so
     /// the user can fix typos / rewrite before picking an action.
     var inputText: String = ""
+    /// The text streamed so far during `.generating`. Kept separate from
+    /// PanelState so each token re-renders only the result region (via
+    /// StreamingResultView) rather than the whole panel.
+    var streamingText: String = ""
     /// Index into ActionMenuView's row list (Action.fixed + [.custom]).
     /// Lives here so it survives state transitions and is the single source
     /// of truth for keyboard navigation.
@@ -421,7 +425,8 @@ final class PanelController {
     private func startGeneration(action: Action, selection explicitSel: Selection? = nil) {
         guard let session = current else { return }
         let sel = explicitSel ?? currentSelection()
-        state = .visible(PanelContext(selection: sel, action: action), .generating(partial: ""))
+        streamingText = ""
+        state = .visible(PanelContext(selection: sel, action: action), .generating)
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
             await self?.runStream(action: action, selection: sel)
@@ -458,7 +463,7 @@ final class PanelController {
                     firstTokenLogged = true
                 }
                 partial += token
-                state = .visible(PanelContext(selection: selection, action: action), .generating(partial: partial))
+                streamingText = partial   // re-renders only StreamingResultView
                 armWatchdog(action: action, selection: selection)
             }
             if Task.isCancelled { return }

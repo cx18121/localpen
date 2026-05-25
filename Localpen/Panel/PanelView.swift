@@ -35,16 +35,12 @@ struct PanelView: View {
                         onSubmit: { controller.submitCustomPrompt($0) }
                     )
 
-                case .generating(let partial):
+                case .generating:
                     if let sel = ctx.selection {
                         SelectionBlock(selection: sel)
                         Hairline()
                     }
-                    ResultView(
-                        text: .constant(partial),
-                        isStreaming: true,
-                        isEditing: false
-                    )
+                    StreamingResultView(controller: controller)
                     Hairline()
                     if let action = ctx.action {
                         ResultToolbar(action: action, mode: .streaming)
@@ -115,5 +111,20 @@ struct Hairline: View {
         Rectangle()
             .fill(Tokens.hairline)
             .frame(height: 1)
+    }
+}
+
+/// Isolates per-token re-renders to just the streaming text. Because this view
+/// (not PanelView) reads `controller.streamingText`, a new token invalidates
+/// only this subtree while the surrounding panel stays put.
+struct StreamingResultView: View {
+    @Bindable var controller: PanelController
+
+    var body: some View {
+        ResultView(
+            text: .constant(controller.streamingText),
+            isStreaming: true,
+            isEditing: false
+        )
     }
 }
