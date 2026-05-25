@@ -157,6 +157,9 @@ final class PanelController {
                 case kVK_Tab:
                     setEditing(true)   // Tab into the result to edit it
                     return true
+                case kVK_ANSI_C where cmd:
+                    copyResult()       // ⌘C copies the result to the clipboard
+                    return true
                 default:
                     return false
                 }
@@ -227,6 +230,14 @@ final class PanelController {
                 self.hidePanelAnimated()
             }
         }
+    }
+
+    /// Copies the current result to the clipboard without pasting it back into
+    /// the source app (⌘C), for when the user wants it elsewhere.
+    func copyResult() {
+        guard case .visible(_, .result(let text, _)) = state else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func setEditing(_ editing: Bool) {

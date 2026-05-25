@@ -14,6 +14,10 @@ import SwiftUI
 struct InputEditor: View {
     @Binding var text: String
     let sourceAppName: String?
+    /// Auto-focus on open. True only in the empty state (you must type anyway);
+    /// false when text was captured, so the menu keeps focus and Return still
+    /// picks an action immediately (Tab/click to edit the text).
+    var autoFocus: Bool = false
     /// Bumped by the controller (Tab from the menu) to pull focus here.
     var focusTick: Int = 0
 
@@ -78,8 +82,8 @@ struct InputEditor: View {
             }
         }
         .padding(Spacing.s7)
-        // Auto-focus on open so you can edit the captured text immediately.
-        .onAppear { focused = true }
+        // Auto-focus on open only in the empty state (see `autoFocus`).
+        .onAppear { if autoFocus { focused = true } }
         // Re-focus when the controller asks (Tab from the menu).
         .onChange(of: focusTick) { _, _ in focused = true }
     }

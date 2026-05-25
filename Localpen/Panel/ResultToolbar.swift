@@ -26,7 +26,7 @@ struct ResultToolbar: View {
 
             case .result:
                 KbdHint("⌘↩", "accept")
-                KbdHint("⇥", "edit")
+                KbdHint("⌘C", "copy")
                 KbdHint("esc", "back")
 
             case .editing:

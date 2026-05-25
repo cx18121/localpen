@@ -10,6 +10,7 @@ Upstream: [PRD.md](./PRD.md) · [CONTEXT.md](./CONTEXT.md) · [docs/adr/](./docs
 > - **Placement:** fixed right-edge sidebar, **top-edge-anchored** so it sizes to content without jumping vertically (replaces §3.2's per-source-app last-anchored store, which was removed).
 > - **Motion:** entrance slides in from the right + fades; the action-menu focus is a single highlight that **slides** between rows. Both honor Reduce Motion.
 > - **Streaming** text lives in `PanelController.streamingText` and renders via `StreamingResultView`, so tokens re-render only the result region.
+> - **Keyboard/focus model:** `Tab` cycles focus (input ↔ action menu; `Tab` also enters the result to edit). The input auto-focuses on open **only in the empty state** — when text is captured the menu keeps focus so `Return` still picks an action immediately. `⌘C` copies the result without pasting back. **`⌫` "try another" was dropped** (Esc is the only back path) — supersedes §5.1/§3.4/§6. Shortcut hints render key glyphs in a mono style (`KbdHint`).
 
 ---
 
@@ -192,7 +193,7 @@ When an action is picked, the **Action Menu** section transforms into the **Resu
 **Result Toolbar (replaces panel footer when result is showing).**
 - Padding: 8pt vertical, 14pt horizontal. Background `--panel-bg-2`. Top border `--panel-hairline`.
 - Left: action pill — small pill labeled with the action name (e.g., "Polish"), text color `--accent`, background `--accent-tint`, padding 3pt vertical / 8pt horizontal, radius 999px.
-- Right: hint cluster — "⌘↩ accept" and "⌫ try another" separated by a 14pt gap, both `--text-mute` with `--text-soft` keyboard glyphs.
+- Right: hint cluster — "⌘↩ accept · ⌘C copy · esc back" (polish pass; was "⌫ try another"), key glyphs in the mono kbd style (`--text-soft`), labels `--text-mute`.
 
 ### 3.5 Custom prompt mode
 
@@ -325,8 +326,10 @@ All error text fits on one line at panel width when possible; wraps to two lines
 | `↩` Return | S5 streaming | (no-op — let it stream) |
 | `⌘↩` | S5/S6 | Accept result → paste-back → dismiss |
 | `↩` Return | S6 | Same as `⌘↩` (accept) |
-| `⌫` Backspace | S5/S6 | Return to action menu, keep selection captured |
-| `Esc` | (any) | Dismiss panel without paste-back |
+| `⌘C` | S6 | Copy result to clipboard (no paste-back) |
+| `⇥` Tab | S4/S6 | Cycle focus: input ↔ menu; from result, enter edit mode |
+| `Esc` | S6 | Return to action menu (keeps selection); `Esc` again dismisses |
+| `Esc` | (other) | Dismiss panel without paste-back |
 | `↩` Return | Custom-mode input | Submit prompt (Shift+Return = newline) |
 | `⌫` on empty Custom input | Custom-mode | Return to action menu |
 
@@ -377,9 +380,9 @@ Final committed copy for all surfaces. Voice: terse, native, slightly understate
 | Selection metadata | from <App Name> |
 | Selection metadata (unknown app) | from another app |
 | Action labels | Proofread · Polish · More formal · More casual · Shorter · Custom… |
-| Action menu footer | ↑↓ select &nbsp;&nbsp; ↩ apply · esc dismiss |
-| Result toolbar hints | ⌘↩ accept &nbsp;&nbsp; ⌫ try another |
-| Result toolbar (editing) | ↩ submit edit · esc cancel edit |
+| Action menu footer | ↑↓ select · ↩ apply · ⇥ edit · esc close |
+| Result toolbar hints | ⌘↩ accept · ⌘C copy · esc back |
+| Result toolbar (editing) | ↩ save · esc cancel |
 | Empty state line 1 | No text selected. |
 | Empty state line 2 | Type a prompt to use Localpen. |
 | Custom textarea placeholder | Type a custom prompt… |
