@@ -308,10 +308,11 @@ final class PanelController {
         )
     }
 
-    /// Fixed sidebar anchor — right edge of the screen the cursor is on,
-    /// vertically centered. Multi-monitor aware (works regardless of which
-    /// display the user is currently working on).
-    private func sidebarOrigin() -> NSPoint {
+    /// Fixed sidebar anchor — right edge of the screen the cursor is on. Returns
+    /// the panel's TOP-LEFT corner: the panel grows downward from a constant top
+    /// edge so it sizes to its content without jumping vertically between states.
+    /// Multi-monitor aware (anchors on whichever display the cursor is on).
+    private func sidebarTopLeft() -> NSPoint {
         let cursor = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(cursor) }
             ?? NSScreen.main
@@ -319,7 +320,7 @@ final class PanelController {
         guard let frame = screen?.visibleFrame else { return .zero }
         return NSPoint(
             x: frame.maxX - Self.panelSize.width - Self.panelEdgeMargin,
-            y: frame.midY - Self.panelSize.height / 2
+            y: frame.midY + Self.panelSize.height / 2   // fixed top edge
         )
     }
 
@@ -337,17 +338,18 @@ final class PanelController {
             installObservers()
         }
 
-        let origin = sidebarOrigin()
-        let startOrigin = NSPoint(x: origin.x, y: origin.y + 8)
-        panel?.setFrameOrigin(startOrigin)
-        panel?.alphaValue = 0
-        panel?.orderFrontRegardless()
-        panel?.makeKey()
+        guard let panel else { return }
+        let anchor = sidebarTopLeft()
+        // Pin the top edge so content-driven resizes grow downward, not jump.
+        panel.pinnedTopY = anchor.y
+        panel.setFrameOrigin(NSPoint(x: anchor.x, y: anchor.y - panel.frame.height))
+        panel.alphaValue = 0
+        panel.orderFrontRegardless()
+        panel.makeKey()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.18
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-            panel?.animator().setFrameOrigin(origin)
-            panel?.animator().alphaValue = 1
+            panel.animator().alphaValue = 1
         }
     }
 

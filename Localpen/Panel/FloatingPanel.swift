@@ -6,6 +6,19 @@ final class FloatingPanel: NSPanel {
     /// (e.g., so NSTextView still handles text input).
     var onKeyDown: ((NSEvent) -> Bool)?
 
+    /// When set, the panel keeps this Y as its fixed TOP edge across
+    /// content-driven resizes, so it grows downward instead of jumping
+    /// vertically between states. nil = normal AppKit behavior.
+    var pinnedTopY: CGFloat?
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        var r = frameRect
+        if let topY = pinnedTopY {
+            r.origin.y = topY - r.height
+        }
+        super.setFrame(r, display: flag)
+    }
+
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
