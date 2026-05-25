@@ -4,6 +4,13 @@ Production-ready design spec for the Phase 1 NSPanel. Source of truth for the sw
 
 Upstream: [PRD.md](./PRD.md) · [CONTEXT.md](./CONTEXT.md) · [docs/adr/](./docs/adr/) · [DESIGN-BRIEF.md](./DESIGN-BRIEF.md) · [sketches/](./sketches/) (throwaway prototype, layout direction committed = **A**).
 
+> **Polish pass (2026-05, evolved from the original spec).** After the first build, the panel was refined toward a more native, less cramped feel. Changes that supersede the original spec below:
+> - **Vibrancy adopted now** (was deferred to Phase 2): the panel surface is an `NSVisualEffectView` — `.hudWindow` in dark, `.popover` in light — behind a contrast tint (`panelTint`), with a glass top-edge and Reduce Transparency fallback. This overrides §3.1's "opaque, no vibrancy" and the §7 exclusion.
+> - **Wider + more breathing room:** panel width 360 → **400pt**; reading type bumped (selection/menu 13 → 14, result 14 → 15, footer 11 → 12); action rows 32 → 38pt.
+> - **Placement:** fixed right-edge sidebar, **top-edge-anchored** so it sizes to content without jumping vertically (replaces §3.2's per-source-app last-anchored store, which was removed).
+> - **Motion:** entrance slides in from the right + fades; the action-menu focus is a single highlight that **slides** between rows. Both honor Reduce Motion.
+> - **Streaming** text lives in `PanelController.streamingText` and renders via `StreamingResultView`, so tokens re-render only the result region.
+
 ---
 
 ## 1. Identity in one paragraph
@@ -400,7 +407,7 @@ Final committed copy for all surfaces. Voice: terse, native, slightly understate
 
 Worth naming to keep swiftui-expert (and future-you) from drifting:
 
-- **No vibrancy material on the panel.** No `.hudWindow`, no NSVisualEffectView. Solid `--panel-bg`. Reconsider in Phase 2.
+- ~~**No vibrancy material on the panel.**~~ **Superseded by the 2026-05 polish pass** — the panel now uses `NSVisualEffectView` vibrancy (`.hudWindow` dark / `.popover` light) over a tint, with a Reduce Transparency solid fallback. See the polish-pass note at the top.
 - **No per-action keyboard shortcuts in the menu (`⌘P`, `⌘L`, etc.).** Considered, dropped — arrow keys + Return are faster for 6 items, and visible shortcuts add visual noise to the menu row.
 - **No type-to-filter on the action menu.** 6 items doesn't need filtering. The Custom textarea is opened by picking Custom — explicit.
 - **No proactive nudges.** "This email reads tense — soften?" is a Phase 1.5 capability that requires passive text observation. Not in Phase 1.
