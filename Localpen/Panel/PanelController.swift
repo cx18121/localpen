@@ -342,13 +342,26 @@ final class PanelController {
         let anchor = sidebarTopLeft()
         // Pin the top edge so content-driven resizes grow downward, not jump.
         panel.pinnedTopY = anchor.y
-        panel.setFrameOrigin(NSPoint(x: anchor.x, y: anchor.y - panel.frame.height))
+        let finalOrigin = NSPoint(x: anchor.x, y: anchor.y - panel.frame.height)
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.setFrameOrigin(finalOrigin)
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+            panel.makeKey()
+            return
+        }
+
+        // Slide in a touch from the right edge while fading up — the panel
+        // "presents" itself rather than blinking into place.
+        panel.setFrameOrigin(NSPoint(x: finalOrigin.x + 16, y: finalOrigin.y))
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         panel.makeKey()
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.18
+            ctx.duration = 0.20
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+            panel.animator().setFrameOrigin(finalOrigin)
             panel.animator().alphaValue = 1
         }
     }
@@ -356,10 +369,17 @@ final class PanelController {
     private func hidePanelAnimated() {
         guard let panel else { return }
         let origin = panel.frame.origin
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            return
+        }
+
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.12
+            ctx.duration = 0.13
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-            panel.animator().setFrameOrigin(NSPoint(x: origin.x, y: origin.y + 4))
+            panel.animator().setFrameOrigin(NSPoint(x: origin.x + 12, y: origin.y))
             panel.animator().alphaValue = 0
         }, completionHandler: {
             Task { @MainActor [weak self] in

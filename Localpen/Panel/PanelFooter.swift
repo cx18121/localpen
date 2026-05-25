@@ -10,7 +10,7 @@ struct PanelFooter: View {
         .padding(.horizontal, Spacing.s6)
         .padding(.vertical, Spacing.s3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.panelBG2)
+        .background(Tokens.chromeTint)
     }
 
     private func hint(_ text: String) -> some View {

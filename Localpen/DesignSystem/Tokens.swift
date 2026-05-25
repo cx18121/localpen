@@ -21,6 +21,23 @@ enum Tokens {
         light: .oklch(0.92, 0.006, 240),
         dark:  .oklch(0.28, 0.010, 240)
     )
+    /// Tint laid over the vibrancy blur so body text keeps contrast while the
+    /// surface still reads as translucent glass. See PanelSurface.
+    static let panelTint   = Color.dynamic(
+        light: .oklch(0.97, 0.003, 240, opacity: 0.50),
+        dark:  .oklch(0.17, 0.008, 240, opacity: 0.42)
+    )
+    /// Subtle translucent band differentiating the footer / result-toolbar
+    /// chrome from the body without becoming an opaque slab over the glass.
+    static let chromeTint  = Color.dynamic(
+        light: .oklch(0.20, 0.006, 240, opacity: 0.05),
+        dark:  .oklch(0.96, 0.006, 240, opacity: 0.06)
+    )
+    /// Faint top inner-highlight that gives the panel a glass edge.
+    static let glassEdge   = Color.dynamic(
+        light: .oklch(1.00, 0.000, 240, opacity: 0.45),
+        dark:  .oklch(1.00, 0.000, 240, opacity: 0.10)
+    )
 
     // Text
     static let text        = Color.dynamic(

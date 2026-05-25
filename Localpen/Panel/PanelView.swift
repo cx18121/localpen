@@ -80,11 +80,18 @@ struct PanelView: View {
             }
         }
         .frame(width: 360)
-        .background(Tokens.panelBG)
+        .background(PanelSurface())
         .clipShape(RoundedRectangle(cornerRadius: Spacing.panelRadius))
         .overlay(
             RoundedRectangle(cornerRadius: Spacing.panelRadius)
-                .stroke(Tokens.panelBorder, lineWidth: 1)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Tokens.glassEdge, Tokens.panelBorder],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
         )
         .animation(Motion.menuToResult, value: controller.state.renderKey)
         .contextMenu {
