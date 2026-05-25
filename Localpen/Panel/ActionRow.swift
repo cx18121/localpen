@@ -1,26 +1,21 @@
 import SwiftUI
 
+/// A single action label. The focus highlight (tint + rail) is drawn and
+/// animated by ActionMenuView as one sliding element; this view only renders
+/// the label and its focused color/weight.
 struct ActionRow: View {
     let action: Action
     let isFocused: Bool
 
     var body: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(isFocused ? Tokens.accent : Color.clear)
-                .frame(width: 2)
-
-            Text(action.label)
-                .font(isFocused ? Typography.menuRowFocused : Typography.menuRow)
-                .foregroundStyle(isFocused ? Tokens.text : Tokens.textSoft)
-                .padding(.leading, Spacing.s5)
-                .padding(.vertical, Spacing.s2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: 38)
-        .background(isFocused ? Tokens.accentTint : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
-        .padding(.horizontal, Spacing.s4)
-        .animation(Motion.focusMove, value: isFocused)
+        Text(action.label)
+            .font(isFocused ? Typography.menuRowFocused : Typography.menuRow)
+            .foregroundStyle(isFocused ? Tokens.text : Tokens.textSoft)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Lead clears the highlight inset (s4) + rail (2) + gap (s5) so the
+            // label sits just right of the rail.
+            .padding(.leading, Spacing.s4 + 2 + Spacing.s5)
+            .padding(.trailing, Spacing.s5)
+            .animation(Motion.focusMove, value: isFocused)
     }
 }
