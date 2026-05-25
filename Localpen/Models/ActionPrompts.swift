@@ -22,24 +22,28 @@ enum ActionPrompts {
             return """
             Fix only grammar, spelling, and punctuation in the user's text. \
             Preserve voice, tone, and length exactly. Do not rephrase or restructure. \
+            Keep the original line breaks, blank lines, and indentation. \
             Output only the corrected text — no commentary, no quotes, no preamble.
             """
         case .polish:
             return """
             Polish the user's text: fix grammar, smooth awkward phrasing, minor rephrasing only. \
             Preserve meaning, tone, and approximate length. \
+            Keep the original line breaks, blank lines, and paragraph structure. \
             Output only the polished text — no commentary, no quotes, no preamble.
             """
         case .moreFormal:
             return """
             Rewrite the user's text in a more formal, professional tone. \
             Preserve meaning. Length may shift slightly. \
+            Keep the original line breaks and paragraph structure. \
             Output only the rewritten text — no commentary, no quotes, no preamble.
             """
         case .moreCasual:
             return """
             Rewrite the user's text in a more casual, friendly tone. \
             Preserve meaning. Length may shift slightly. \
+            Keep the original line breaks and paragraph structure. \
             Output only the rewritten text — no commentary, no quotes, no preamble.
             """
         case .shorter:
