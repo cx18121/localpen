@@ -4,6 +4,10 @@ import SwiftUI
 /// Bound to PanelController.inputText so user edits persist across the
 /// session and get applied when picking an action.
 ///
+/// Auto-sizing: SwiftUI's TextEditor doesn't grow to fit its content, so an
+/// invisible mirror `Text` drives the height and the editor's own scrolling is
+/// disabled. The box grows downward with the content instead of scrolling.
+///
 /// Click-to-focus. NSTextView (under TextEditor) handles typing + caret
 /// movement while focused. ESC (via FloatingPanel.cancelOperation) blurs
 /// back to the menu so arrow keys regain action-row navigation.
@@ -13,38 +17,52 @@ struct InputEditor: View {
 
     @FocusState private var focused: Bool
 
+    // Horizontal inset that lines the mirror Text up with the editor's text
+    // (TextEditor padding + NSTextContainer line-fragment padding).
+    private let hInset: CGFloat = 9
+    private let vInset: CGFloat = 6
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s2) {
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text("Type or paste text to transform…")
-                        .font(Typography.selection)
-                        .foregroundStyle(Tokens.textFaint)
-                        .italic()
-                        .padding(.top, 8)
-                        .padding(.leading, 8)
-                        .allowsHitTesting(false)
-                }
-                TextEditor(text: $text)
-                    .focused($focused)
-                    .font(Typography.selection)
-                    .foregroundStyle(Tokens.text)
-                    .scrollContentBackground(.hidden)
-                    .padding(4)
-                    .frame(minHeight: 64, maxHeight: 128)
-                    // ESC in a focused editor: blur it. Panel-level ESC then
-                    // dismisses on a second press.
-                    .onKeyPress(.escape) {
-                        focused = false
-                        return .handled
+            // Invisible mirror: sizes to the content so the box grows with it.
+            Text(text.isEmpty ? " " : text)
+                .font(Typography.selection)
+                .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                .padding(.horizontal, hInset)
+                .padding(.vertical, vInset)
+                .opacity(0)
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("Type or paste text to transform…")
+                            .font(Typography.selection)
+                            .foregroundStyle(Tokens.textFaint)
+                            .italic()
+                            .padding(.horizontal, hInset)
+                            .padding(.vertical, vInset + 2)
+                            .allowsHitTesting(false)
                     }
-            }
-            .background(Tokens.panelBG2)
-            .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: Spacing.innerRadius)
-                    .stroke(focused ? Tokens.accent : Tokens.hairline, lineWidth: 1)
-            )
+                }
+                .overlay {
+                    TextEditor(text: $text)
+                        .focused($focused)
+                        .font(Typography.selection)
+                        .foregroundStyle(Tokens.text)
+                        .scrollContentBackground(.hidden)
+                        .scrollDisabled(true)
+                        .padding(4)
+                        // ESC in a focused editor: blur it. Panel-level ESC then
+                        // dismisses on a second press.
+                        .onKeyPress(.escape) {
+                            focused = false
+                            return .handled
+                        }
+                }
+                .background(Tokens.panelBG2)
+                .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Spacing.innerRadius)
+                        .stroke(focused ? Tokens.accent : Tokens.hairline, lineWidth: 1)
+                )
 
             if let app = sourceAppName {
                 Text("from \(app)")
