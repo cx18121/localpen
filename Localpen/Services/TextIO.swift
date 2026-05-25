@@ -63,14 +63,35 @@ final class TextIO {
             return .skipped
         }
 
-        capture.savedFrontmostApp?.activate(options: [])
-        try? await Task.sleep(for: .milliseconds(80))
+        // Bring the source app back to the front and wait until it is actually
+        // frontmost before synthesizing ⌘V — otherwise the keystroke lands in
+        // Localpen (or nowhere) and nothing pastes.
+        capture.savedFrontmostApp?.activate()
+        await waitUntilFrontmost(capture.savedFrontmostApp, timeout: .milliseconds(700))
+
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        log.info("pasteBack: target=\(capture.sourceBundleID ?? "nil", privacy: .public) frontmostAtPaste=\(front ?? "nil", privacy: .public)")
 
         postCmdChord(keyCode: CGKeyCode(kVK_ANSI_V))
-        try? await Task.sleep(for: .milliseconds(120))
+        // Give the target app time to read the pasteboard before we restore the
+        // user's previous clipboard; restoring too early pastes the old content.
+        try? await Task.sleep(for: .milliseconds(250))
 
         restorePasteboard(capture.savedItems)
         return .pasted
+    }
+
+    /// Polls until `app` becomes frontmost or the timeout elapses, so a
+    /// just-activated app has actually taken focus before we synthesize keys.
+    private func waitUntilFrontmost(_ app: NSRunningApplication?, timeout: Duration) async {
+        guard let app else { return }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     /// Restore the pasteboard captured at hotkey time. Call on any dismissal
