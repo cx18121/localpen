@@ -5,6 +5,7 @@ struct ResultToolbar: View {
 
     let action: Action
     let mode: Mode
+    var justCopied: Bool = false
     var onAccept: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
 
@@ -26,7 +27,13 @@ struct ResultToolbar: View {
 
             case .result:
                 KbdHint("⌘↩", "accept")
-                KbdHint("⌘C", "copy")
+                if justCopied {
+                    Text("copied ✓")
+                        .font(Typography.pill)
+                        .foregroundStyle(Tokens.accent)
+                } else {
+                    KbdHint("⌘C", "copy")
+                }
                 KbdHint("esc", "back")
 
             case .editing:

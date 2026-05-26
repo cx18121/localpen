@@ -65,6 +65,7 @@ struct PanelView: View {
                         ResultToolbar(
                             action: action,
                             mode: isEditing ? .editing : .result,
+                            justCopied: controller.justCopied,
                             onAccept: { controller.acceptResult() },
                             onBack: { controller.backToMenu() }
                         )
@@ -91,11 +92,8 @@ struct PanelView: View {
         )
         .animation(Motion.menuToResult, value: controller.state.renderKey)
         .contextMenu {
-            if case .visible(_, .result(let text, _)) = controller.state {
-                Button("Copy Result") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                }
+            if case .visible(_, .result) = controller.state {
+                Button("Copy Result") { controller.copyResult() }
             }
             Button("Settings…") { controller.openSettings() }
             Button("About Localpen") {

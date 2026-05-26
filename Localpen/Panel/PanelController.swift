@@ -30,6 +30,10 @@ final class PanelController {
     /// from arrow-key navigation.
     var lastInputSource: InputSource = .keyboard
     enum InputSource { case keyboard, mouse }
+    /// True for a brief beat right after ⌘C copies the result, so the toolbar
+    /// can show a "copied" confirmation. Reset by `flashCopied`.
+    var justCopied: Bool = false
+    @ObservationIgnored private var copyFlashTask: Task<Void, Never>?
 
     static let panelSize = NSSize(width: 400, height: 480)
     static let panelEdgeMargin: CGFloat = 24
@@ -78,19 +82,41 @@ final class PanelController {
     // MARK: - Entry / dismiss
 
     func toggleFromHotkey() {
-        if state.isVisible { return }
+        // Pressing the hotkey again while the panel is open dismisses it — the
+        // name promises a toggle, and reaching for Esc/click-away to undo your
+        // own hotkey is a daily-use papercut.
+        if state.isVisible { dismiss(); return }
         Task { await captureAndShow() }
     }
 
     func dismiss() {
         current?.cancelStreaming()
+        // Capture the on-screen result before flushing — flushPendingAsRejected
+        // clears the pending interaction.
+        let resultText = displayedResultText()
         flushPendingAsRejected()
         if let session = current {
-            textIO.restoreClipboard(session.capture)
+            if let resultText {
+                // A finished result is showing (or was just ⌘C-copied). Leave it
+                // on the clipboard so dismissing — including the click-away you'd
+                // naturally make to go paste it — doesn't wipe it back to the
+                // original captured selection.
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(resultText, forType: .string)
+            } else {
+                textIO.restoreClipboard(session.capture)
+            }
         }
         state = .hidden
         current = nil
         hidePanelAnimated()
+    }
+
+    /// The finished result text if the panel is currently showing one, else nil.
+    /// Drives the clipboard end-state on dismiss (see `dismiss`).
+    private func displayedResultText() -> String? {
+        if case .visible(_, .result(let text, _)) = state { return text }
+        return nil
     }
 
     // MARK: - Unified keyboard handler
@@ -238,6 +264,19 @@ final class PanelController {
         guard case .visible(_, .result(let text, _)) = state else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        flashCopied()
+    }
+
+    /// Briefly flips `justCopied` so the result toolbar can confirm the copy
+    /// (⌘C is otherwise silent). Self-clearing after a short beat.
+    private func flashCopied() {
+        justCopied = true
+        copyFlashTask?.cancel()
+        copyFlashTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled else { return }
+            self?.justCopied = false
+        }
     }
 
     func setEditing(_ editing: Bool) {
@@ -454,11 +493,17 @@ final class PanelController {
         }
     }
 
-    private func armWatchdog(action: Action, selection: Selection?) {
+    /// Watchdog before the first token is generous: the first generation after
+    /// launch may still be loading the 7B model from a cold disk cache, which
+    /// can legitimately take far longer than the inter-token stall window.
+    private static let firstTokenTimeout: Duration = .seconds(90)
+    private static let interTokenTimeout: Duration = .seconds(30)
+
+    private func armWatchdog(action: Action, selection: Selection?, timeout: Duration) {
         guard let session = current else { return }
         session.watchdogTask?.cancel()
         session.watchdogTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(30))
+            try? await Task.sleep(for: timeout)
             guard !Task.isCancelled, let self else { return }
             self.current?.streamingTask?.cancel()
             self.state = .visible(PanelContext(selection: selection, action: action), .error(.timeout))
@@ -469,7 +514,7 @@ final class PanelController {
         let systemPrompt = registry.systemPrompt(for: action)
         let userPrompt = ActionPrompts.userMessage(for: action, text: selection?.text ?? "")
 
-        armWatchdog(action: action, selection: selection)
+        armWatchdog(action: action, selection: selection, timeout: Self.firstTokenTimeout)
         defer { current?.watchdogTask?.cancel() }
 
         var partial = ""
@@ -485,7 +530,7 @@ final class PanelController {
                 }
                 partial += token
                 streamingText = partial   // re-renders only StreamingResultView
-                armWatchdog(action: action, selection: selection)
+                armWatchdog(action: action, selection: selection, timeout: Self.interTokenTimeout)
             }
             if Task.isCancelled { return }
             current?.pendingInteraction = buildInteraction(
