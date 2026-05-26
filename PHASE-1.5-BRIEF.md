@@ -25,10 +25,10 @@ What Phase 1 has already future-proofed (no rework when 1.5 lands):
 | Phase 1 artifact | How 1.5 extends |
 |---|---|
 | `PanelState` enum (SWIFTUI-SPEC §6) | Add new cases: `.conversing(threadID)`, `.proactiveNudge(...)`. The enum-with-associated-values shape grows cleanly. |
-| Streaming infrastructure (`StreamingClient`) | Reused as-is — multi-turn just means more requests over time. |
+| Streaming infrastructure (`StreamingClient`) | SSE transport (cancellation, token parsing) is reused as-is. The `complete(systemPrompt:userText:)` signature is hardwired to a single system+user turn, though — multi-turn needs a new `messages:`-based entry point that takes the full thread. |
 | Persistence schema (ADR 0006) | Add a `thread_id` column to `interactions`, plus a new `threads` table. Schema migration. |
 | NSPanel + Direction A layout (DESIGN.md §3.3) | The result region grows into a scrollable thread view. Selection block stays anchored at top as conversation context. |
-| Anchor store (per-bundle-ID) | Reused; persistent panel might want a separate anchor than transient. |
+| ~~Anchor store (per-bundle-ID)~~ | **Gone.** The per-bundle `AnchorStore` was removed in the Phase 1 thermo cleanup; the panel now anchors to a fixed top-right of the cursor's screen with no remembered position. If 1.5 wants the persistent panel to sit in a different (or remembered) spot than the transient one, that anchoring would be rebuilt from scratch — it's not a reuse anymore. |
 
 What Phase 1 ships that 1.5 **doesn't** depend on (so it can stay deferred):
 - Memory inference output (Phase 2)
