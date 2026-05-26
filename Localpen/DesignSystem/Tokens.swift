@@ -14,17 +14,20 @@ enum Tokens {
         dark:  .oklch(0.24, 0.009, 240)
     )
     static let panelBorder = Color.dynamic(
-        light: .oklch(0.88, 0.008, 240),
+        light: .oklch(0.80, 0.010, 240),
         dark:  .oklch(0.32, 0.012, 240)
     )
     static let hairline    = Color.dynamic(
-        light: .oklch(0.92, 0.006, 240),
+        light: .oklch(0.85, 0.008, 240),
         dark:  .oklch(0.28, 0.010, 240)
     )
     /// Tint laid over the vibrancy blur so body text keeps contrast while the
     /// surface still reads as translucent glass. See PanelSurface.
+    /// Light mode runs nearly opaque: the airy 50% glass let bright/busy desktop
+    /// content bleed through and wreck text contrast, so light prioritizes
+    /// legibility (a frosted-but-solid surface) while dark keeps more glass.
     static let panelTint   = Color.dynamic(
-        light: .oklch(0.97, 0.003, 240, opacity: 0.50),
+        light: .oklch(0.98, 0.003, 240, opacity: 0.90),
         dark:  .oklch(0.17, 0.008, 240, opacity: 0.42)
     )
     /// Subtle translucent band differentiating the footer / result-toolbar
@@ -45,15 +48,15 @@ enum Tokens {
         dark:  .oklch(0.94, 0.006, 240)
     )
     static let textSoft    = Color.dynamic(
-        light: .oklch(0.36, 0.008, 240),
+        light: .oklch(0.34, 0.008, 240),
         dark:  .oklch(0.78, 0.008, 240)
     )
     static let textMute    = Color.dynamic(
-        light: .oklch(0.50, 0.008, 240),
+        light: .oklch(0.42, 0.010, 240),
         dark:  .oklch(0.58, 0.008, 240)
     )
     static let textFaint   = Color.dynamic(
-        light: .oklch(0.66, 0.008, 240),
+        light: .oklch(0.52, 0.010, 240),
         dark:  .oklch(0.44, 0.008, 240)
     )
 

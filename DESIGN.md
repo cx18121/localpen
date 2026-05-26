@@ -55,13 +55,17 @@ Same hues, lightness inverted. Worth specifying as a token map; the swiftui-expe
 |---|---|
 | Panel surface | `oklch(0.98 0.003 240)` |
 | Panel surface 2 | `oklch(0.96 0.004 240)` |
-| Panel border | `oklch(0.88 0.008 240)` |
+| Panel border | `oklch(0.80 0.010 240)` |
+| Hairline | `oklch(0.85 0.008 240)` |
 | Body text | `oklch(0.20 0.008 240)` |
-| Soft text | `oklch(0.36 0.008 240)` |
-| Muted text | `oklch(0.50 0.008 240)` |
+| Soft text | `oklch(0.34 0.008 240)` |
+| Muted text | `oklch(0.42 0.010 240)` |
+| Faint text (placeholders) | `oklch(0.52 0.010 240)` |
 | Accent | `oklch(0.52 0.10 200)` (slightly darker for contrast against light background) |
 
 Light mode follows from the inversion. If a color choice in dark conflicts with the light inversion (e.g., contrast falls below 4.5:1), dark's value wins and the light token rebalances individually.
+
+> **Light-mode readability pass (2026-05).** The first light build was hard to read: the glass surface ran too translucent (50% tint over `.popover` vibrancy), so bright/busy desktop content bled through and wrecked text contrast — worst on the lighter grays. Two corrections: (1) light `panelTint` now runs nearly opaque (`oklch(0.98 0.003 240)` @ **0.90**) — a frosted-but-solid surface that prioritizes legibility over see-through glass; dark mode keeps its airier 0.42 tint. (2) The secondary grays and dividers were darkened for contrast on a light surface (muted `0.50→0.42`, faint `0.66→0.52`, soft `0.36→0.34`, hairline `0.92→0.85`, border `0.88→0.80`).
 
 ### 2.3 Typography
 
