@@ -30,6 +30,13 @@ final class TextIO {
         let beforeCount = pasteboard.changeCount
         log.info("capture: frontmost=\(frontmost?.bundleIdentifier ?? "nil", privacy: .public) pbCountBefore=\(beforeCount)")
 
+        // The hotkey (e.g. ⌃⌥Space) is almost certainly still physically held
+        // when we get here. The window server ORs those live modifiers into our
+        // injected key event, turning the synthetic ⌘C into ⌃⌥⌘C — which no app
+        // treats as Copy, so nothing is captured. Wait for the modifiers to lift
+        // first (best-effort, with a timeout) so the copy lands clean.
+        await waitForModifiersClear(timeout: .milliseconds(600))
+
         postCmdChord(keyCode: CGKeyCode(kVK_ANSI_C))
         try? await Task.sleep(for: .milliseconds(120))
 
@@ -79,6 +86,18 @@ final class TextIO {
 
         restorePasteboard(capture.savedItems)
         return .pasted
+    }
+
+    /// Polls until the user has released the keyboard modifiers (or the timeout
+    /// elapses), so a synthetic ⌘ chord isn't contaminated by modifiers still
+    /// held from the summoning hotkey.
+    private func waitForModifiersClear(timeout: Duration) async {
+        let watched: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if NSEvent.modifierFlags.intersection(watched).isEmpty { return }
+            try? await Task.sleep(for: .milliseconds(15))
+        }
     }
 
     /// Polls until `app` becomes frontmost or the timeout elapses, so a
