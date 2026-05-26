@@ -9,11 +9,21 @@ import AppKit
 /// Replaces the earlier SwiftUI TextEditor + invisible-mirror approach, whose
 /// wrapping never matched the real text view exactly and clipped long text.
 struct GrowingTextEditor: NSViewRepresentable {
+    /// Top inset of the text inside the NSTextView. Overlay placeholders align
+    /// to this so they sit exactly where typed text appears (see InputEditor /
+    /// CustomPromptView). Horizontal inset and lineFragmentPadding are both 0.
+    static let topInset: CGFloat = 2
+
     @Binding var text: String
     @Binding var isFocused: Bool
     var autoFocus: Bool = false
     var focusTick: Int = 0
     var fontSize: CGFloat = 14
+    /// When set, the editor acts as a submit field: Return calls this (with the
+    /// live text), Shift+Return inserts a newline, and Esc bubbles up to the
+    /// panel (for "back") instead of blurring. When nil (the default), Esc/Tab
+    /// blur focus back to the menu.
+    var onSubmit: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -27,7 +37,7 @@ struct GrowingTextEditor: NSViewRepresentable {
         tv.textColor = .labelColor
         tv.isAutomaticQuoteSubstitutionEnabled = false
         tv.isAutomaticDashSubstitutionEnabled = false
-        tv.textContainerInset = NSSize(width: 0, height: 2)
+        tv.textContainerInset = NSSize(width: 0, height: Self.topInset)
         tv.textContainer?.lineFragmentPadding = 0
         tv.textContainer?.widthTracksTextView = true
         tv.isVerticallyResizable = false
@@ -72,8 +82,19 @@ struct GrowingTextEditor: NSViewRepresentable {
             parent.text = tv.string
         }
 
-        // Esc and Tab blur the editor so focus returns to the action menu.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // Submit mode: Return submits, Shift+Return inserts a newline, and
+            // Esc/Tab fall through to the panel (Esc → back).
+            if let onSubmit = parent.onSubmit {
+                if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                    let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
+                    if shift { return false }
+                    onSubmit(textView.string)
+                    return true
+                }
+                return false
+            }
+            // Default mode: Esc and Tab blur so focus returns to the action menu.
             switch commandSelector {
             case #selector(NSResponder.cancelOperation(_:)),
                  #selector(NSResponder.insertTab(_:)):

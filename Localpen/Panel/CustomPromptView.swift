@@ -4,7 +4,7 @@ struct CustomPromptView: View {
     let onSubmit: (String) -> Void
 
     @State private var text: String = ""
-    @FocusState private var inputFocused: Bool
+    @State private var isFocused = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,22 +18,33 @@ struct CustomPromptView: View {
                         Text("Type a custom prompt…")
                             .foregroundStyle(Tokens.textFaint)
                             .font(Typography.menuRow)
-                            .padding(.top, Spacing.s3)
-                            .padding(.leading, 4)
+                            .padding(.top, GrowingTextEditor.topInset)
                             .allowsHitTesting(false)
                     }
-                    TextEditor(text: $text)
-                        .focused($inputFocused)
-                        .font(Typography.menuRow)
-                        .foregroundStyle(Tokens.text)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 40, maxHeight: 96)
+                    // AppKit-backed editor: reliable auto-focus on appear (the
+                    // SwiftUI @FocusState/onAppear path dropped focus during the
+                    // panel's animated state swap), Return submits, ⇧Return adds
+                    // a newline, Esc bubbles to the panel for "back".
+                    GrowingTextEditor(
+                        text: $text,
+                        isFocused: $isFocused,
+                        autoFocus: true,
+                        fontSize: 14,
+                        onSubmit: { raw in
+                            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+                            onSubmit(trimmed)
+                        }
+                    )
+                    // Hug content height so the prompt box stays compact and
+                    // grows with the text, instead of stretching to fill the
+                    // panel (nothing below it absorbs the height here).
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 22)
                 }
             }
             .padding(.horizontal, Spacing.s7)
             .padding(.vertical, Spacing.s4)
-            .contentShape(Rectangle())
-            .onTapGesture { inputFocused = true }
 
             Hairline()
 
@@ -46,17 +57,6 @@ struct CustomPromptView: View {
             .padding(.vertical, Spacing.s3)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Tokens.chromeTint)
-        }
-        .onAppear { inputFocused = true }
-        // Plain Return submits; Shift+Return inserts a newline.
-        // We use the SwiftUI handler here (not the panel-level one) because
-        // the TextEditor is the first responder while focused.
-        .onKeyPress(.return, phases: .down) { keyPress in
-            if keyPress.modifiers.contains(.shift) { return .ignored }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return .handled }
-            onSubmit(trimmed)
-            return .handled
         }
     }
 }

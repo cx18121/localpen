@@ -27,6 +27,7 @@ struct InputEditor: View {
                         .font(Typography.selection)
                         .foregroundStyle(Tokens.textFaint)
                         .italic()
+                        .padding(.top, GrowingTextEditor.topInset)
                         .allowsHitTesting(false)
                 }
                 GrowingTextEditor(
