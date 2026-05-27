@@ -59,3 +59,15 @@ targets:
         product: GRDB
       - package: TOMLKit
         product: TOMLKit
+    postBuildScripts:
+      # Keep /Applications/Localpen.app current after every Debug build so the
+      # menu-bar app launches from Spotlight/Raycast and reflects the latest
+      # code. Debug-gated so an archive/Release build never clobbers it. Relies
+      # on ENABLE_USER_SCRIPT_SANDBOXING: NO to write outside the build dir.
+      - name: "Install Debug build to /Applications"
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$CONFIGURATION" = "Debug" ]; then
+            rm -rf "/Applications/$PRODUCT_NAME.app"
+            cp -R "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "/Applications/$PRODUCT_NAME.app"
+          fi
