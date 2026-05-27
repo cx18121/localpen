@@ -409,6 +409,15 @@ final class PanelController {
         focusedActionIndex = 1
         lastInputSource = .keyboard
 
+        // Show the panel IMMEDIATELY (Raycast-snappy) instead of waiting on the
+        // selection-capture round-trip — which first waits for the hotkey modifiers
+        // to lift, then synthesizes ⌘C. We present without taking keyboard focus so
+        // the source app stays frontmost and the capture ⌘C lands there, then fill
+        // in the selection and grab focus once it returns.
+        inputText = ""
+        state = .visible(PanelContext(), .empty)
+        showPanel(makeKey: false)
+
         let capture = await textIO.captureSelection()
         guard sessionCounter == myID else { return }   // superseded during capture
 
@@ -428,7 +437,7 @@ final class PanelController {
         } else {
             state = .visible(PanelContext(), .empty)
         }
-        showPanel()
+        focusPanel()
     }
 
     /// Builds a Selection that reflects the user's current edits to inputText,
@@ -459,7 +468,11 @@ final class PanelController {
         )
     }
 
-    private func showPanel() {
+    /// Brings the panel up. `makeKey: false` shows it WITHOUT taking keyboard focus
+    /// — used during the snappy open so the source app stays frontmost long enough
+    /// for the selection-capture ⌘C to land there, not in Localpen. `focusPanel()`
+    /// grabs key focus afterward.
+    private func showPanel(makeKey: Bool = true) {
         let rect = NSRect(origin: .zero, size: Self.panelSize)
 
         if panel == nil {
@@ -483,7 +496,7 @@ final class PanelController {
             panel.setFrameOrigin(finalOrigin)
             panel.alphaValue = 1
             panel.orderFrontRegardless()
-            panel.makeKey()
+            if makeKey { panel.makeKey() }
             return
         }
 
@@ -492,13 +505,21 @@ final class PanelController {
         panel.setFrameOrigin(NSPoint(x: finalOrigin.x + 16, y: finalOrigin.y))
         panel.alphaValue = 0
         panel.orderFrontRegardless()
-        panel.makeKey()
+        if makeKey { panel.makeKey() }
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.20
+            ctx.duration = 0.16
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
             panel.animator().setFrameOrigin(finalOrigin)
             panel.animator().alphaValue = 1
         }
+    }
+
+    /// Grabs keyboard focus for the already-shown panel (the second half of the
+    /// snappy open, once selection capture has finished and the source app no
+    /// longer needs to be frontmost). Nonactivating panel → keys route here
+    /// without activating Localpen as the foreground app.
+    private func focusPanel() {
+        panel?.makeKey()
     }
 
     private func hidePanelAnimated() {
@@ -812,6 +833,7 @@ final class PanelController {
     func openHistory() {
         guard case .visible(let ctx, _) = state else { return }
         let epoch = bumpConvEpoch()
+        current?.cancelStreaming()   // entered mid-conversation: stop any in-flight turn
         state = .visible(ctx, .history)
         Task { @MainActor [weak self] in
             guard let self else { return }

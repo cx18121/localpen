@@ -462,5 +462,5 @@ This DESIGN.md is locked for swiftui-expert handoff. Future revisions explicitly
 
 - **Vibrancy material trial** (Phase 2): re-test `.hudWindow` material on the panel surface; may improve "feels native" further.
 - **Light theme refinement** (Phase 1 ship): once dark looks right in actual SwiftUI build, do a focused light-mode pass against the inverted token map.
-- **Phase 1.5 chat thread design**: separate DESIGN-1.5.md when Phase 1 ships and the conversational surface gets started.
+- **Phase 1.5 chat thread design**: now specified in [DESIGN-1.5.md](./DESIGN-1.5.md) (conversational surface, built + merged 2026-05-27).
 - **Settings window design**: deliberately not specified in v1 — a single-row settings window (Hotkey + model picker entry) is the Phase 1 placeholder. Worth a quick second sketch pass when the build is close to that screen.

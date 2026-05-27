@@ -22,6 +22,21 @@ struct ConversationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Always-available recents control: mid-conversation you can still jump
+            // to history (the menu states have their own in PanelFooter).
+            HStack {
+                Spacer()
+                Button { controller.openHistory() } label: {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Tokens.textFaint)
+                }
+                .buttonStyle(.plain)
+                .help("Recent conversations")
+            }
+            .padding(.horizontal, Spacing.s6)
+            .padding(.top, Spacing.s3)
+
             SelectionBlock(selection: conversation.originalSelection)
             Hairline()
 
