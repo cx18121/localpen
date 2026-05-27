@@ -53,6 +53,15 @@ final class NotchPresenter {
                 NotchDot { self?.onClickOpen?() }
             }
         )
+        // Snappier open: skip the 250ms intermediate-hide step DynamicNotchKit
+        // otherwise inserts when converting compact→expanded, and use tighter,
+        // less-bouncy curves so the surface feels crisp rather than springy.
+        notch.transitionConfiguration = .init(
+            openingAnimation: .snappy(duration: 0.26),
+            closingAnimation: .snappy(duration: 0.20),
+            conversionAnimation: .snappy(duration: 0.24),
+            skipIntermediateHides: true
+        )
         observeHover()
         installKeyMonitor()
     }
