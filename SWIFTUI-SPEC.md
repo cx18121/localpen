@@ -216,6 +216,32 @@ PanelState (enum, @Observable wrapper):
 
 State changes happen via methods on `PanelController` (the controller that owns the `PanelState`). Views call into the controller via injected closures or `@Environment` actions.
 
+### 6.2 Operation class and the Respond action (ADR 0009)
+
+**`Action.OperationClass`** is a two-case enum nested in or alongside `Action`:
+
+- `.revise` — the result is a revised version of the captured selection; paste-back applies.
+- `.create` — the result is a new artifact (e.g. a reply); paste-back does not apply; the result copies to the clipboard.
+
+Every `Action` case carries a computed `operationClass: OperationClass` property. The existing five transforms plus `.custom` are `.revise`. The new `.respond` case is `.create`.
+
+**Updated `Action` enum.** The full Phase 1 set is: `.proofread / .polish / .moreFormal / .moreCasual / .shorter / .custom(String) / .respond`. The `Action` enum must be `Identifiable` and `Hashable` (stable for `ForEach`).
+
+**`PanelContext.action` invariant.** The `.customPrompt` state always carries its pending action explicitly in `PanelContext` (or as an associated value on `.customPrompt`) so `submitCompose` can route via `Action.fromCompose(_:context:)` without re-inferring intent at submit time.
+
+**`submitCompose` routing.** `PanelController.submitCompose(text:)` delegates to `Action.fromCompose(_:context:)`, which returns the appropriate `Action` based on the compose context (Custom → `.custom(text)`, Respond compose path → `.respond` with optional steer). This keeps routing logic in the model layer, not in the view.
+
+**Class-aware `acceptResult`.**  `PanelController.acceptResult(result:)` branches on `action.operationClass`:
+
+- `.revise` → call `TextIO.pasteBack(result)` → dismiss. (Existing behavior.)
+- `.create` → place `result` on `NSPasteboard.general` → dismiss without paste-back. No `TextIO.pasteBack` call.
+
+The result-toolbar view reads `action.operationClass` to select the correct footer hint copy (see DESIGN.md §3.4 and §6).
+
+**`styleContext` Phase 2 seam.** `ActionPrompts` exposes a `styleContext: String?` parameter on the Respond prompt builder. Phase 1 always passes `nil`; Phase 2 will supply a voice/style string derived from the inferred-style store (ADR 0006 memory layer). The parameter is present in Phase 1 to avoid a call-site change when Phase 2 populates it.
+
+**Disabled-row invariant.** `ActionMenuView` disables and skips `.respond` in keyboard focus when `PanelState` is `.empty` (no captured selection). The `Action.respond` case has a computed `requiresSelection: Bool = true` property that `ActionMenuView` checks to determine disablement.
+
 ---
 
 ## 7. Streaming-result rendering (DESIGN.md §8 Q3)

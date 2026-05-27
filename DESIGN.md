@@ -199,6 +199,14 @@ When an action is picked, the **Action Menu** section transforms into the **Resu
 - Left: action pill — small pill labeled with the action name (e.g., "Polish"), text color `--accent`, background `--accent-tint`, padding 3pt vertical / 8pt horizontal, radius 999px.
 - Right: hint cluster — "⌘↩ accept · ⌘C copy · esc back" (polish pass; was "⌫ try another"), key glyphs in the mono kbd style (`--text-soft`), labels `--text-mute`.
 
+**Action Menu Grouping (Revise / Create).**
+- The action menu is divided into two named groups: **Revise** (the five transforms: Proofread, Polish, More formal, More casual, Shorter, plus Custom) and **Create** (Respond). Each group is preceded by a short section header label rendered in `--text-mute` at 11px, uppercase, non-interactive.
+- Keyboard navigation remains a single flat list — `↑↓` moves through all rows in document order across both groups, wrapping top/bottom. No submenus.
+- **Respond** carries a subtle green "create" accent: its row label uses a low-chroma green tint (`oklch(0.72 0.10 150)`) at rest instead of `--text-soft`, signaling generative output without breaking the monochrome aesthetic. The focused state still uses the standard `--accent-tint` background and `--accent` rail.
+- The Respond row is **disabled** when no selection was captured (S3 empty state): rendered at reduced opacity (`--text-faint`) and skipped by keyboard focus.
+- **Create results copy to the clipboard and do not paste back.** When the user accepts a Respond result (`⌘↩`), the result is placed on the clipboard and the panel dismisses — identical to `⌘C` on a Revise result. The result-toolbar footer hint updates to reflect this: "**⌘↩ copy reply** · ⌘C copy · esc back". The action pill in the toolbar reads "Respond."
+- Revise results continue to paste back as before.
+
 ### 3.5 Custom prompt mode
 
 When the user picks **Custom…** from the action menu, the menu region (not the selection block) transforms into a textarea:
@@ -383,7 +391,9 @@ Final committed copy for all surfaces. Voice: terse, native, slightly understate
 |---|---|
 | Selection metadata | from <App Name> |
 | Selection metadata (unknown app) | from another app |
-| Action labels | Proofread · Polish · More formal · More casual · Shorter · Custom… |
+| Action group headers | Revise · Create |
+| Action labels | Proofread · Polish · More formal · More casual · Shorter · Custom… · Respond |
+| Result toolbar hints (Create action) | ⌘↩ copy reply · ⌘C copy · esc back |
 | Action menu footer | ↑↓ select · ↩ apply · ⇥ edit · esc close |
 | Result toolbar hints | ⌘↩ accept · ⌘C copy · esc back |
 | Result toolbar (editing) | ↩ save · esc cancel |
