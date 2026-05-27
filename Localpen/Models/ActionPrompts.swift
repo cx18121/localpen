@@ -14,6 +14,18 @@ enum ActionPrompts {
     /// Assembles the user-role message for a generation. Fixed actions send the
     /// selection verbatim; `.custom` wraps the instruction around the text (or
     /// sends the instruction alone when there's no selection).
+    /// System prompt for multi-turn refinement threads. Deliberately generic so
+    /// free-form follow-ups aren't constrained by a single action's framing. The
+    /// seed action's instruction arrives as the first user message. `styleContext`
+    /// is the Phase-2 voice seam (empty in Phase 1).
+    static let conversationSystem: String = """
+        You are a writing companion helping the user refine a piece of text over \
+        several turns. The user's first message states what they want done with \
+        the text that follows. Each later message is a refinement request. Always \
+        return only the revised text, with no preamble, commentary, or quotation \
+        marks. Keep the user's meaning and voice; change only what they ask for.
+        """ + styleContext
+
     static func userMessage(for action: Action, text: String) -> String {
         switch action {
         case .custom(let instruction):
