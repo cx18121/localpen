@@ -225,22 +225,22 @@ State changes happen via methods on `PanelController` (the controller that owns 
 
 Every `Action` case carries a computed `operationClass: OperationClass` property. The existing five transforms plus `.custom` are `.revise`. The new `.respond` case is `.create`.
 
-**Updated `Action` enum.** The full Phase 1 set is: `.proofread / .polish / .moreFormal / .moreCasual / .shorter / .custom(String) / .respond`. The `Action` enum must be `Identifiable` and `Hashable` (stable for `ForEach`).
+**Updated `Action` enum.** The full Phase 1 set is: `.proofread / .polish / .moreFormal / .moreCasual / .shorter / .custom(String) / .respond(String)`. The `Action` enum must be `Identifiable` and `Hashable` (stable for `ForEach`).
 
-**`PanelContext.action` invariant.** The `.customPrompt` state always carries its pending action explicitly in `PanelContext` (or as an associated value on `.customPrompt`) so `submitCompose` can route via `Action.fromCompose(_:context:)` without re-inferring intent at submit time.
+**`PanelContext.action` invariant.** The `.customPrompt` state always carries its pending action explicitly in `PanelContext` (or as an associated value on `.customPrompt`) so `submitCompose` can read it without re-inferring intent at submit time.
 
-**`submitCompose` routing.** `PanelController.submitCompose(text:)` delegates to `Action.fromCompose(_:context:)`, which returns the appropriate `Action` based on the compose context (Custom → `.custom(text)`, Respond compose path → `.respond` with optional steer). This keeps routing logic in the model layer, not in the view.
+**`submitCompose` routing.** `PanelController.submitCompose(_ text: String)` reads the base action from the `.customPrompt` state's `PanelContext.action`, then delegates to `Action.fromCompose(base:text:)` — which trims `text` and returns: `.custom(trimmed)` when the base is `.custom` and trimmed is non-empty; `.respond(trimmed)` when the base is `.respond` (empty steer allowed); `nil` otherwise (submission is a no-op). This keeps routing logic in the model layer, not in the view.
 
-**Class-aware `acceptResult`.**  `PanelController.acceptResult(result:)` branches on `action.operationClass`:
+**Class-aware `acceptResult`.**  `PanelController.acceptResult()` (no parameters) branches on `action.operationClass`:
 
 - `.revise` → call `TextIO.pasteBack(result)` → dismiss. (Existing behavior.)
 - `.create` → place `result` on `NSPasteboard.general` → dismiss without paste-back. No `TextIO.pasteBack` call.
 
 The result-toolbar view reads `action.operationClass` to select the correct footer hint copy (see DESIGN.md §3.4 and §6).
 
-**`styleContext` Phase 2 seam.** `ActionPrompts` exposes a `styleContext: String?` parameter on the Respond prompt builder. Phase 1 always passes `nil`; Phase 2 will supply a voice/style string derived from the inferred-style store (ADR 0006 memory layer). The parameter is present in Phase 1 to avoid a call-site change when Phase 2 populates it.
+**`styleContext` Phase 2 seam.** `ActionPrompts` declares `static let styleContext: String = ""`. The `.respond` system prompt string-concatenates `styleContext` at its tail. Phase 2 fills in the constant with a voice/style string; Phase 1 leaves it empty. There is no per-call parameter — the seam is the constant itself, not a call-site argument.
 
-**Disabled-row invariant.** `ActionMenuView` disables and skips `.respond` in keyboard focus when `PanelState` is `.empty` (no captured selection). The `Action.respond` case has a computed `requiresSelection: Bool = true` property that `ActionMenuView` checks to determine disablement.
+**Disabled-row invariant.** `PanelController.respondEnabled` is a computed `Bool` — `selectionWithCurrentInput() != nil` — that is `true` whenever there is working text: either a captured selection or text the user has typed or pasted into the input field. `ActionMenuView` dims the Respond row and `nextSelectableIndex(from:step:)` skips it during keyboard navigation when `!respondEnabled`; `pick(_:)` also guards it. There is no `Action.requiresSelection` property.
 
 ---
 
