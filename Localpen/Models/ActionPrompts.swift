@@ -7,8 +7,8 @@ import Foundation
 enum ActionPrompts {
     /// Phase-2 voice injection point. Empty today: appended to generative
     /// system prompts so a learned style can be slotted in later with no
-    /// structural change. Keep the leading space so concatenation reads
-    /// cleanly when non-empty.
+    /// structural change. If non-empty, it should begin with a space so
+    /// concatenation reads cleanly.
     static let styleContext: String = ""
 
     /// Assembles the user-role message for a generation. Fixed actions send the

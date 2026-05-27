@@ -70,9 +70,6 @@ enum Action: Hashable, Identifiable {
         }
     }
 
-    /// Actions that produce a new artifact rather than revising the selection.
-    static let createActions: [Action] = [.respond("")]
-
     /// Resolves the compose field's entered text into the action to generate,
     /// or nil when the submission should be ignored. Respond accepts empty
     /// (empty steer = a sensible default reply); Custom requires non-empty.
