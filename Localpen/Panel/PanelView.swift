@@ -13,7 +13,7 @@ struct PanelView: View {
             case .visible(let ctx, let phase):
                 switch phase {
                 case .empty:
-                    InputEditor(text: $controller.inputText, sourceAppName: nil, autoFocus: true, focusTick: controller.inputFocusTick)
+                    InputEditor(text: $controller.inputText, sourceAppName: nil, autoFocus: true, focusTick: controller.inputFocusTick, isCapturing: controller.isCapturing)
                     Hairline()
                     ActionMenuView(controller: controller)
                     Hairline()

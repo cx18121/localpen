@@ -60,6 +60,11 @@ final class PanelController {
     /// from arrow-key navigation.
     var lastInputSource: InputSource = .keyboard
     enum InputSource { case keyboard, mouse }
+    /// True while the hotkey-open selection capture is in flight (the panel is
+    /// already visible — instant open — but the ⌘C round-trip hasn't returned yet).
+    /// The input shows a quiet "Reading selection…" hint instead of the type-prompt
+    /// so the empty→populated moment reads as deliberate, not a flash.
+    var isCapturing: Bool = false
     /// True for a brief beat right after ⌘C copies the result, so the toolbar
     /// can show a "copied" confirmation. Reset by `flashCopied`.
     var justCopied: Bool = false
@@ -133,6 +138,7 @@ final class PanelController {
     func dismiss() {
         bumpConvEpoch()   // invalidate any in-flight promote/resume/turn continuation
         isAccepting = false
+        isCapturing = false
         current?.cancelStreaming()
         // Capture the on-screen result before flushing — flushPendingAsRejected
         // clears the pending interaction.
@@ -471,11 +477,13 @@ final class PanelController {
         // gives a snappy open while keeping capture/paste-back targeting correct
         // (expanding non-key means the surface can't steal the copy mid-flight).
         inputText = ""
+        isCapturing = true
         state = .visible(PanelContext(), .empty)
         Task { @MainActor in await notch.expand() }
 
         let capture = await textIO.captureSelection()
-        guard sessionCounter == myID else { return }   // superseded during capture
+        guard sessionCounter == myID else { isCapturing = false; return }   // superseded during capture
+        isCapturing = false
 
         let session = PanelSession(id: myID, capture: capture, hotkeyTime: hotkeyTime)
         current = session
@@ -508,6 +516,7 @@ final class PanelController {
         // pending as rejected, restore the outgoing capture's clipboard).
         bumpConvEpoch()
         isAccepting = false
+        isCapturing = false
         current?.cancelStreaming()
         flushPendingAsRejected()
         if let session = current { textIO.restoreClipboard(session.capture) }
