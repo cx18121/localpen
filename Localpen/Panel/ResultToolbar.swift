@@ -14,10 +14,10 @@ struct ResultToolbar: View {
         HStack(spacing: Spacing.s6) {
             Text(action.pillLabel)
                 .font(Typography.pill)
-                .foregroundStyle(Tokens.accent)
+                .foregroundStyle(Tokens.textSoft)
                 .padding(.horizontal, Spacing.s3)
                 .padding(.vertical, 3)
-                .background(Tokens.accentTint)
+                .background(Tokens.rowHighlight)
                 .clipShape(Capsule())
 
             Spacer()

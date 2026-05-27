@@ -74,18 +74,23 @@ struct PanelView: View {
         }
         .frame(width: PanelController.panelSize.width)
         .background(PanelSurface())
-        .clipShape(RoundedRectangle(cornerRadius: Spacing.panelRadius))
+        .clipShape(RoundedRectangle(cornerRadius: Spacing.panelRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: Spacing.panelRadius)
+            // A clean hairline edge with a faint top glass highlight — depth comes
+            // from the material + shadow, not a heavy colored border.
+            RoundedRectangle(cornerRadius: Spacing.panelRadius, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
-                        colors: [Tokens.glassEdge, Tokens.panelBorder],
+                        colors: [Tokens.glassEdge, Tokens.panelBorder.opacity(0.6)],
                         startPoint: .top,
                         endPoint: .bottom
                     ),
-                    lineWidth: 1
+                    lineWidth: 0.75
                 )
         )
+        .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
         .animation(Motion.menuToResult, value: controller.state.renderKey)
         .contextMenu {
             if case .visible(_, .result) = controller.state {

@@ -27,8 +27,8 @@ enum Tokens {
     /// content bleed through and wreck text contrast, so light prioritizes
     /// legibility (a frosted-but-solid surface) while dark keeps more glass.
     static let panelTint   = Color.dynamic(
-        light: .oklch(0.98, 0.003, 240, opacity: 0.90),
-        dark:  .oklch(0.17, 0.008, 240, opacity: 0.42)
+        light: .oklch(0.98, 0.003, 240, opacity: 0.80),
+        dark:  .oklch(0.16, 0.012, 255, opacity: 0.55)
     )
     /// Subtle translucent band differentiating the footer / result-toolbar
     /// chrome from the body without becoming an opaque slab over the glass.

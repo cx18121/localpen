@@ -27,7 +27,7 @@ struct KbdHint: View {
                 )
             Text(label)
                 .font(Typography.footerHint)
-                .foregroundStyle(Tokens.textMute)
+                .foregroundStyle(Tokens.textSoft)
         }
         .fixedSize()
     }

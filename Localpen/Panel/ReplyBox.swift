@@ -39,14 +39,7 @@ struct ReplyBox: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: 22)
             }
-            .padding(.leading, Spacing.s5)
             .padding(.vertical, Spacing.s4)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(isFocused ? Tokens.accent : Tokens.hairline)
-                    .frame(width: isFocused ? 2 : 1)
-            }
-            .animation(.easeOut(duration: 0.15), value: isFocused)
             .padding(.horizontal, Spacing.s7)
 
             if showHints {
