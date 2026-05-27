@@ -41,6 +41,11 @@ final class PanelController {
         convEpoch &+= 1
         return convEpoch
     }
+
+    /// Claimed synchronously by `acceptTurn` so a second `Use` tap (on another
+    /// bubble) during an in-flight paste-back can't launch an overlapping,
+    /// irreversible second paste. Reset on the next summon / dismiss.
+    @ObservationIgnored private var isAccepting = false
     /// Incremented to request keyboard focus on the input field (Tab from the
     /// menu). InputEditor focuses itself when this changes. Initial open
     /// auto-focuses via the editor's onAppear.
@@ -118,6 +123,7 @@ final class PanelController {
 
     func dismiss() {
         bumpConvEpoch()   // invalidate any in-flight promote/resume/turn continuation
+        isAccepting = false
         current?.cancelStreaming()
         // Capture the on-screen result before flushing — flushPendingAsRejected
         // clears the pending interaction.
@@ -396,6 +402,7 @@ final class PanelController {
 
     private func captureAndShow() async {
         bumpConvEpoch()   // a new summon invalidates any lingering conversation transition
+        isAccepting = false
         sessionCounter += 1
         let myID = sessionCounter
         let hotkeyTime = ContinuousClock.now
@@ -667,18 +674,26 @@ final class PanelController {
             // at all (no malformed half-written thread). nil => no store or a write
             // failure → an ephemeral (in-memory, non-resumable) thread; the one-shot
             // stays pending so teardown still records it.
-            let threadID: Int64? = (try? await self.conversationStore?.createThreadWithSeed(
+            let seed = (try? await self.conversationStore?.createThreadWithSeed(
                 originalSelection: sel, seedUserText: action.steerText ?? "", seedAction: action,
                 modelID: self.registry.activeModelID, assistantText: result)) ?? nil
             // Re-check intent: Back / accept / dismiss / a new summon during the await
             // must not be overridden by this late completion (`current === session`
-            // alone can't see those — the session object survives them).
-            guard self.convEpoch == epoch, self.current === session else { return }
+            // alone can't see those — the session object survives them). If we already
+            // committed a seed, compensate by deleting it so no abandoned resumable
+            // thread is left behind for a result the user terminally acted on.
+            guard self.convEpoch == epoch, self.current === session else {
+                if let seed { try? await self.conversationStore?.deleteThread(id: seed.threadID) }
+                return
+            }
             // Seed durably persisted → it now owns the record; otherwise keep the
             // pending one-shot so teardown still flushes it as rejected.
-            if threadID != nil { session.pendingInteraction = nil }
-            let convo = Conversation.seeded(threadID: threadID ?? -1, originalSelection: sel,
+            if seed != nil { session.pendingInteraction = nil }
+            let convo = Conversation.seeded(threadID: seed?.threadID ?? -1, originalSelection: sel,
                                             seedAction: action, result: result, followUp: trimmed)
+            // turns = [user(seed action), assistant(result), user(followUp)]; tag the
+            // seed assistant turn (index 1) with its row id so accepting it can persist.
+            if let seed { convo.turns[1].interactionID = seed.seedInteractionID }
             self.conversation = convo
             self.state = .visible(ctx, .conversing)
             self.runConversationTurn()
@@ -736,10 +751,15 @@ final class PanelController {
             convo.isStreaming = false
             // The triggering user turn is the last .user turn before this assistant turn.
             let userText = convo.turns.dropLast().last(where: { $0.role == .user })?.text ?? ""
-            if convo.threadID > 0 {
-                try? await conversationStore?.appendExchange(
-                    threadID: convo.threadID, userText: userText, action: nil,
-                    modelID: registry.activeModelID, assistantText: partial)
+            if convo.threadID > 0,
+               let rowID = try? await conversationStore?.appendExchange(
+                   threadID: convo.threadID, userText: userText, action: nil,
+                   modelID: registry.activeModelID, assistantText: partial) {
+                // Tag the just-appended assistant turn with its row id (if it's still
+                // the last turn) so accepting it can mark exactly this exchange.
+                if convo.turns.last?.role == .assistant {
+                    convo.turns[convo.turns.count - 1].interactionID = rowID
+                }
             }
         } catch {
             if Task.isCancelled { return }
@@ -756,12 +776,21 @@ final class PanelController {
     /// revise thread with a live, pasteable session; otherwise (create thread, or a
     /// resumed thread with no source-app context) copy the result to the clipboard.
     func acceptTurn(_ turn: ConversationTurn) {
-        guard turn.role == .assistant, let convo = conversation, let session = current else { return }
+        // Single-flight: a second `Use` (on a different bubble) while a paste-back is
+        // pending must not launch an overlapping, irreversible second paste.
+        guard !isAccepting,
+              turn.role == .assistant, let convo = conversation, let session = current else { return }
+        isAccepting = true
         // Terminal: stop any in-flight turn and invalidate its completion so a reply
         // the user never accepted can't be appended/persisted after we close, and the
         // stale `Use` buttons on earlier bubbles can't act on a superseded session.
         bumpConvEpoch()
         session.cancelStreaming()
+        // Record the accepted decision for this exchange (best-effort, like the rest
+        // of persistence). Only persisted (non-ephemeral) turns carry a row id.
+        if let rowID = turn.interactionID {
+            Task { try? await conversationStore?.markAccepted(interactionID: rowID) }
+        }
         guard session.canPasteBack, convo.operationClass == .revise else {
             // Create-class output, or a resumed thread (no live source field to
             // paste into): leave the accepted text on the clipboard.

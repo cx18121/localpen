@@ -39,10 +39,12 @@ final class ConversationStore {
     /// Atomically creates a thread AND its seed exchange in one transaction, so a
     /// partial write can never leave a thread whose first row isn't the seed (which
     /// would make `loadTurns` reconstruct the wrong seed action on resume). Returns
-    /// the new thread id; throws (rolling back both inserts) on any failure.
+    /// the new thread id and the seed exchange's interaction id (so the seed
+    /// assistant turn can later be marked accepted); throws (rolling back both
+    /// inserts) on any failure.
     func createThreadWithSeed(originalSelection: Selection, seedUserText: String,
                               seedAction: Action, modelID: String,
-                              assistantText: String) async throws -> Int64 {
+                              assistantText: String) async throws -> (threadID: Int64, seedInteractionID: Int64) {
         let now = self.now()
         let title = Self.title(from: originalSelection.text)
         return try await dbQueue.write { db in
@@ -58,13 +60,15 @@ final class ConversationStore {
                 accepted: false, editedOutput: nil, threadID: threadID
             )
             try seed.insert(db)
-            return threadID
+            return (threadID, seed.id ?? db.lastInsertedRowID)
         }
     }
 
-    /// Persists one user→assistant exchange as an interactions row.
+    /// Persists one user→assistant exchange as an interactions row; returns its id
+    /// (so the assistant turn can be marked accepted on acceptance).
+    @discardableResult
     func appendExchange(threadID: Int64, userText: String, action: Action?,
-                        modelID: String, assistantText: String) async throws {
+                        modelID: String, assistantText: String) async throws -> Int64 {
         let now = self.now()
         var row = Interaction(
             id: nil, timestamp: now,
@@ -78,10 +82,31 @@ final class ConversationStore {
             editedOutput: nil,
             threadID: threadID
         )
-        try await dbQueue.write { db in
+        return try await dbQueue.write { db in
             try row.insert(db)
             try db.execute(sql: "UPDATE threads SET updated_at = ? WHERE id = ?",
                            arguments: [now, threadID])
+            return row.id ?? db.lastInsertedRowID
+        }
+    }
+
+    /// Marks a persisted exchange accepted (the user applied/kept that assistant turn).
+    func markAccepted(interactionID: Int64) async throws {
+        try await dbQueue.write { db in
+            try db.execute(sql: "UPDATE interactions SET accepted = 1 WHERE id = ?",
+                           arguments: [interactionID])
+        }
+    }
+
+    /// Removes a thread and all its interaction rows in one transaction. Used to
+    /// compensate a promotion whose user navigated away before it committed (so a
+    /// fast Back/Accept can't leave an abandoned resumable thread behind). Deletes
+    /// the interactions explicitly rather than relying on the FK (which is SET NULL,
+    /// and would otherwise orphan the rows as stray one-shots).
+    func deleteThread(id: Int64) async throws {
+        try await dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM interactions WHERE thread_id = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM threads WHERE id = ?", arguments: [id])
         }
     }
 
@@ -119,12 +144,13 @@ final class ConversationStore {
     func loadTurns(threadID: Int64) async throws -> [ConversationTurn] {
         let rows = try await dbQueue.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT action, custom_prompt, model_output FROM interactions
+                SELECT id, action, custom_prompt, model_output FROM interactions
                 WHERE thread_id = ? ORDER BY timestamp ASC, id ASC
                 """, arguments: [threadID])
         }
         var turns: [ConversationTurn] = []
         for (idx, row) in rows.enumerated() {
+            let interactionID: Int64 = row["id"]
             let rawAction: String = row["action"] ?? "custom"
             let steer: String? = row["custom_prompt"]
             let model: String = row["model_output"] ?? ""
@@ -134,7 +160,9 @@ final class ConversationStore {
             } else {
                 turns.append(ConversationTurn(role: .user, text: steer ?? ""))
             }
-            turns.append(ConversationTurn(role: .assistant, text: model))
+            // Carry the row id on the assistant turn so accepting it can mark exactly
+            // this exchange accepted.
+            turns.append(ConversationTurn(role: .assistant, text: model, interactionID: interactionID))
         }
         return turns
     }
