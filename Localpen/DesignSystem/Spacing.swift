@@ -11,6 +11,11 @@ enum Spacing {
     static let s7: CGFloat = 16
     static let s8: CGFloat = 20
 
+    /// Bubble interior insets (conversation turns). Off-grid on purpose — the
+    /// bubble rhythm sits between s3/s4 (vertical) and s5/s6 (horizontal).
+    static let bubbleInsetV: CGFloat = 9
+    static let bubbleInsetH: CGFloat = 13
+
     static let panelRadius: CGFloat = 10
     static let innerRadius: CGFloat = 6
 }

@@ -54,6 +54,8 @@ struct ConversationView: View {
                 .padding(.vertical, Spacing.s6)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Cap the scrollable thread so SelectionBlock + ReplyBox stay visible
+            // within the fixed 480pt panel (PanelController.panelSize.height).
             .frame(maxHeight: 280)
 
             Hairline()
@@ -104,7 +106,7 @@ private struct TurnBubble: View {
 
     private var assistantBubble: some View {
         // Cap the bubble at ~86% of the panel width (400pt) so assistant replies
-        // don't run edge-to-edge.
+        // don't run edge-to-edge. fixed-width panel; switch to GeometryReader if the panel ever resizes.
         let maxBubbleWidth = PanelController.panelSize.width * 0.86
         return HStack {
             VStack(alignment: .leading, spacing: Spacing.s2) {
@@ -113,8 +115,8 @@ private struct TurnBubble: View {
                     .foregroundStyle(Tokens.text)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 13)
+                    .padding(.vertical, Spacing.bubbleInsetV)
+                    .padding(.horizontal, Spacing.bubbleInsetH)
                     .frame(maxWidth: maxBubbleWidth, alignment: .leading)
                     .background(Tokens.panelBG2)
                     .clipShape(
@@ -147,8 +149,8 @@ private struct TurnBubble: View {
                 .foregroundStyle(Tokens.text)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 9)
-                .padding(.horizontal, 13)
+                .padding(.vertical, Spacing.bubbleInsetV)
+                .padding(.horizontal, Spacing.bubbleInsetH)
                 .background(Tokens.accentTint)
                 .clipShape(
                     UnevenRoundedRectangle(
