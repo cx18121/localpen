@@ -13,6 +13,9 @@ final class Conversation {
     var turns: [ConversationTurn]
     var streamingText: String = ""
 
+    /// Invariant: if `turns` is non-empty, `turns[0]` must be a user turn whose
+    /// `action` is non-nil — `messages` embeds the original selection only via that
+    /// seed action. `seeded(...)` and `ConversationStore.loadTurns` both honor this.
     init(threadID: Int64, originalSelection: Selection,
          operationClass: Action.OperationClass, turns: [ConversationTurn]) {
         self.threadID = threadID

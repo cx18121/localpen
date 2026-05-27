@@ -23,6 +23,19 @@ enum Action: Hashable, Identifiable {
         }
     }
 
+    /// Inverse of `rawValue` — keep the two in sync when adding a case.
+    static func reconstruct(rawValue: String, steer: String?) -> Action {
+        switch rawValue {
+        case "proofread":   return .proofread
+        case "polish":      return .polish
+        case "more_formal": return .moreFormal
+        case "more_casual": return .moreCasual
+        case "shorter":     return .shorter
+        case "respond":     return .respond(steer ?? "")
+        default:            return .custom(steer ?? "")
+        }
+    }
+
     var label: String {
         switch self {
         case .proofread:   return "Proofread"
@@ -67,21 +80,6 @@ enum Action: Hashable, Identifiable {
         case .custom(let t):  return t.isEmpty ? nil : t
         case .respond(let t): return t.isEmpty ? nil : t
         default:              return nil
-        }
-    }
-
-    /// Rebuilds an Action from a persisted `rawValue` (+ optional steer text for
-    /// the associated-value cases). Used to resume a stored thread. Unknown
-    /// raw values fall back to `.custom(steer ?? "")`.
-    static func reconstruct(rawValue: String, steer: String?) -> Action {
-        switch rawValue {
-        case "proofread":   return .proofread
-        case "polish":      return .polish
-        case "more_formal": return .moreFormal
-        case "more_casual": return .moreCasual
-        case "shorter":     return .shorter
-        case "respond":     return .respond(steer ?? "")
-        default:            return .custom(steer ?? "")
         }
     }
 
