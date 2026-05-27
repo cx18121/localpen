@@ -17,14 +17,14 @@ struct PanelView: View {
                     Hairline()
                     ActionMenuView(controller: controller)
                     Hairline()
-                    PanelFooter()
+                    PanelFooter(onHistory: { controller.openHistory() })
 
                 case .captured:
                     InputEditor(text: $controller.inputText, sourceAppName: ctx.selection?.sourceAppName, focusTick: controller.inputFocusTick)
                     Hairline()
                     ActionMenuView(controller: controller)
                     Hairline()
-                    PanelFooter()
+                    PanelFooter(onHistory: { controller.openHistory() })
 
                 case .customPrompt:
                     if let sel = ctx.selection {
@@ -79,7 +79,7 @@ struct PanelView: View {
                     }
 
                 case .history:
-                    EmptyView()
+                    ThreadListView(controller: controller)
 
                 case .error(let err):
                     ErrorBanner(error: err, onAction: { controller.retryFromError() })
