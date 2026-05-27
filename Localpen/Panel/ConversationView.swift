@@ -60,7 +60,7 @@ struct ConversationView: View {
 
             Hairline()
 
-            ReplyBox(text: $replyText) { raw in
+            ReplyBox(text: $replyText, autoFocus: true) { raw in
                 controller.sendFollowUp(raw)
                 replyText = ""
             }
@@ -211,58 +211,4 @@ private struct ChipRow: View {
     }
 }
 
-// MARK: - Reply box
-
-/// The bottom reply field. Mirrors CustomPromptView's rail-field treatment: a
-/// borderless GrowingTextEditor with a left rail (hairline at rest, accent when
-/// focused), Return submits / ⇧Return newline, and a keyboard-hint footer.
-private struct ReplyBox: View {
-    @Binding var text: String
-    let onSubmit: (String) -> Void
-
-    @State private var isFocused = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text("reply to keep refining…")
-                        .foregroundStyle(Tokens.textFaint)
-                        .font(Typography.menuRow)
-                        .padding(.top, GrowingTextEditor.topInset)
-                        .allowsHitTesting(false)
-                }
-                GrowingTextEditor(
-                    text: $text,
-                    isFocused: $isFocused,
-                    autoFocus: true,
-                    fontSize: 14,
-                    onSubmit: { raw in onSubmit(raw) }
-                )
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: 22)
-            }
-            .padding(.leading, Spacing.s5)
-            .padding(.vertical, Spacing.s4)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(isFocused ? Tokens.accent : Tokens.hairline)
-                    .frame(width: isFocused ? 2 : 1)
-            }
-            .animation(.easeOut(duration: 0.15), value: isFocused)
-            .padding(.horizontal, Spacing.s7)
-
-            Hairline()
-
-            HStack(spacing: Spacing.s5) {
-                KbdHint("↩", "send")
-                KbdHint("⇧↩", "newline")
-                KbdHint("esc", "close")
-            }
-            .padding(.horizontal, Spacing.s6)
-            .padding(.vertical, Spacing.s3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Tokens.chromeTint)
-        }
-    }
-}
+// ReplyBox now lives in ReplyBox.swift (shared with the one-shot result view).

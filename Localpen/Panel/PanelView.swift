@@ -52,26 +52,12 @@ struct PanelView: View {
                         SelectionBlock(selection: sel)
                         Hairline()
                     }
-                    ResultView(
-                        text: Binding(
-                            get: { finalText },
-                            set: { controller.updateEditedResult($0) }
-                        ),
-                        isStreaming: false,
-                        isEditing: isEditing,
-                        onClickToEdit: { controller.setEditing(true) }
+                    ResultPhaseView(
+                        controller: controller,
+                        action: ctx.action,
+                        finalText: finalText,
+                        isEditing: isEditing
                     )
-                    Hairline()
-                    if let action = ctx.action {
-                        ResultToolbar(
-                            action: action,
-                            mode: isEditing ? .editing : .result,
-                            justCopied: controller.justCopied,
-                            isCreate: action.operationClass == .create,
-                            onAccept: { controller.acceptResult() },
-                            onBack: { controller.backToMenu() }
-                        )
-                    }
 
                 case .conversing:
                     if let convo = controller.conversation {
@@ -110,6 +96,57 @@ struct PanelView: View {
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.orderFrontStandardAboutPanel(nil)
             }
+        }
+    }
+}
+
+/// The one-shot `.result` phase: result body, a follow-up reply box that
+/// promotes the result into a conversation, and the accept/copy/edit toolbar.
+///
+/// The reply box is `autoFocus: false` and purely additive — when it isn't
+/// focused, the panel's `.result` keyboard handling (Return = accept, ⌘C = copy,
+/// Tab = edit, Esc = back) is unaffected, because GrowingTextEditor only
+/// intercepts Return while it is first responder. The box is click-to-focus;
+/// once the user types and submits, it promotes the result into a thread.
+private struct ResultPhaseView: View {
+    @Bindable var controller: PanelController
+    let action: Action?
+    let finalText: String
+    let isEditing: Bool
+
+    @State private var replyText: String = ""
+
+    var body: some View {
+        ResultView(
+            text: Binding(
+                get: { finalText },
+                set: { controller.updateEditedResult($0) }
+            ),
+            isStreaming: false,
+            isEditing: isEditing,
+            onClickToEdit: { controller.setEditing(true) }
+        )
+
+        // Only offer the promote-to-conversation reply box once the result is
+        // settled (not while the user is editing it inline).
+        if !isEditing {
+            Hairline()
+            ReplyBox(text: $replyText, autoFocus: false) { raw in
+                controller.promoteToConversation(followUp: raw)
+                replyText = ""
+            }
+        }
+
+        Hairline()
+        if let action {
+            ResultToolbar(
+                action: action,
+                mode: isEditing ? .editing : .result,
+                justCopied: controller.justCopied,
+                isCreate: action.operationClass == .create,
+                onAccept: { controller.acceptResult() },
+                onBack: { controller.backToMenu() }
+            )
         }
     }
 }
