@@ -41,6 +41,12 @@ enum Tokens {
         light: .oklch(1.00, 0.000, 240, opacity: 0.45),
         dark:  .oklch(1.00, 0.000, 240, opacity: 0.10)
     )
+    /// Neutral selection/focus fill for menu rows — a soft monochrome lift, no
+    /// accent hue (replaces the old blue tint + rail).
+    static let rowHighlight = Color.dynamic(
+        light: .oklch(0.20, 0.006, 240, opacity: 0.07),
+        dark:  .oklch(0.98, 0.004, 240, opacity: 0.10)
+    )
 
     // Text
     static let text        = Color.dynamic(

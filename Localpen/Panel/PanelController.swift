@@ -274,7 +274,11 @@ final class PanelController {
         let code = Int(event.keyCode)
         switch phase {
         case .empty, .captured:
-            // Default input editor owns every key; its doCommandBy blurs on Esc/Tab.
+            // Esc dismisses in one press even while the input editor is focused —
+            // there's no menu to "back" to from the menu itself, so the old
+            // blur-then-dismiss double-Esc was just a papercut. Other keys (typing,
+            // caret motion, Tab-to-blur) stay with the editor.
+            if code == kVK_Escape { return handleKeyDown(event) }
             return false
         case .customPrompt, .conversing:
             // Submit-mode editor: Return submits via doCommandBy; only Escape needs
@@ -358,6 +362,7 @@ final class PanelController {
             return
         }
         let capture = session.capture
+        notch.resignKey()   // let the source app receive the synthetic ⌘V
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = await self.textIO.pasteBack(result: text, capture: capture)
@@ -459,13 +464,16 @@ final class PanelController {
         focusedActionIndex = 1
         lastInputSource = .keyboard
 
-        // Capture BEFORE presenting the interactive surface. The notch is already
-        // visible (compact), so "opening" is a compact→expanded animation, not a
-        // cold window show — but expanding takes key focus, and the source app must
-        // stay frontmost while the synthetic ⌘C lands. So: capture first (which may
-        // wait for the hotkey modifiers to lift), THEN expand + focus. Presenting an
-        // interactive notch during the copy wait would race focus and risk capturing
-        // from / pasting back into the wrong app.
+        // Open INSTANTLY: animate the notch open right now, but WITHOUT taking key
+        // focus — the source app must stay frontmost so the capture ⌘C lands there,
+        // not in Localpen. Then capture (which may wait for the hotkey modifiers to
+        // lift), fill in the selection, and only then take key focus for typing. This
+        // gives a snappy open while keeping capture/paste-back targeting correct
+        // (expanding non-key means the surface can't steal the copy mid-flight).
+        inputText = ""
+        state = .visible(PanelContext(), .empty)
+        Task { @MainActor in await notch.expand() }
+
         let capture = await textIO.captureSelection()
         guard sessionCounter == myID else { return }   // superseded during capture
 
@@ -485,7 +493,7 @@ final class PanelController {
         } else {
             state = .visible(PanelContext(), .empty)
         }
-        await notch.expand()
+        notch.focus()
     }
 
     /// Hover-dwell / click invocation: open the assistant with NO capture. Routed
@@ -512,7 +520,10 @@ final class PanelController {
         conversation = nil
         inputText = ""
         state = .visible(PanelContext(), .empty)
-        Task { @MainActor in await notch.expand() }
+        Task { @MainActor in
+            await notch.expand()
+            notch.focus()
+        }
     }
 
     /// Builds a Selection that reflects the user's current edits to inputText,
@@ -797,6 +808,7 @@ final class PanelController {
             return
         }
         let capture = session.capture
+        notch.resignKey()   // let the source app receive the synthetic ⌘V
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = await self.textIO.pasteBack(result: turn.text, capture: capture)

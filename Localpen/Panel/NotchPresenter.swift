@@ -31,7 +31,7 @@ final class NotchPresenter {
     private let dwell: Duration = .milliseconds(400)
     /// After dismiss-to-idle, ignore hover-open briefly so the surface doesn't
     /// immediately re-open under a pointer that's still parked over the notch.
-    private let reopenCooldown: Duration = .milliseconds(900)
+    private let reopenCooldown: Duration = .milliseconds(350)
 
     private var notch: DynamicNotch<AnyView, EmptyView, NotchDot>!
     private var keyMonitor: Any?
@@ -66,14 +66,31 @@ final class NotchPresenter {
 
     private var targetScreen: NSScreen { NSScreen.notched() ?? NSScreen.screens[0] }
 
-    /// Show the working surface and take key focus so the input editor can type.
-    /// The window is non-activating, so this never pulls Localpen to the foreground.
+    /// Animate the working surface open WITHOUT taking key focus. Used for the
+    /// instant open: the surface appears immediately while the source app stays
+    /// frontmost (so the capture ⌘C still lands there). Call `focus()` once capture
+    /// is done to take keyboard focus.
     func expand() async {
         isExpanded = true
         dwellTask?.cancel()
-        await notch.expand(on: targetScreen)
-        notch.windowController?.window?.makeKey()
         installClickAwayMonitor()
+        await notch.expand(on: targetScreen)
+    }
+
+    /// Take key focus so the input editor can type. Non-activating, so Localpen
+    /// never comes to the foreground. Safe to call repeatedly.
+    func focus() {
+        notch.windowController?.window?.makeKey()
+    }
+
+    /// Give up key-window status so a synthetic paste lands in the source app, not
+    /// our panel. The notch sits at `.screenSaver` level and holds key focus (needed
+    /// for typing); without resigning it first, the just-reactivated source app never
+    /// receives the ⌘V. Also deactivates Localpen so the source app is unambiguously
+    /// frontmost for the keystroke.
+    func resignKey() {
+        notch.windowController?.window?.resignKey()
+        NSApp.deactivate()
     }
 
     /// Return to the calm resting notch (compact dot). Not `hide()` — we keep the

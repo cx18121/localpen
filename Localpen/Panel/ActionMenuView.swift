@@ -36,12 +36,10 @@ struct ActionMenuView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // Clean neutral focus highlight — a soft rounded fill, no blue accent
+            // rail. Slides between rows on keyboard nav.
             RoundedRectangle(cornerRadius: Spacing.innerRadius)
-                .fill(Tokens.accentTint)
-                .overlay(alignment: .leading) {
-                    Rectangle().fill(Tokens.accent).frame(width: 2)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
+                .fill(Tokens.rowHighlight)
                 .frame(height: rowHeight)
                 .padding(.horizontal, Spacing.s4)
                 .offset(y: highlightOffset(for: controller.focusedActionIndex))
@@ -82,11 +80,6 @@ struct ActionMenuView: View {
                 guard !disabled else { return }
                 controller.focusedActionIndex = i
                 controller.pick(action)
-            }
-            .onHover { hovering in
-                if hovering && !disabled && controller.lastInputSource == .mouse {
-                    controller.focusedActionIndex = i
-                }
             }
     }
 }

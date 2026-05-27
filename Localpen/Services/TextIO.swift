@@ -87,7 +87,7 @@ final class TextIO {
         await waitUntilFrontmost(capture.savedFrontmostApp, timeout: .milliseconds(700))
 
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        log.info("pasteBack: target=\(capture.sourceBundleID ?? "nil", privacy: .public) frontmostAtPaste=\(front ?? "nil", privacy: .public)")
+        log.notice("pasteBack: target=\(capture.sourceBundleID ?? "nil", privacy: .public) frontmostAtPaste=\(front ?? "nil", privacy: .public)")
 
         postCmdChord(keyCode: CGKeyCode(kVK_ANSI_V))
         // Give the target app time to read the pasteboard before we restore the

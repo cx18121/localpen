@@ -5,11 +5,6 @@ struct SelectionBlock: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Spacing.s4) {
-            Rectangle()
-                .fill(Tokens.accentMute)
-                .frame(width: 2)
-                .frame(maxHeight: .infinity)
-
             VStack(alignment: .leading, spacing: Spacing.s2) {
                 // Scrollable region per DESIGN.md §3.4 — max ~4 lines visible,
                 // overflow scrolls inside the fixed-height frame.
