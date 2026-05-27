@@ -68,8 +68,16 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           if [ "$CONFIGURATION" = "Debug" ]; then
-            # ditto (not cp -R) preserves the code signature and embedded-framework
-            # symlinks; cp -R strips the signature and launchd then refuses to spawn.
-            rm -rf "/Applications/$PRODUCT_NAME.app"
-            ditto "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "/Applications/$PRODUCT_NAME.app"
+            # ditto (not cp -R) preserves the code signature + embedded-framework
+            # symlinks. Stage into a sibling path first, then swap: if a prior
+            # instance is still running FROM /Applications (we launch it there for
+            # Raycast), copying directly over the live bundle corrupts the
+            # signature and launchd refuses to spawn it. Staging keeps the signed
+            # bytes away from the running process, then a rename swaps cleanly.
+            DEST="/Applications/$PRODUCT_NAME.app"
+            STAGE="/Applications/.$PRODUCT_NAME.staging.app"
+            rm -rf "$STAGE"
+            ditto "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "$STAGE"
+            rm -rf "$DEST"
+            mv "$STAGE" "$DEST"
           fi
