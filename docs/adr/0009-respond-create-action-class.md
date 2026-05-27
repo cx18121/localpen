@@ -31,12 +31,15 @@ The complete Phase 1 action set is now:
 3. More formal
 4. More casual
 5. Shorter
-6. Custom…
+
+*(divider)*
+
+6. Custom…   ← rendered below a divider, outside both group headers
 
 **Create**
 7. Respond
 
-Persistence: no migration required. The `action` column in the `interactions` table stores the raw action name as a string; "respond" is a new valid value. The `custom_prompt` column is reused when Respond carries a style steer (Phase 2); it is null in Phase 1.
+Persistence: no migration required. The `action` column in the `interactions` table stores the raw action name as a string; "respond" is a new valid value. The `custom_prompt` column is reused for the Respond steer text in Phase 1: `Action.steerText` is written into `Interaction.customPrompt` at interaction-build time via the existing column — no schema change needed. A null `custom_prompt` means the user submitted Respond with no steer (the bare "Respond" tap).
 
 ## Alternatives considered
 
@@ -51,6 +54,6 @@ Persistence: no migration required. The `action` column in the `interactions` ta
 - **Menu gains visual group headers.** The "Revise" and "Create" labels appear above their respective groups in the action menu. Keyboard navigation is unaffected — `↑↓` moves through all rows in document order, wrapping top/bottom as before.
 - **Respond row is disabled in S3 (empty state).** A reply requires something to reply to. The row renders at reduced opacity and is skipped by keyboard navigation when no selection is captured.
 - **`acceptResult` is operation-class-aware.** For `.revise` actions, `PanelController.acceptResult()` paste-backs via `TextIO.pasteBack(_:)` then dismisses. For `.create` actions, it copies to the clipboard and dismisses without paste-back. The result-toolbar footer hint updates accordingly: `.create` results show "⌘↩ copy reply" instead of "⌘↩ accept."
-- **`styleContext` seam reserved.** `ActionPrompts` declares `static let styleContext: String = ""`. The `.respond` system prompt string-concatenates `styleContext` at its tail. Phase 1 leaves the constant empty. Phase 2 will populate it from the inferred-voice store (ADR 0006's memory layer); there is no per-call parameter — the seam is the constant itself.
+- **`styleContext` seam reserved.** `ActionPrompts` declares `static let styleContext: String = ""`. The `.respond` system prompt string-concatenates `styleContext` at its tail. Phase 1 leaves the constant empty (any per-call steer text the user types goes through `Action.steerText` / `customPrompt` instead). Phase 2 will populate it from the inferred-voice store (ADR 0006's memory layer); there is no per-call parameter — the seam is the constant itself.
 - **Future `.create` actions have a clear home.** Translate (deferred in ADR 0004), Draft (new message from bullet points), and similar generative actions slot naturally into the Create group without requiring another structural change.
 - **ADR 0004's "6 items" wording is superseded.** The menu now has 7 items in two groups. The Phase 1 core transforms are unchanged.
