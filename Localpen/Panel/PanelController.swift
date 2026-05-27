@@ -134,10 +134,10 @@ final class PanelController {
             // Both states render InputEditor + ActionMenu; share nav.
             switch code {
             case kVK_UpArrow:
-                focusedActionIndex = (focusedActionIndex - 1 + Self.menuItems.count) % Self.menuItems.count
+                focusedActionIndex = nextSelectableIndex(from: focusedActionIndex, step: -1)
                 return true
             case kVK_DownArrow:
-                focusedActionIndex = (focusedActionIndex + 1) % Self.menuItems.count
+                focusedActionIndex = nextSelectableIndex(from: focusedActionIndex, step: 1)
                 return true
             case kVK_Return, kVK_ANSI_KeypadEnter:
                 pick(Self.menuItems[focusedActionIndex])
@@ -204,6 +204,7 @@ final class PanelController {
     // MARK: - State transitions
 
     func pick(_ action: Action) {
+        if case .respond = action, !respondEnabled { return }
         switch action {
         case .custom, .respond:
             // Compose phase always carries its action in the context so submit,
@@ -589,5 +590,31 @@ final class PanelController {
 
     func currentSelection() -> Selection? {
         state.context?.selection
+    }
+
+    /// Respond needs something to reply to. False when there's no working text
+    /// (no selection and an empty input field) — the row is then disabled and
+    /// arrow-key nav skips it.
+    var respondEnabled: Bool {
+        selectionWithCurrentInput() != nil
+    }
+
+    /// Index of `.respond` in `menuItems` (the row that may be disabled).
+    private var respondIndex: Int? {
+        Self.menuItems.firstIndex { if case .respond = $0 { return true }; return false }
+    }
+
+    /// Advances the focused index by `step`, wrapping, skipping the Respond row
+    /// when it's disabled. Falls back to the starting index if nothing else is
+    /// selectable (defensive — there are always selectable rows).
+    private func nextSelectableIndex(from index: Int, step: Int) -> Int {
+        let n = Self.menuItems.count
+        var i = index
+        for _ in 0..<n {
+            i = (i + step + n) % n
+            if i == respondIndex && !respondEnabled { continue }
+            return i
+        }
+        return index
     }
 }

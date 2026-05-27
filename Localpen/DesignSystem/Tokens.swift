@@ -77,4 +77,10 @@ enum Tokens {
         light: .oklch(0.55, 0.14, 28),
         dark:  .oklch(0.72, 0.10, 28)
     )
+
+    // Create-class accent (green-ish, for Respond row)
+    static let createAccent = Color.dynamic(
+        light: .oklch(0.52, 0.12, 150),
+        dark:  .oklch(0.80, 0.13, 145)
+    )
 }
