@@ -115,6 +115,7 @@ final class PanelController {
         }
         state = .hidden
         current = nil
+        conversation = nil
         hidePanelAnimated()
     }
 
@@ -635,7 +636,7 @@ final class PanelController {
             let threadID = (try? await self.conversationStore?.createThread(originalSelection: sel)) ?? -1
             if threadID > 0 {
                 try? await self.conversationStore?.appendExchange(
-                    threadID: threadID, userText: action.pillLabel, action: action,
+                    threadID: threadID, userText: action.steerText ?? "", action: action,
                     modelID: self.registry.activeModelID, assistantText: result)
             }
             // The one-shot result becomes the thread's first exchange; its pending
