@@ -22,9 +22,10 @@ struct ActionRow: View {
     }
 
     private var labelColor: Color {
-        if isCreate {
-            return isFocused ? Tokens.createAccent : Tokens.createAccent.opacity(0.75)
-        }
-        return isFocused ? Tokens.text : Tokens.textSoft
+        // Respond (create) sits at full --text even at rest — a quiet monochrome
+        // lift that sets it apart without a second accent hue. Every other row is
+        // --text-soft at rest, --text when focused.
+        if isFocused || isCreate { return Tokens.text }
+        return Tokens.textSoft
     }
 }
