@@ -107,6 +107,31 @@ Unchanged from current behavior (streaming errors, paste-back fallback, persiste
 - **Non-notch Mac** support, and **presenting on an external display** (the surface always appears on the built-in notched display per "Display targeting"; DynamicNotchKit's non-notch floating fallback exists but is unused/untargeted). Note: explicitly *targeting* the built-in display *is* in scope — what's out of scope is rendering anywhere else.
 - Removing the hotkey (it stays — it's the fast invoke).
 
+## Final v1 architecture (locked after plan review — supersedes tentative spike-option language above)
+
+Built directly (no granular phased plan). Decisions:
+
+**DynamicNotchKit 1.1.0 real API** (verified from upstream source):
+- `DynamicNotch<Expanded, CompactLeading, CompactTrailing>` — full init: `init(hoverBehavior: DynamicNotchHoverBehavior = .all, style: DynamicNotchStyle = .auto, @ViewBuilder expanded:, @ViewBuilder compactLeading: = {EmptyView()}, @ViewBuilder compactTrailing: = {EmptyView()})`.
+- Methods (all async): `expand(on: NSScreen = screens[0])`, `compact(on:)`, `hide()`.
+- `@Published isHovering: Bool`, `state: DynamicNotchState` (.hidden/.compact/.expanded).
+- Stored-property type must be the **three-param** form, e.g. `DynamicNotch<AnyView, EmptyView, EmptyView>` if compact content is built inline, or concrete compact view types.
+
+**Idle / invoke / dismiss:**
+- **Idle = `compact()`**, NOT `hide()`. A faint accent dot is the compact resting content (`compactTrailing`). `hide()` deinitializes the window, so it's used only on app quit. **Dismiss returns to `compact()`.**
+- **Hotkey** → **capture first, then `expand()`** (capture-then-present, option (a)). This *deliberately reverts* main's current show-first snappy-open for the notch path, because show-first + an interactive notch is the focus race the review flagged. Pasteable session.
+- **Hover-after-dwell (~0.4s) AND click** → `expand()` with a **non-pasteable** empty session. Observe `isHovering` with a dwell delay; click via a tap target on the compact content. (Reference theBoringNotch for dwell/hover feel.)
+
+**The 6 plan-review fixes, as locked invariants:**
+1. Use the real three-param `DynamicNotch` generic type for stored properties (not `DynamicNotch<AnyView>`).
+2. Hotkey path is capture-then-expand; the notch never presents interactive content during the synthetic-copy wait.
+3. Hover/click is first-class v1 (compact idle content + dwell/click → expand), not deferred.
+4. Keyboard: phase-aware + **scoped to the notch window only** (ignore events from Settings/About windows). Preserve `InputEditor`'s Esc-blurs-to-menu behavior (don't dismiss on Esc while the input editor is focused); preserve submit/result Esc=back/dismiss. The notch window has no `FloatingPanel.cancelOperation`, so Escape forwarding from a focused editor is reproduced explicitly.
+5. Mouse-input tracking (feeds `lastInputSource` for hover row focus) and **click-away dismissal** are mandatory, both routed through `PanelController.dismiss()` (which owns cancellation + persistence flush + clipboard restore). Click-away returns to `compact()`.
+6. The hover/click entry routes through the same teardown/arbitration as dismiss: ignore hover while already expanded/active, cancel any in-flight stream, flush pending result, restore an outgoing hotkey capture's clipboard, before starting the new non-pasteable session.
+
+**Components:** `NotchPresenter` (wraps DynamicNotch; owns expand/compact/hide, built-in-display targeting via `NSScreen.notched()`, dwell-hover observation); `PanelController` (presentation → presenter; `acceptResult` gains `canPasteBack` check; phase-aware key routing; hover entry with arbitration); `PanelView` reused; responder-aware notch-window-scoped key handling; `FloatingPanel` retired.
+
 ## ADR candidates (write during planning)
 - Amend ADR 0008: add DynamicNotchKit dependency (rationale: notch shape/positioning craft).
 - Amend/supersede ADR 0001: presentation surface = notch, not right-edge slab.
