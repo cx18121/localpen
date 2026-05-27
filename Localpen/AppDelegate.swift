@@ -54,16 +54,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let textIO = TextIO()
         let server = LlamaServerController()
         let streaming = StreamingClient(port: server.port)
+
+        // The presenter hosts PanelView and needs the controller; the controller
+        // needs the presenter. Resolve the cycle with a deferred reference — the
+        // content closure isn't evaluated until the notch first renders, by which
+        // point `controllerRef` is set.
+        var controllerRef: PanelController!
+        let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: controllerRef)) })
         let panel = PanelController(
             textIO: textIO,
             streaming: streaming,
             persistence: persistence,
             registry: registry,
             llamaServer: server,
+            notch: notch,
             openSettings: { [weak self] in self?.openSettings() }
         )
+        controllerRef = panel
         panelController = panel
         llamaServer = server
+
+        // Wire notch invocation + keyboard back to the controller.
+        notch.onHoverOpen = { [weak panel] in panel?.showFromHover() }
+        notch.onClickOpen = { [weak panel] in panel?.showFromHover() }
+        notch.onClickAway = { [weak panel] in panel?.handleClickAway() }
+        notch.handleKey = { [weak panel] event in panel?.handleKeyDown(event) ?? false }
+        notch.handleEditorKey = { [weak panel] event in panel?.handleKeyWhileEditing(event) ?? false }
+
+        // Bring up the calm resting notch (compact accent dot) at launch.
+        Task { await notch.showIdle() }
 
         let hk = HotkeyService()
         hk.onFire = { [weak self] in self?.handleHotkey() }

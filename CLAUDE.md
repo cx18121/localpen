@@ -60,7 +60,7 @@ Decisions get locked into ADRs **as they crystallize**, not batched at the end. 
 - macOS deployment target: **14 (Sonoma)** minimum
 - Default v1 model: **Qwen 2.5 7B Instruct, Q4_K_M**
 - Default hotkey: **⌃⌥Space**
-- SPM deps: KeyboardShortcuts · GRDB.swift · TOMLKit (see [ADR 0008](./docs/adr/0008-keyboardshortcuts-instead-of-masshortcut.md))
+- SPM deps: KeyboardShortcuts · GRDB.swift · TOMLKit · DynamicNotchKit (see [ADR 0008](./docs/adr/0008-keyboardshortcuts-instead-of-masshortcut.md) + [ADR 0011](./docs/adr/0011-notch-surface-supersedes-floating-slab.md))
 - Pre-launch checklist lives in [docs/adr/0007-defer-final-name-keep-localpen-as-working-name.md](./docs/adr/0007-defer-final-name-keep-localpen-as-working-name.md) and the README.
 
 ## When to ask the user

@@ -50,3 +50,7 @@ Why it's the better fit:
 - **PRD, SWIFTUI-SPEC, PLAN, CLAUDE.md** all updated to reference KeyboardShortcuts instead of MASShortcut. Old MASShortcut names live on only in this ADR's history.
 - **No code or design impact beyond the hotkey module.** Action set, panel anatomy, persistence schema, llama-server lifecycle — all unchanged.
 - **Future risk:** sindresorhus libraries have moved to "feed-on-Patreon" advisory notices. Acceptable; the library is MIT-licensed and the API is small enough that a fork would be cheap if needed.
+
+## Amendment (2026-05-27) — DynamicNotchKit added
+
+[ADR 0011](./0011-notch-surface-supersedes-floating-slab.md) moves the assistant surface into the MacBook notch, built on **DynamicNotchKit** (https://github.com/MrKai77/DynamicNotchKit, from 1.1.0; MIT; macOS 13+). This is the **fourth** SPM dependency (after KeyboardShortcuts, GRDB, TOMLKit). Rationale: DynamicNotchKit handles the notch shape, screen insets, built-in-vs-floating styling, screen-parameter changes, and compact/expanded transitions — substantial AppKit craft we'd otherwise reimplement for no differentiation. The dependency is small and MIT-licensed; a fork would be cheap if it stalls.

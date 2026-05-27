@@ -68,7 +68,7 @@ final class PanelController {
     static let panelSize = NSSize(width: 400, height: 480)
     static let panelEdgeMargin: CGFloat = 24
 
-    @ObservationIgnored private var panel: FloatingPanel?
+    @ObservationIgnored private let notch: NotchPresenter
     @ObservationIgnored private let textIO: TextIO
     @ObservationIgnored private let streaming: StreamingClient
     @ObservationIgnored private let persistence: Persistence?
@@ -84,7 +84,6 @@ final class PanelController {
     /// Monotonic session-ID source. Also detects supersession during the
     /// pre-capture await, before a PanelSession object exists yet.
     @ObservationIgnored private var sessionCounter: UInt64 = 0
-    @ObservationIgnored private var clickOutsideMonitor: Any?
     @ObservationIgnored private var mouseInputMonitor: Any?
 
     static let menuItems: [Action] = Action.fixed + [.respond(""), .custom("")]
@@ -96,6 +95,7 @@ final class PanelController {
          persistence: Persistence?,
          registry: ModelRegistry,
          llamaServer: LlamaServerController?,
+         notch: NotchPresenter,
          openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
@@ -103,11 +103,12 @@ final class PanelController {
         self.conversationStore = persistence.map { ConversationStore(dbQueue: $0.dbQueue) }
         self.registry = registry
         self.llamaServer = llamaServer
+        self.notch = notch
         self.openSettings = openSettings
+        installMouseTracking()
     }
 
     deinit {
-        if let mon = clickOutsideMonitor { NSEvent.removeMonitor(mon) }
         if let mon = mouseInputMonitor { NSEvent.removeMonitor(mon) }
     }
 
@@ -144,7 +145,14 @@ final class PanelController {
         state = .hidden
         current = nil
         conversation = nil
-        hidePanelAnimated()
+        goIdle()
+    }
+
+    /// Return the notch to its calm resting state (compact dot). The single
+    /// replacement for the old `hidePanelAnimated()` — the surface is never torn
+    /// down, just collapsed, so hover/click invocation keeps working.
+    private func goIdle() {
+        Task { @MainActor in await notch.idle() }
     }
 
     /// The finished result text if the panel is currently showing one, else nil.
@@ -244,6 +252,38 @@ final class PanelController {
         }
     }
 
+    /// Called by `NotchPresenter`'s key monitor when a text editor owns the
+    /// first-responder slot. Returns `true` only for the keys that must override
+    /// the editor for the current phase; `false` lets the editor handle the key
+    /// normally (typing, caret motion, and `GrowingTextEditor`'s own Esc/Tab blur).
+    ///
+    /// This reproduces, scoped to the notch window, what `FloatingPanel.cancelOperation`
+    /// did: forward Escape out of a *submit-mode* editor (compose / reply) so it backs
+    /// out — but NOT out of the default input editor in `.empty`/`.captured`, where Esc
+    /// must blur to the menu (handled by `GrowingTextEditor.doCommandBy`), not dismiss.
+    func handleKeyWhileEditing(_ event: NSEvent) -> Bool {
+        guard case .visible(_, let phase) = state else { return false }
+        let code = Int(event.keyCode)
+        switch phase {
+        case .empty, .captured:
+            // Default input editor owns every key; its doCommandBy blurs on Esc/Tab.
+            return false
+        case .customPrompt, .conversing:
+            // Submit-mode editor: Return submits via doCommandBy; only Escape needs
+            // forwarding (back / dismiss), which the editor lets fall through.
+            if code == kVK_Escape { return handleKeyDown(event) }
+            return false
+        case .result(_, let isEditing) where isEditing:
+            // Inline result editing: ⌘↩ accepts, ↩ ends edit, Esc ends edit.
+            if code == kVK_Escape || code == kVK_Return || code == kVK_ANSI_KeypadEnter {
+                return handleKeyDown(event)
+            }
+            return false
+        default:
+            return false
+        }
+    }
+
     // MARK: - State transitions
 
     func pick(_ action: Action) {
@@ -297,27 +337,29 @@ final class PanelController {
         }
         session.pendingInteraction = nil
 
-        switch action.operationClass {
-        case .create:
-            // A new artifact: leave it on the clipboard, never paste back over
-            // the source. Bypasses pasteBack and the .pasteBackFallback state.
+        // Paste back into the source only for a revise action with a live, pasteable
+        // session. A create artifact, OR a non-pasteable session (hover/click entry,
+        // resumed thread — no source field), copies to the clipboard instead. Without
+        // the `canPasteBack` guard, accepting a hover/click result would synthesize ⌘V
+        // into whatever app is frontmost. Mirrors `acceptTurn`'s guard.
+        guard case .revise = action.operationClass, session.canPasteBack else {
             writeToClipboard(text)
             state = .hidden
             current = nil
-            hidePanelAnimated()
-        case .revise:
-            let capture = session.capture
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let result = await self.textIO.pasteBack(result: text, capture: capture)
-                guard self.current === session else { return }
-                if result == .skipped {
-                    self.state = .visible(PanelContext(selection: sel, action: action), .error(.pasteBackFallback))
-                } else {
-                    self.state = .hidden
-                    self.current = nil
-                    self.hidePanelAnimated()
-                }
+            goIdle()
+            return
+        }
+        let capture = session.capture
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.textIO.pasteBack(result: text, capture: capture)
+            guard self.current === session else { return }
+            if result == .skipped {
+                self.state = .visible(PanelContext(selection: sel, action: action), .error(.pasteBackFallback))
+            } else {
+                self.state = .hidden
+                self.current = nil
+                self.goIdle()
             }
         }
     }
@@ -381,7 +423,7 @@ final class PanelController {
             flushPendingAsRejected()
             state = .hidden
             current = nil
-            hidePanelAnimated()
+            goIdle()
         case .diskFull:
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.settings.Storage")!)
             backToMenu()
@@ -409,15 +451,13 @@ final class PanelController {
         focusedActionIndex = 1
         lastInputSource = .keyboard
 
-        // Show the panel IMMEDIATELY (Raycast-snappy) instead of waiting on the
-        // selection-capture round-trip — which first waits for the hotkey modifiers
-        // to lift, then synthesizes ⌘C. We present without taking keyboard focus so
-        // the source app stays frontmost and the capture ⌘C lands there, then fill
-        // in the selection and grab focus once it returns.
-        inputText = ""
-        state = .visible(PanelContext(), .empty)
-        showPanel(makeKey: false)
-
+        // Capture BEFORE presenting the interactive surface. The notch is already
+        // visible (compact), so "opening" is a compact→expanded animation, not a
+        // cold window show — but expanding takes key focus, and the source app must
+        // stay frontmost while the synthetic ⌘C lands. So: capture first (which may
+        // wait for the hotkey modifiers to lift), THEN expand + focus. Presenting an
+        // interactive notch during the copy wait would race focus and risk capturing
+        // from / pasting back into the wrong app.
         let capture = await textIO.captureSelection()
         guard sessionCounter == myID else { return }   // superseded during capture
 
@@ -437,7 +477,34 @@ final class PanelController {
         } else {
             state = .visible(PanelContext(), .empty)
         }
-        focusPanel()
+        await notch.expand()
+    }
+
+    /// Hover-dwell / click invocation: open the assistant with NO capture. Routed
+    /// through the same teardown as dismiss first, so an in-flight stream, a pending
+    /// unaccepted result, or an outgoing hotkey capture's clipboard can't be orphaned
+    /// or leak into the new session. The session is non-pasteable (no source field),
+    /// so accept copies the result rather than synthesizing ⌘V into the frontmost app.
+    func showFromHover() {
+        // Already up (or mid-flight): ignore — don't stomp an active session.
+        if state.isVisible { return }
+        // Tear down any lingering session exactly like dismiss (cancel stream, flush
+        // pending as rejected, restore the outgoing capture's clipboard).
+        bumpConvEpoch()
+        isAccepting = false
+        current?.cancelStreaming()
+        flushPendingAsRejected()
+        if let session = current { textIO.restoreClipboard(session.capture) }
+
+        sessionCounter += 1
+        focusedActionIndex = 1
+        lastInputSource = .mouse
+        current = PanelSession(id: sessionCounter, capture: .empty,
+                               hotkeyTime: ContinuousClock.now, canPasteBack: false)
+        conversation = nil
+        inputText = ""
+        state = .visible(PanelContext(), .empty)
+        Task { @MainActor in await notch.expand() }
     }
 
     /// Builds a Selection that reflects the user's current edits to inputText,
@@ -452,116 +519,11 @@ final class PanelController {
         )
     }
 
-    /// Fixed sidebar anchor — right edge of the screen the cursor is on. Returns
-    /// the panel's TOP-LEFT corner: the panel grows downward from a constant top
-    /// edge so it sizes to its content without jumping vertically between states.
-    /// Multi-monitor aware (anchors on whichever display the cursor is on).
-    private func sidebarTopLeft() -> NSPoint {
-        let cursor = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(cursor) }
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        guard let frame = screen?.visibleFrame else { return .zero }
-        return NSPoint(
-            x: frame.maxX - Self.panelSize.width - Self.panelEdgeMargin,
-            y: frame.midY + Self.panelSize.height / 2   // fixed top edge
-        )
-    }
-
-    /// Brings the panel up. `makeKey: false` shows it WITHOUT taking keyboard focus
-    /// — used during the snappy open so the source app stays frontmost long enough
-    /// for the selection-capture ⌘C to land there, not in Localpen. `focusPanel()`
-    /// grabs key focus afterward.
-    private func showPanel(makeKey: Bool = true) {
-        let rect = NSRect(origin: .zero, size: Self.panelSize)
-
-        if panel == nil {
-            let p = FloatingPanel(contentRect: rect)
-            p.onKeyDown = { [weak self] event in
-                self?.handleKeyDown(event) ?? false
-            }
-            let host = NSHostingController(rootView: PanelView(controller: self))
-            p.contentViewController = host
-            panel = p
-            installObservers()
-        }
-
-        guard let panel else { return }
-        let anchor = sidebarTopLeft()
-        // Pin the top edge so content-driven resizes grow downward, not jump.
-        panel.pinnedTopY = anchor.y
-        let finalOrigin = NSPoint(x: anchor.x, y: anchor.y - panel.frame.height)
-
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            panel.setFrameOrigin(finalOrigin)
-            panel.alphaValue = 1
-            panel.orderFrontRegardless()
-            if makeKey { panel.makeKey() }
-            return
-        }
-
-        // Slide in a touch from the right edge while fading up — the panel
-        // "presents" itself rather than blinking into place.
-        panel.setFrameOrigin(NSPoint(x: finalOrigin.x + 16, y: finalOrigin.y))
-        panel.alphaValue = 0
-        panel.orderFrontRegardless()
-        if makeKey { panel.makeKey() }
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.16
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-            panel.animator().setFrameOrigin(finalOrigin)
-            panel.animator().alphaValue = 1
-        }
-    }
-
-    /// Grabs keyboard focus for the already-shown panel (the second half of the
-    /// snappy open, once selection capture has finished and the source app no
-    /// longer needs to be frontmost). Nonactivating panel → keys route here
-    /// without activating Localpen as the foreground app.
-    private func focusPanel() {
-        panel?.makeKey()
-    }
-
-    private func hidePanelAnimated() {
-        guard let panel else { return }
-        let origin = panel.frame.origin
-
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            return
-        }
-
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.13
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-            panel.animator().setFrameOrigin(NSPoint(x: origin.x + 12, y: origin.y))
-            panel.animator().alphaValue = 0
-        }, completionHandler: {
-            Task { @MainActor [weak self] in
-                // The state already moved to .hidden synchronously. Only finish
-                // the hide if nothing re-summoned the panel meanwhile; showPanel()
-                // owns alpha/origin when it did.
-                guard let self, !self.state.isVisible else { return }
-                panel.orderOut(nil)
-                panel.alphaValue = 1
-                panel.setFrameOrigin(origin)
-            }
-        })
-    }
-
-    private func installObservers() {
-        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.state.isVisible else { return }
-                self.dismiss()
-            }
-        }
-        // Track input source — any mouse event in our own app means "mouse".
-        // Local monitor delivers on the main thread, so we can set the
-        // @MainActor-isolated property synchronously here. Doing this via
-        // a Task created a race where a delayed mouse-set could land after
-        // a later keyboard-set and overwrite it.
+    /// Tracks whether the user is driving with the mouse, so `ActionMenuView.onHover`
+    /// only steals row focus during mouse use (not while arrow-key navigating). Any
+    /// mouse event in our app counts as "mouse". Always-on for the app's lifetime;
+    /// click-away dismissal is owned by `NotchPresenter` (it knows when expanded).
+    private func installMouseTracking() {
         mouseInputMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel]
         ) { [weak self] event in
@@ -570,6 +532,13 @@ final class PanelController {
             }
             return event
         }
+    }
+
+    /// Routed from `NotchPresenter.onClickAway` — a click landed outside while the
+    /// surface was expanded. Dismiss (which collapses back to the resting notch).
+    func handleClickAway() {
+        guard state.isVisible else { return }
+        dismiss()
     }
 
     // MARK: - Streaming
@@ -816,7 +785,7 @@ final class PanelController {
             // Create-class output, or a resumed thread (no live source field to
             // paste into): leave the accepted text on the clipboard.
             writeToClipboard(turn.text)
-            state = .hidden; conversation = nil; current = nil; hidePanelAnimated()
+            state = .hidden; conversation = nil; current = nil; goIdle()
             return
         }
         let capture = session.capture
@@ -826,7 +795,7 @@ final class PanelController {
             guard self.current === session else { return }
             if result == .skipped { self.writeToClipboard(turn.text) }
             self.state = .hidden; self.conversation = nil
-            self.current = nil; self.hidePanelAnimated()
+            self.current = nil; self.goIdle()
         }
     }
 
