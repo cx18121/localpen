@@ -55,22 +55,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let server = LlamaServerController()
         let streaming = StreamingClient(port: server.port)
 
-        // The presenter hosts PanelView and needs the controller; the controller
-        // needs the presenter. Resolve the cycle with a deferred reference — the
-        // content closure isn't evaluated until the notch first renders, by which
-        // point `controllerRef` is set.
-        var controllerRef: PanelController!
-        let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: controllerRef)) })
+        // Build the controller first: the presenter's DynamicNotch eagerly builds
+        // its content (PanelView(controller:)) during the presenter's init, so the
+        // controller must already exist. Then attach the presenter to the controller.
         let panel = PanelController(
             textIO: textIO,
             streaming: streaming,
             persistence: persistence,
             registry: registry,
             llamaServer: server,
-            notch: notch,
             openSettings: { [weak self] in self?.openSettings() }
         )
-        controllerRef = panel
+        let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })
+        panel.attach(notch: notch)
         panelController = panel
         llamaServer = server
 

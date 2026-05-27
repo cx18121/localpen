@@ -68,7 +68,11 @@ final class PanelController {
     static let panelSize = NSSize(width: 400, height: 480)
     static let panelEdgeMargin: CGFloat = 24
 
-    @ObservationIgnored private let notch: NotchPresenter
+    /// Set immediately after init via `attach(notch:)`. It can't be an init
+    /// parameter: the presenter's `DynamicNotch` eagerly evaluates its content
+    /// closure (which builds `PanelView(controller: self)`) during the presenter's
+    /// own init, so the controller must already exist when the presenter is created.
+    @ObservationIgnored private var notch: NotchPresenter!
     @ObservationIgnored private let textIO: TextIO
     @ObservationIgnored private let streaming: StreamingClient
     @ObservationIgnored private let persistence: Persistence?
@@ -95,7 +99,6 @@ final class PanelController {
          persistence: Persistence?,
          registry: ModelRegistry,
          llamaServer: LlamaServerController?,
-         notch: NotchPresenter,
          openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
@@ -103,9 +106,14 @@ final class PanelController {
         self.conversationStore = persistence.map { ConversationStore(dbQueue: $0.dbQueue) }
         self.registry = registry
         self.llamaServer = llamaServer
-        self.notch = notch
         self.openSettings = openSettings
         installMouseTracking()
+    }
+
+    /// Wire the presenter after construction (see `notch`'s doc for why it can't be
+    /// an init parameter).
+    func attach(notch: NotchPresenter) {
+        self.notch = notch
     }
 
     deinit {
