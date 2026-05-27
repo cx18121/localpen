@@ -16,6 +16,10 @@ final class PanelController {
     /// PanelState so each token re-renders only the result region (via
     /// StreamingResultView) rather than the whole panel.
     var streamingText: String = ""
+    /// The live conversation when in `.conversing`, else nil. ConversationView observes it.
+    var conversation: Conversation?
+    /// Recent threads for the history list, loaded on demand in `.history`.
+    var recentThreads: [ThreadSummary] = []
     /// Incremented to request keyboard focus on the input field (Tab from the
     /// menu). InputEditor focuses itself when this changes. Initial open
     /// auto-focuses via the editor's onAppear.
@@ -43,6 +47,7 @@ final class PanelController {
     @ObservationIgnored private let streaming: StreamingClient
     @ObservationIgnored private let persistence: Persistence?
     @ObservationIgnored private let registry: ModelRegistry
+    @ObservationIgnored private let conversationStore: ConversationStore?
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
@@ -69,6 +74,7 @@ final class PanelController {
         self.textIO = textIO
         self.streaming = streaming
         self.persistence = persistence
+        self.conversationStore = persistence.map { ConversationStore(dbQueue: $0.dbQueue) }
         self.registry = registry
         self.llamaServer = llamaServer
         self.openSettings = openSettings
@@ -157,6 +163,14 @@ final class PanelController {
             return false
 
         case .generating:
+            if code == kVK_Escape { backToMenu(); return true }
+            return false
+
+        case .conversing:
+            if code == kVK_Escape { dismiss(); return true }
+            return false
+
+        case .history:
             if code == kVK_Escape { backToMenu(); return true }
             return false
 
@@ -601,6 +615,124 @@ final class PanelController {
         guard let session = current, let pending = session.pendingInteraction else { return }
         persistInteraction(pending)
         session.pendingInteraction = nil
+    }
+
+    // MARK: - Conversation
+
+    /// Promote the showing one-shot result into a thread on the first follow-up.
+    func promoteToConversation(followUp: String) {
+        let trimmed = followUp.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              case .visible(let ctx, .result(let result, _)) = state,
+              let action = ctx.action, let sel = ctx.selection,
+              let session = current else { return }
+
+        // The one-shot result becomes the thread's first exchange; its pending
+        // interaction is now owned by the thread (persisted by appendExchange below).
+        session.pendingInteraction = nil
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let threadID = (try? await self.conversationStore?.createThread(originalSelection: sel)) ?? -1
+            try? await self.conversationStore?.appendExchange(
+                threadID: threadID, userText: action.pillLabel, action: action,
+                modelID: self.registry.activeModelID, assistantText: result)
+            guard self.current === session else { return }
+            let convo = Conversation.seeded(threadID: threadID, originalSelection: sel,
+                                            seedAction: action, result: result, followUp: trimmed)
+            self.conversation = convo
+            self.state = .visible(ctx, .conversing)
+            self.runConversationTurn()
+        }
+    }
+
+    /// Append a typed/chip follow-up to the live thread and stream the next reply.
+    func sendFollowUp(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let convo = conversation else { return }
+        convo.turns.append(ConversationTurn(role: .user, text: trimmed))
+        runConversationTurn()
+    }
+
+    /// Tap a refinement chip — a preset follow-up instruction.
+    func tapChip(_ instruction: String) { sendFollowUp(instruction) }
+
+    private func runConversationTurn() {
+        guard let session = current, let convo = conversation else { return }
+        convo.streamingText = ""
+        session.cancelStreaming()
+        session.streamingTask = Task { @MainActor [weak self] in
+            await self?.streamConversation(convo, session: session)
+        }
+    }
+
+    private func streamConversation(_ convo: Conversation, session: PanelSession) async {
+        let messages = [(role: "system", content: ActionPrompts.conversationSystem)] + convo.messages
+        let sampling = registry.activeModel?.sampling
+        var partial = ""
+        do {
+            for try await token in streaming.complete(messages: messages, sampling: sampling) {
+                if Task.isCancelled { return }
+                partial += token
+                convo.streamingText = partial
+            }
+            if Task.isCancelled { return }
+            convo.turns.append(ConversationTurn(role: .assistant, text: partial))
+            convo.streamingText = ""
+            // The triggering user turn is the last .user turn before this assistant turn.
+            let userText = convo.turns.dropLast().last(where: { $0.role == .user })?.text ?? ""
+            try? await conversationStore?.appendExchange(
+                threadID: convo.threadID, userText: userText, action: nil,
+                modelID: registry.activeModelID, assistantText: partial)
+        } catch {
+            if Task.isCancelled { return }
+            // Keep the thread; surface the error in conversation context.
+            state = .visible(PanelContext(selection: convo.originalSelection),
+                             .error(PanelError(streamingError: error)))
+        }
+    }
+
+    /// Accept a specific assistant turn: paste back (revise) or copy (create).
+    func acceptTurn(_ turn: ConversationTurn) {
+        guard turn.role == .assistant, let convo = conversation, let session = current else { return }
+        switch convo.operationClass {
+        case .create:
+            writeToClipboard(turn.text)
+            state = .hidden; conversation = nil; current = nil; hidePanelAnimated()
+        case .revise:
+            let capture = session.capture
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let result = await self.textIO.pasteBack(result: turn.text, capture: capture)
+                guard self.current === session else { return }
+                if result == .skipped { self.writeToClipboard(turn.text) }
+                self.state = .hidden; self.conversation = nil
+                self.current = nil; self.hidePanelAnimated()
+            }
+        }
+    }
+
+    func openHistory() {
+        guard case .visible(let ctx, _) = state else { return }
+        state = .visible(ctx, .history)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.recentThreads = (try? await self.conversationStore?.recentThreads(limit: 20)) ?? []
+        }
+    }
+
+    func resumeThread(_ id: Int64) {
+        guard let store = conversationStore else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let turns = (try? await store.loadTurns(threadID: id)) ?? []
+            guard let seed = turns.first(where: { $0.role == .user })?.action else { return }
+            let sel = Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+            let convo = Conversation(threadID: id, originalSelection: sel,
+                                     operationClass: seed.operationClass, turns: turns)
+            self.conversation = convo
+            self.state = .visible(PanelContext(selection: sel, action: seed), .conversing)
+        }
     }
 
     // MARK: - Helpers

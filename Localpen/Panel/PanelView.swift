@@ -73,6 +73,12 @@ struct PanelView: View {
                         )
                     }
 
+                case .conversing:
+                    EmptyView()
+
+                case .history:
+                    EmptyView()
+
                 case .error(let err):
                     ErrorBanner(error: err, onAction: { controller.retryFromError() })
                 }

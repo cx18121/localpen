@@ -26,6 +26,8 @@ enum PanelState: Equatable {
         // observed property) so per-token updates re-render only the result
         // region, not the whole panel.
         case generating
+        case conversing
+        case history
         case result(finalResult: String, isEditing: Bool)
         case error(PanelError)
     }
@@ -53,6 +55,8 @@ enum PanelState: Equatable {
         case .generating:   return 4
         case .result(_, let editing): return editing ? 6 : 5
         case .error:        return 7
+        case .conversing:   return 8
+        case .history:      return 9
         }
     }
 }
