@@ -60,11 +60,6 @@ final class PanelController {
     /// from arrow-key navigation.
     var lastInputSource: InputSource = .keyboard
     enum InputSource { case keyboard, mouse }
-    /// True while the hotkey-open selection capture is in flight (the panel is
-    /// already visible — instant open — but the ⌘C round-trip hasn't returned yet).
-    /// The input shows a quiet "Reading selection…" hint instead of the type-prompt
-    /// so the empty→populated moment reads as deliberate, not a flash.
-    var isCapturing: Bool = false
     /// True for a brief beat right after ⌘C copies the result, so the toolbar
     /// can show a "copied" confirmation. Reset by `flashCopied`.
     var justCopied: Bool = false
@@ -138,7 +133,6 @@ final class PanelController {
     func dismiss() {
         bumpConvEpoch()   // invalidate any in-flight promote/resume/turn continuation
         isAccepting = false
-        isCapturing = false
         current?.cancelStreaming()
         // Capture the on-screen result before flushing — flushPendingAsRejected
         // clears the pending interaction.
@@ -470,25 +464,17 @@ final class PanelController {
         focusedActionIndex = 1
         lastInputSource = .keyboard
 
-        // Open INSTANTLY: animate the notch open right now, but WITHOUT taking key
-        // focus — the source app must stay frontmost so the capture ⌘C lands there,
-        // not in Localpen. Then capture (which may wait for the hotkey modifiers to
-        // lift), fill in the selection, and only then take key focus for typing. This
-        // gives a snappy open while keeping capture/paste-back targeting correct
-        // (expanding non-key means the surface can't steal the copy mid-flight).
-        inputText = ""
-        isCapturing = true
-        state = .visible(PanelContext(), .empty)
-        Task { @MainActor in await notch.expand() }
-
+        // Capture FIRST, then open already populated — so the captured text is on
+        // screen the instant the surface appears, with no empty→text flash. The
+        // notch stays in its resting (compact) state during the brief capture, then
+        // expands with content. Capturing before presenting also keeps the source app
+        // frontmost so the synthetic ⌘C lands there, and lets us take key focus
+        // immediately on expand.
         let capture = await textIO.captureSelection()
-        guard sessionCounter == myID else { isCapturing = false; return }   // superseded during capture
-        isCapturing = false
+        guard sessionCounter == myID else { return }   // superseded during capture
 
         let session = PanelSession(id: myID, capture: capture, hotkeyTime: hotkeyTime)
         current = session
-
-        // Seed the editable input field with the captured selection (if any).
         inputText = capture.selection ?? ""
 
         if let text = capture.selection, !text.isEmpty {
@@ -501,6 +487,7 @@ final class PanelController {
         } else {
             state = .visible(PanelContext(), .empty)
         }
+        await notch.expand()
         notch.focus()
     }
 
@@ -516,7 +503,6 @@ final class PanelController {
         // pending as rejected, restore the outgoing capture's clipboard).
         bumpConvEpoch()
         isAccepting = false
-        isCapturing = false
         current?.cancelStreaming()
         flushPendingAsRejected()
         if let session = current { textIO.restoreClipboard(session.capture) }

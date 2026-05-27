@@ -45,7 +45,7 @@ final class TextIO {
         // injected key event, turning the synthetic ⌘C into ⌃⌥⌘C — which no app
         // treats as Copy, so nothing is captured. Wait for the modifiers to lift
         // first (best-effort, with a timeout) so the copy lands clean.
-        await waitForModifiersClear(timeout: .milliseconds(600))
+        await waitForModifiersClear(timeout: .milliseconds(300))
 
         postCmdChord(keyCode: CGKeyCode(kVK_ANSI_C))
         try? await Task.sleep(for: .milliseconds(90))

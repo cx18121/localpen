@@ -16,10 +16,6 @@ struct InputEditor: View {
     var autoFocus: Bool = false
     /// Bumped by the controller (Tab from the menu) to pull focus here.
     var focusTick: Int = 0
-    /// True during the instant-open capture window — show a quiet "Reading
-    /// selection…" hint instead of the type-prompt, so the empty→text moment
-    /// reads as deliberate rather than a flash of the wrong placeholder.
-    var isCapturing: Bool = false
 
     @State private var isFocused = false
 
@@ -29,12 +25,11 @@ struct InputEditor: View {
             // placeholder, like a native search field. Focus reads from the caret.
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
-                    Text(isCapturing ? "Reading selection…" : "Type or paste text to transform…")
+                    Text("Type or paste text to transform…")
                         .font(Typography.selection)
                         .foregroundStyle(Tokens.textFaint)
                         .padding(.top, GrowingTextEditor.topInset)
                         .allowsHitTesting(false)
-                        .transition(.opacity)
                 }
                 GrowingTextEditor(
                     text: $text,
