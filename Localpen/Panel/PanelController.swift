@@ -184,13 +184,7 @@ final class PanelController {
                     setEditing(true)   // Tab into the result to edit it
                     return true
                 case kVK_ANSI_C where cmd:
-                    // ⌘C copies a revise result. For a create result, ⌘↩ already
-                    // copies the reply (and the footer doesn't advertise ⌘C), so
-                    // swallow it rather than flashing a confirmation no one sees.
-                    if case .visible(let ctx, _) = state, ctx.action?.operationClass == .create {
-                        return true
-                    }
-                    copyResult()
+                    copyResult()       // ⌘C copies the result to the clipboard
                     return true
                 default:
                     return false

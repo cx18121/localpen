@@ -28,7 +28,11 @@ struct ResultToolbar: View {
 
             case .result:
                 if isCreate {
-                    KbdHint("⌘↩", "copy reply")
+                    if justCopied {
+                        Text("copied ✓").font(Typography.pill).foregroundStyle(Tokens.accent)
+                    } else {
+                        KbdHint("⌘↩", "copy reply")
+                    }
                     KbdHint("esc", "back")
                 } else {
                     KbdHint("⌘↩", "accept")
