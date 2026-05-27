@@ -184,7 +184,13 @@ final class PanelController {
                     setEditing(true)   // Tab into the result to edit it
                     return true
                 case kVK_ANSI_C where cmd:
-                    copyResult()       // ⌘C copies the result to the clipboard
+                    // ⌘C copies a revise result. For a create result, ⌘↩ already
+                    // copies the reply (and the footer doesn't advertise ⌘C), so
+                    // swallow it rather than flashing a confirmation no one sees.
+                    if case .visible(let ctx, _) = state, ctx.action?.operationClass == .create {
+                        return true
+                    }
+                    copyResult()
                     return true
                 default:
                     return false
@@ -256,8 +262,7 @@ final class PanelController {
         case .create:
             // A new artifact: leave it on the clipboard, never paste back over
             // the source. Bypasses pasteBack and the .pasteBackFallback state.
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            writeToClipboard(text)
             state = .hidden
             current = nil
             hidePanelAnimated()
@@ -278,12 +283,17 @@ final class PanelController {
         }
     }
 
+    /// Writes `text` to the general pasteboard as the sole string item.
+    private func writeToClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     /// Copies the current result to the clipboard without pasting it back into
     /// the source app (⌘C), for when the user wants it elsewhere.
     func copyResult() {
         guard case .visible(_, .result(let text, _)) = state else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        writeToClipboard(text)
         flashCopied()
     }
 
