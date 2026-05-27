@@ -64,6 +64,10 @@ struct ConversationView: View {
                 controller.sendFollowUp(raw)
                 replyText = ""
             }
+            // While a turn streams, submission is gated in the controller; dim and
+            // disable the field so that's visible rather than a silent no-op.
+            .disabled(conversation.isStreaming)
+            .opacity(conversation.isStreaming ? 0.5 : 1)
         }
     }
 }

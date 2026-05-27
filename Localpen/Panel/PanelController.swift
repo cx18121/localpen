@@ -20,6 +20,10 @@ final class PanelController {
     var conversation: Conversation?
     /// Recent threads for the history list, loaded on demand in `.history`.
     var recentThreads: [ThreadSummary] = []
+    /// Claimed synchronously while a one-shot result is being promoted into a
+    /// thread, so a second follow-up submitted during the async create/persist
+    /// can't spawn a duplicate thread for the same result.
+    @ObservationIgnored private var isPromoting = false
     /// Incremented to request keyboard focus on the input field (Tab from the
     /// menu). InputEditor focuses itself when this changes. Initial open
     /// auto-focuses via the editor's onAppear.
@@ -623,13 +627,20 @@ final class PanelController {
     /// Promote the showing one-shot result into a thread on the first follow-up.
     func promoteToConversation(followUp: String) {
         let trimmed = followUp.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
+        guard !isPromoting,
+              !trimmed.isEmpty,
               case .visible(let ctx, .result(let result, _)) = state,
               let action = ctx.action, let sel = ctx.selection,
               let session = current else { return }
 
+        // Claim the promotion synchronously: the state stays `.result` across the
+        // async create/persist below, so without this flag a second follow-up
+        // submitted in that window would pass the guard and create a duplicate thread.
+        isPromoting = true
+
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.isPromoting = false }
             // Persist the thread + seed exchange if persistence is available; a nil
             // store or a failed create yields an ephemeral (unsaved, non-resumable)
             // thread rather than blocking the conversation or orphaning the result.
@@ -654,7 +665,9 @@ final class PanelController {
     /// Append a typed/chip follow-up to the live thread and stream the next reply.
     func sendFollowUp(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let convo = conversation else { return }
+        // Ignore submissions while a turn is in flight: appending a user turn now
+        // would abandon the streaming turn and diverge the live UI from history.
+        guard !trimmed.isEmpty, let convo = conversation, !convo.isStreaming else { return }
         convo.turns.append(ConversationTurn(role: .user, text: trimmed))
         runConversationTurn()
     }
@@ -673,6 +686,7 @@ final class PanelController {
         guard let session = current, let convo = conversation else { return }
         convo.turnError = nil   // clear any prior failed-turn error before re-streaming
         convo.streamingText = ""
+        convo.isStreaming = true
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
             await self?.streamConversation(convo, session: session)
@@ -692,6 +706,7 @@ final class PanelController {
             if Task.isCancelled { return }
             convo.turns.append(ConversationTurn(role: .assistant, text: partial))
             convo.streamingText = ""
+            convo.isStreaming = false
             // The triggering user turn is the last .user turn before this assistant turn.
             let userText = convo.turns.dropLast().last(where: { $0.role == .user })?.text ?? ""
             if convo.threadID > 0 {
@@ -705,27 +720,31 @@ final class PanelController {
             // Keep the thread; surface the error inline (ConversationView renders it
             // with Retry). The failed user turn stays last in `turns`, so retry re-streams.
             convo.streamingText = ""
+            convo.isStreaming = false
             convo.turnError = PanelError(streamingError: error)
         }
     }
 
-    /// Accept a specific assistant turn: paste back (revise) or copy (create).
+    /// Accept a specific assistant turn. Paste back into the source app only for a
+    /// revise thread with a live, pasteable session; otherwise (create thread, or a
+    /// resumed thread with no source-app context) copy the result to the clipboard.
     func acceptTurn(_ turn: ConversationTurn) {
         guard turn.role == .assistant, let convo = conversation, let session = current else { return }
-        switch convo.operationClass {
-        case .create:
+        guard session.canPasteBack, convo.operationClass == .revise else {
+            // Create-class output, or a resumed thread (no live source field to
+            // paste into): leave the accepted text on the clipboard.
             writeToClipboard(turn.text)
             state = .hidden; conversation = nil; current = nil; hidePanelAnimated()
-        case .revise:
-            let capture = session.capture
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let result = await self.textIO.pasteBack(result: turn.text, capture: capture)
-                guard self.current === session else { return }
-                if result == .skipped { self.writeToClipboard(turn.text) }
-                self.state = .hidden; self.conversation = nil
-                self.current = nil; self.hidePanelAnimated()
-            }
+            return
+        }
+        let capture = session.capture
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.textIO.pasteBack(result: turn.text, capture: capture)
+            guard self.current === session else { return }
+            if result == .skipped { self.writeToClipboard(turn.text) }
+            self.state = .hidden; self.conversation = nil
+            self.current = nil; self.hidePanelAnimated()
         }
     }
 
@@ -740,18 +759,23 @@ final class PanelController {
 
     func resumeThread(_ id: Int64) {
         guard let store = conversationStore else { return }
+        // Preserve the outgoing (menu) session's clipboard snapshot so dismissing a
+        // resumed thread still restores the user's pre-invocation clipboard — the
+        // resumed session inherits it for teardown rather than a blank `.empty`.
+        let priorCapture = current?.capture ?? .empty
         Task { @MainActor [weak self] in
             guard let self else { return }
             let turns = (try? await store.loadTurns(threadID: id)) ?? []
             guard let seed = turns.first(where: { $0.role == .user })?.action else { return }
             let sel = ((try? await store.loadThread(id: id)) ?? nil) ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
-            // Resume isn't a hotkey capture, but sendFollowUp/acceptTurn both need
-            // a live session (`current`). Synthesize one with an empty capture so
-            // accept on a revise thread falls back to leaving the result on the
-            // clipboard (no original frontmost field to paste into).
+            // Resume isn't a hotkey capture, but sendFollowUp/acceptTurn both need a
+            // live session (`current`). Synthesize one that (a) carries the outgoing
+            // clipboard snapshot for correct restore-on-dismiss, and (b) is marked
+            // non-pasteable so accept copies the result rather than synthesizing ⌘V
+            // into whatever app is frontmost (there's no original source field).
             self.sessionCounter += 1
-            let session = PanelSession(id: self.sessionCounter, capture: .empty,
-                                       hotkeyTime: ContinuousClock.now)
+            let session = PanelSession(id: self.sessionCounter, capture: priorCapture,
+                                       hotkeyTime: ContinuousClock.now, canPasteBack: false)
             self.current = session
             let convo = Conversation(threadID: id, originalSelection: sel,
                                      operationClass: seed.operationClass, turns: turns)
