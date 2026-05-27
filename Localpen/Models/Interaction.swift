@@ -14,6 +14,7 @@ struct Interaction: Codable, FetchableRecord, MutablePersistableRecord {
     var modelOutput: String?
     var accepted: Bool
     var editedOutput: String?
+    var threadID: Int64?        // nil for one-shot interactions; set for conversation turns
 
     static let databaseTableName = "interactions"
 
@@ -28,6 +29,7 @@ struct Interaction: Codable, FetchableRecord, MutablePersistableRecord {
         case modelOutput = "model_output"
         case accepted
         case editedOutput = "edited_output"
+        case threadID = "thread_id"
     }
 
     mutating func didInsert(_ inserted: InsertionSuccess) {

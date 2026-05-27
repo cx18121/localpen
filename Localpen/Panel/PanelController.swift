@@ -582,7 +582,8 @@ final class PanelController {
             modelID: registry.activeModelID,
             modelOutput: output,
             accepted: accepted,
-            editedOutput: edited
+            editedOutput: edited,
+            threadID: nil
         )
     }
 

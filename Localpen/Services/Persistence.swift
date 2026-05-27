@@ -46,7 +46,7 @@ final class Persistence {
         return dir.appendingPathComponent("history.sqlite")
     }
 
-    private static func migrate(_ queue: DatabaseQueue) throws {
+    static func migrate(_ queue: DatabaseQueue) throws {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1.create_interactions") { db in
             try db.create(table: "interactions") { t in
@@ -60,6 +60,19 @@ final class Persistence {
                 t.column("model_output", .text)
                 t.column("accepted", .integer).notNull()
                 t.column("edited_output", .text)
+            }
+        }
+        migrator.registerMigration("v2.threads") { db in
+            try db.create(table: "threads") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull()
+                t.column("source_app", .text)
+                t.column("original_selection", .text)
+                t.column("title", .text)
+            }
+            try db.alter(table: "interactions") { t in
+                t.add(column: "thread_id", .integer)   // nullable; NULL = one-shot
             }
         }
         try migrator.migrate(queue)
