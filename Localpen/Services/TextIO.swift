@@ -40,13 +40,12 @@ final class TextIO {
         let beforeCount = pasteboard.changeCount
         log.info("capture: frontmost=\(frontmost?.bundleIdentifier ?? "nil", privacy: .public) pbCountBefore=\(beforeCount)")
 
-        // The hotkey (e.g. ⌃⌥Space) is almost certainly still physically held
-        // when we get here. The window server ORs those live modifiers into our
-        // injected key event, turning the synthetic ⌘C into ⌃⌥⌘C — which no app
-        // treats as Copy, so nothing is captured. Wait for the modifiers to lift
-        // first (best-effort, with a timeout) so the copy lands clean.
-        await waitForModifiersClear(timeout: .milliseconds(300))
-
+        // The hotkey (e.g. ⌃⌥Space) is almost certainly still physically held when
+        // we get here. Left alone, the window server ORs those live modifiers into
+        // our injected ⌘C, turning it into ⌃⌥⌘C — which no app treats as Copy. Rather
+        // than wait for the user to release the keys (a visible delay), `postCmdChord`
+        // suppresses local hardware modifiers during the synthetic chord, so the copy
+        // lands clean immediately. A short settle lets the target write the pasteboard.
         postCmdChord(keyCode: CGKeyCode(kVK_ANSI_C))
         try? await Task.sleep(for: .milliseconds(90))
 
@@ -98,18 +97,6 @@ final class TextIO {
         return .pasted
     }
 
-    /// Polls until the user has released the keyboard modifiers (or the timeout
-    /// elapses), so a synthetic ⌘ chord isn't contaminated by modifiers still
-    /// held from the summoning hotkey.
-    private func waitForModifiersClear(timeout: Duration) async {
-        let watched: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if NSEvent.modifierFlags.intersection(watched).isEmpty { return }
-            try? await Task.sleep(for: .milliseconds(15))
-        }
-    }
-
     /// Polls until `app` becomes frontmost or the timeout elapses, so a
     /// just-activated app has actually taken focus before we synthesize keys.
     private func waitUntilFrontmost(_ app: NSRunningApplication?, timeout: Duration) async {
@@ -148,6 +135,17 @@ final class TextIO {
 
     private func postCmdChord(keyCode: CGKeyCode) {
         let source = CGEventSource(stateID: .hidSystemState)
+        // Suppress physically-held hardware modifiers (the ⌃⌥ from the summoning
+        // hotkey) for the brief interval around our synthetic events, so they aren't
+        // OR'd into the chord. This lets ⌘C/⌘V land clean while the hotkey is still
+        // held — no need to wait for the user to release it. We omit
+        // `.permitLocalKeyboardEvents` from the permitted set so local modifier state
+        // is filtered during the suppression interval.
+        source?.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateSuppressionInterval
+        )
+
         let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Command), keyDown: true)
         let kDown   = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
         kDown?.flags = .maskCommand
