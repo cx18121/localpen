@@ -48,7 +48,7 @@ final class TextIO {
         await waitForModifiersClear(timeout: .milliseconds(600))
 
         postCmdChord(keyCode: CGKeyCode(kVK_ANSI_C))
-        try? await Task.sleep(for: .milliseconds(120))
+        try? await Task.sleep(for: .milliseconds(90))
 
         let afterCount = pasteboard.changeCount
         let changed = afterCount != beforeCount

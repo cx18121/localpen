@@ -28,7 +28,7 @@ final class NotchPresenter {
 
     /// Pointer dwell before hover opens the notch. Quick passes (reaching for the
     /// menu bar) are ignored; the pointer must linger this long.
-    private let dwell: Duration = .milliseconds(400)
+    private let dwell: Duration = .milliseconds(250)
     /// After dismiss-to-idle, ignore hover-open briefly so the surface doesn't
     /// immediately re-open under a pointer that's still parked over the notch.
     private let reopenCooldown: Duration = .milliseconds(350)
