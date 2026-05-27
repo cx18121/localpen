@@ -70,6 +70,21 @@ enum Action: Hashable, Identifiable {
         }
     }
 
+    /// Rebuilds an Action from a persisted `rawValue` (+ optional steer text for
+    /// the associated-value cases). Used to resume a stored thread. Unknown
+    /// raw values fall back to `.custom(steer ?? "")`.
+    static func reconstruct(rawValue: String, steer: String?) -> Action {
+        switch rawValue {
+        case "proofread":   return .proofread
+        case "polish":      return .polish
+        case "more_formal": return .moreFormal
+        case "more_casual": return .moreCasual
+        case "shorter":     return .shorter
+        case "respond":     return .respond(steer ?? "")
+        default:            return .custom(steer ?? "")
+        }
+    }
+
     /// Resolves the compose field's entered text into the action to generate,
     /// or nil when the submission should be ignored. Respond accepts empty
     /// (empty steer = a sensible default reply); Custom requires non-empty.
