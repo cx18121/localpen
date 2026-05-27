@@ -68,6 +68,8 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           if [ "$CONFIGURATION" = "Debug" ]; then
+            # ditto (not cp -R) preserves the code signature and embedded-framework
+            # symlinks; cp -R strips the signature and launchd then refuses to spawn.
             rm -rf "/Applications/$PRODUCT_NAME.app"
-            cp -R "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "/Applications/$PRODUCT_NAME.app"
+            ditto "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "/Applications/$PRODUCT_NAME.app"
           fi
