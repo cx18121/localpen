@@ -241,8 +241,8 @@ final class PanelController {
               let action = ctx.action,
               let session = current else { return }
         let sel = ctx.selection
-        let capture = session.capture
 
+        // Persist as accepted (reuse the pending interaction if present).
         if var pending = session.pendingInteraction {
             pending.accepted = true
             pending.editedOutput = (text == pending.modelOutput) ? nil : text
@@ -252,16 +252,28 @@ final class PanelController {
         }
         session.pendingInteraction = nil
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let result = await self.textIO.pasteBack(result: text, capture: capture)
-            guard self.current === session else { return }
-            if result == .skipped {
-                self.state = .visible(PanelContext(selection: sel, action: action), .error(.pasteBackFallback))
-            } else {
-                self.state = .hidden
-                self.current = nil
-                self.hidePanelAnimated()
+        switch action.operationClass {
+        case .create:
+            // A new artifact: leave it on the clipboard, never paste back over
+            // the source. Bypasses pasteBack and the .pasteBackFallback state.
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            state = .hidden
+            current = nil
+            hidePanelAnimated()
+        case .revise:
+            let capture = session.capture
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let result = await self.textIO.pasteBack(result: text, capture: capture)
+                guard self.current === session else { return }
+                if result == .skipped {
+                    self.state = .visible(PanelContext(selection: sel, action: action), .error(.pasteBackFallback))
+                } else {
+                    self.state = .hidden
+                    self.current = nil
+                    self.hidePanelAnimated()
+                }
             }
         }
     }

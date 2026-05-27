@@ -67,6 +67,7 @@ struct PanelView: View {
                             action: action,
                             mode: isEditing ? .editing : .result,
                             justCopied: controller.justCopied,
+                            isCreate: action.operationClass == .create,
                             onAccept: { controller.acceptResult() },
                             onBack: { controller.backToMenu() }
                         )
