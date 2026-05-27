@@ -6,7 +6,7 @@ import GRDB
 struct Interaction: Codable, FetchableRecord, MutablePersistableRecord {
     var id: Int64?
     var timestamp: Int64        // unix epoch seconds
-    var sourceApp: String?
+    var sourceApp: String?      // populated on one-shot rows; NULL on thread-tagged rows (provenance lives in threads.source_app)
     var selection: String?
     var action: String
     var customPrompt: String?
