@@ -10,7 +10,10 @@ struct ActionMenuView: View {
 
     private let rowHeight: CGFloat = 38
     private let headerHeight: CGFloat = 26
+    private let headerBottomPad: CGFloat = 4
     private let dividerHeight: CGFloat = 13
+    /// Full rendered height of a group header (frame + its bottom padding).
+    private var headerTotal: CGFloat { headerHeight + headerBottomPad }
 
     private var respondIdx: Int { Action.fixed.count }                        // 5
     private var customIdx: Int { Action.fixed.count + 1 }                     // 6
@@ -19,12 +22,12 @@ struct ActionMenuView: View {
     /// Top offset of the highlight for a given row index, accounting for the
     /// headers and divider physically above it.
     private func highlightOffset(for index: Int) -> CGFloat {
-        var y = headerHeight                       // REVISE header
-        if index < respondIdx {                    // a revise row
+        var y = headerTotal                            // REVISE header (frame + bottom pad)
+        if index < respondIdx {                        // a revise row
             return y + CGFloat(index) * rowHeight
         }
         y += CGFloat(Action.fixed.count) * rowHeight   // past the revise rows
-        y += headerHeight                              // CREATE header
+        y += headerTotal                               // CREATE header
         if index == respondIdx { return y }
         y += rowHeight                                 // past Respond
         y += dividerHeight                             // divider
