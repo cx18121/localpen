@@ -54,6 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let textIO = TextIO()
         let server = LlamaServerController()
         let streaming = StreamingClient(port: server.port)
+
+        // Build the controller first: the presenter's DynamicNotch eagerly builds
+        // its content (PanelView(controller:)) during the presenter's init, so the
+        // controller must already exist. Then attach the presenter to the controller.
         let panel = PanelController(
             textIO: textIO,
             streaming: streaming,
@@ -62,8 +66,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             llamaServer: server,
             openSettings: { [weak self] in self?.openSettings() }
         )
+        let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })
+        panel.attach(notch: notch)
         panelController = panel
         llamaServer = server
+
+        // Wire notch invocation + keyboard back to the controller.
+        notch.onHoverOpen = { [weak panel] in panel?.showFromHover() }
+        notch.onClickOpen = { [weak panel] in panel?.showFromHover() }
+        notch.onClickAway = { [weak panel] in panel?.handleClickAway() }
+        notch.handleKey = { [weak panel] event in panel?.handleKeyDown(event) ?? false }
+        notch.handleEditorKey = { [weak panel] event in panel?.handleKeyWhileEditing(event) ?? false }
+
+        // Bring up the calm resting notch (compact accent dot) at launch.
+        Task { await notch.showIdle() }
 
         let hk = HotkeyService()
         hk.onFire = { [weak self] in self?.handleHotkey() }
@@ -140,9 +156,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             do {
                 try await server.start(modelPath: modelPath, contextSize: descriptor.contextSize)
                 self.log.info("llama-server ready on port \(server.port)")
+                self.warmUpModel(port: server.port)
             } catch {
                 self.log.error("llama-server failed: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Fire one throwaway token through the model right after the server is ready,
+    /// so the FIRST real action doesn't pay the cold prompt-eval / graph-setup cost.
+    /// We consume a single token then stop (cancelling tears down the request).
+    private func warmUpModel(port: Int) {
+        let client = StreamingClient(port: port)
+        Task.detached(priority: .utility) {
+            for try await _ in client.complete(systemPrompt: "Warmup.", userText: "Hi") { break }
         }
     }
 

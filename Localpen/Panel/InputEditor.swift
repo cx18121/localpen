@@ -21,9 +21,8 @@ struct InputEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s2) {
-            // Borderless "rail field": no box or fill — just a left rail that
-            // reads as a faint hairline at rest and the accent focus rail when
-            // active, matching the action menu's focus language (DESIGN §2.5/§S5).
+            // Clean borderless field — no rail or box, just the text and a
+            // placeholder, like a native search field. Focus reads from the caret.
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text("Type or paste text to transform…")
@@ -41,15 +40,8 @@ struct InputEditor: View {
                 )
                 .frame(minHeight: 20)
             }
-            .padding(.leading, Spacing.s5)
             .padding(.vertical, Spacing.s3)
             .frame(minHeight: 40, alignment: .topLeading)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(isFocused ? Tokens.accent : Tokens.hairline)
-                    .frame(width: isFocused ? 2 : 1)
-            }
-            .animation(.easeOut(duration: 0.15), value: isFocused)
 
             if let app = sourceAppName {
                 Text("from \(app)")

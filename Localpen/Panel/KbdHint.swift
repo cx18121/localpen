@@ -13,13 +13,21 @@ struct KbdHint: View {
     }
 
     var body: some View {
-        HStack(spacing: Spacing.s1) {
+        HStack(spacing: Spacing.s2) {
             Text(keys)
-                .font(Typography.kbdGlyph)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(Tokens.textSoft)
+                .frame(minWidth: 16)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Tokens.rowHighlight)
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Tokens.hairline, lineWidth: 1))
+                )
             Text(label)
                 .font(Typography.footerHint)
-                .foregroundStyle(Tokens.textMute)
+                .foregroundStyle(Tokens.textSoft)
         }
         .fixedSize()
     }

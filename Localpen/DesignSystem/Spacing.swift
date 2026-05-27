@@ -16,6 +16,6 @@ enum Spacing {
     static let bubbleInsetV: CGFloat = 9
     static let bubbleInsetH: CGFloat = 13
 
-    static let panelRadius: CGFloat = 10
-    static let innerRadius: CGFloat = 6
+    static let panelRadius: CGFloat = 14
+    static let innerRadius: CGFloat = 7
 }

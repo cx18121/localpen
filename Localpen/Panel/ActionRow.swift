@@ -14,9 +14,9 @@ struct ActionRow: View {
             .font(isFocused ? Typography.menuRowFocused : Typography.menuRow)
             .foregroundStyle(labelColor)
             .frame(maxWidth: .infinity, alignment: .leading)
-            // Lead clears the highlight inset (s4) + rail (2) + gap (s5) so the
-            // label sits just right of the rail.
-            .padding(.leading, Spacing.s4 + 2 + Spacing.s5)
+            // Lead clears the highlight inset (s4) + a small gap so the label sits
+            // comfortably inside the rounded focus fill.
+            .padding(.leading, Spacing.s4 + Spacing.s5)
             .padding(.trailing, Spacing.s5)
             .animation(Motion.focusMove, value: isFocused)
     }

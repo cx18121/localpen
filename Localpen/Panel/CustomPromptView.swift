@@ -14,10 +14,7 @@ struct CustomPromptView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Same borderless "rail field" as InputEditor: a left rail that is a
-            // faint hairline at rest and the accent focus rail when active, so the
-            // compose field reads as one system with the type/paste field and the
-            // action menu (DESIGN §2.5/§S5).
+            // Clean borderless field, consistent with InputEditor — no rail.
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(isRespond ? "How should I reply?  (optional)" : "Type a custom prompt…")
@@ -45,14 +42,7 @@ struct CustomPromptView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: 22)
             }
-            .padding(.leading, Spacing.s5)
             .padding(.vertical, Spacing.s4)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(isFocused ? Tokens.accent : Tokens.hairline)
-                    .frame(width: isFocused ? 2 : 1)
-            }
-            .animation(.easeOut(duration: 0.15), value: isFocused)
             .padding(.horizontal, Spacing.s7)
 
             Hairline()

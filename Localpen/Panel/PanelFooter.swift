@@ -7,7 +7,7 @@ struct PanelFooter: View {
         HStack(spacing: Spacing.s5) {
             KbdHint("↑↓", "select")
             KbdHint("↩", "apply")
-            KbdHint("⇥", "edit")
+            KbdHint("tab", "edit")
             KbdHint("esc", "close")
             Spacer(minLength: 0)
             Button(action: onHistory) {

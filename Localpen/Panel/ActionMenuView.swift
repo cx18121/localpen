@@ -8,8 +8,12 @@ import SwiftUI
 struct ActionMenuView: View {
     @Bindable var controller: PanelController
 
-    private let rowHeight: CGFloat = 38
-    private let headerHeight: CGFloat = 26
+    /// Row under the pointer — a subtle, instant hover lift (no slide animation,
+    /// distinct from the keyboard focus fill). Doesn't move keyboard focus.
+    @State private var hoveredIndex: Int? = nil
+
+    private let rowHeight: CGFloat = 34
+    private let headerHeight: CGFloat = 24
     private let headerBottomPad: CGFloat = 4
     private let dividerHeight: CGFloat = 13
     /// Full rendered height of a group header (frame + its bottom padding).
@@ -36,12 +40,10 @@ struct ActionMenuView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // Clean neutral focus highlight — a soft rounded fill, no blue accent
+            // rail. Slides between rows on keyboard nav.
             RoundedRectangle(cornerRadius: Spacing.innerRadius)
-                .fill(Tokens.accentTint)
-                .overlay(alignment: .leading) {
-                    Rectangle().fill(Tokens.accent).frame(width: 2)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
+                .fill(Tokens.rowHighlight)
                 .frame(height: rowHeight)
                 .padding(.horizontal, Spacing.s4)
                 .offset(y: highlightOffset(for: controller.focusedActionIndex))
@@ -77,6 +79,13 @@ struct ActionMenuView: View {
         ActionRow(action: action, isFocused: controller.focusedActionIndex == i)
             .frame(height: rowHeight)
             .opacity(disabled ? 0.35 : 1)
+            .background(
+                RoundedRectangle(cornerRadius: Spacing.innerRadius)
+                    .fill(Tokens.rowHighlight)
+                    .padding(.horizontal, Spacing.s4)
+                    // Only the hovered, non-focused, enabled row gets the lift.
+                    .opacity(hoveredIndex == i && controller.focusedActionIndex != i && !disabled ? 0.6 : 0)
+            )
             .contentShape(Rectangle())
             .onTapGesture {
                 guard !disabled else { return }
@@ -84,9 +93,8 @@ struct ActionMenuView: View {
                 controller.pick(action)
             }
             .onHover { hovering in
-                if hovering && !disabled && controller.lastInputSource == .mouse {
-                    controller.focusedActionIndex = i
-                }
+                if hovering { hoveredIndex = i }
+                else if hoveredIndex == i { hoveredIndex = nil }
             }
     }
 }

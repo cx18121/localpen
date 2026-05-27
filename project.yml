@@ -15,6 +15,9 @@ packages:
   TOMLKit:
     url: https://github.com/LebJe/TOMLKit
     from: 0.6.0
+  DynamicNotchKit:
+    url: https://github.com/MrKai77/DynamicNotchKit
+    from: 1.1.0
 
 targets:
   Localpen:
@@ -62,6 +65,8 @@ targets:
         product: GRDB
       - package: TOMLKit
         product: TOMLKit
+      - package: DynamicNotchKit
+        product: DynamicNotchKit
 
   LocalpenTests:
     type: bundle.unit-test
