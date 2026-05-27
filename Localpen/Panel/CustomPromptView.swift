@@ -14,41 +14,46 @@ struct CustomPromptView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: Spacing.s3) {
-                Text("›")
-                    .foregroundStyle(Tokens.accent)
-                    .font(.system(size: 14, weight: .medium))
-
-                ZStack(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text(isRespond ? "How should I reply?  (optional)" : "Type a custom prompt…")
-                            .foregroundStyle(Tokens.textFaint)
-                            .font(Typography.menuRow)
-                            .padding(.top, GrowingTextEditor.topInset)
-                            .allowsHitTesting(false)
-                    }
-                    // AppKit-backed editor: reliable auto-focus on appear (the
-                    // SwiftUI @FocusState/onAppear path dropped focus during the
-                    // panel's animated state swap), Return submits, ⇧Return adds
-                    // a newline, Esc bubbles to the panel for "back".
-                    GrowingTextEditor(
-                        text: $text,
-                        isFocused: $isFocused,
-                        autoFocus: true,
-                        fontSize: 14,
-                        onSubmit: { raw in
-                            onSubmit(raw)
-                        }
-                    )
-                    // Hug content height so the prompt box stays compact and
-                    // grows with the text, instead of stretching to fill the
-                    // panel (nothing below it absorbs the height here).
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 22)
+            // Same borderless "rail field" as InputEditor: a left rail that is a
+            // faint hairline at rest and the accent focus rail when active, so the
+            // compose field reads as one system with the type/paste field and the
+            // action menu (DESIGN §2.5/§S5).
+            ZStack(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(isRespond ? "How should I reply?  (optional)" : "Type a custom prompt…")
+                        .foregroundStyle(Tokens.textFaint)
+                        .font(Typography.menuRow)
+                        .padding(.top, GrowingTextEditor.topInset)
+                        .allowsHitTesting(false)
                 }
+                // AppKit-backed editor: reliable auto-focus on appear (the
+                // SwiftUI @FocusState/onAppear path dropped focus during the
+                // panel's animated state swap), Return submits, ⇧Return adds
+                // a newline, Esc bubbles to the panel for "back".
+                GrowingTextEditor(
+                    text: $text,
+                    isFocused: $isFocused,
+                    autoFocus: true,
+                    fontSize: 14,
+                    onSubmit: { raw in
+                        onSubmit(raw)
+                    }
+                )
+                // Hug content height so the prompt box stays compact and
+                // grows with the text, instead of stretching to fill the
+                // panel (nothing below it absorbs the height here).
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 22)
             }
-            .padding(.horizontal, Spacing.s7)
+            .padding(.leading, Spacing.s5)
             .padding(.vertical, Spacing.s4)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(isFocused ? Tokens.accent : Tokens.hairline)
+                    .frame(width: isFocused ? 2 : 1)
+            }
+            .animation(.easeOut(duration: 0.15), value: isFocused)
+            .padding(.horizontal, Spacing.s7)
 
             Hairline()
 

@@ -21,12 +21,14 @@ struct InputEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s2) {
+            // Borderless "rail field": no box or fill — just a left rail that
+            // reads as a faint hairline at rest and the accent focus rail when
+            // active, matching the action menu's focus language (DESIGN §2.5/§S5).
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text("Type or paste text to transform…")
                         .font(Typography.selection)
                         .foregroundStyle(Tokens.textFaint)
-                        .italic()
                         .padding(.top, GrowingTextEditor.topInset)
                         .allowsHitTesting(false)
                 }
@@ -39,15 +41,15 @@ struct InputEditor: View {
                 )
                 .frame(minHeight: 20)
             }
-            .padding(.horizontal, Spacing.s4)
+            .padding(.leading, Spacing.s5)
             .padding(.vertical, Spacing.s3)
-            .frame(minHeight: 52, alignment: .topLeading)
-            .background(Tokens.panelBG2)
-            .clipShape(RoundedRectangle(cornerRadius: Spacing.innerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: Spacing.innerRadius)
-                    .stroke(isFocused ? Tokens.accent : Tokens.hairline, lineWidth: 1)
-            )
+            .frame(minHeight: 40, alignment: .topLeading)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(isFocused ? Tokens.accent : Tokens.hairline)
+                    .frame(width: isFocused ? 2 : 1)
+            }
+            .animation(.easeOut(duration: 0.15), value: isFocused)
 
             if let app = sourceAppName {
                 Text("from \(app)")

@@ -209,23 +209,30 @@ When an action is picked, the **Action Menu** section transforms into the **Resu
 
 ### 3.5 Custom prompt mode
 
-When the user picks **Custom…** from the action menu, the menu region (not the selection block) transforms into a textarea:
+When the user picks **Custom…** or **Respond** from the action menu, the menu region (not the selection block) transforms into a compose field:
 
 ```
 ├─────────────────────────────────┤
-│ CUSTOM INPUT                    │  padding 14/16
-│ ▸ ▌                             │  prompt glyph (›, --accent) + native text caret
-│   Type a custom prompt…         │  placeholder --text-faint when empty
+│ ▏ How should I reply?  (optional)│  rail field (§3.6) + placeholder --text-faint
 ├─────────────────────────────────┤
-│ ↩ submit · ⌫ back to menu       │  same footer slot
+│ ↩ submit · ⇧↩ newline · esc back │  same footer slot
 └─────────────────────────────────┘
 ```
 
-- The textarea grows up to 4 lines before scrolling.
-- ↩ Return submits (Shift+Return inserts newline).
-- ⌫ Backspace on an empty input returns to the action menu.
+- Self-sizing field (native NSTextView); grows with its content, no scrollbar until tall.
+- ↩ Return submits (⇧Return inserts a newline). Esc returns to the action menu.
+- Custom requires non-empty input; **Respond** accepts empty (empty = a sensible default reply).
 
-On submit, the textarea region becomes the Result section (same animation as picking a fixed action).
+On submit, the compose region becomes the Result section (same animation as picking a fixed action).
+
+### 3.6 Input fields — the rail treatment
+
+Both editable inputs (the **type/paste** field in S2/S3 and the **Custom/Respond** compose field) share one borderless treatment, so they read as one system with the action menu rather than as web-style form boxes:
+
+- **No box, no fill, no border ring.** The field is bare text on the panel surface.
+- **A left rail** is the only structure: a 1px `--panel-hairline` at rest, animating to the 2px `--accent` rail on focus — the *same* focus indicator the action menu uses for the focused row. Quick ease-out (~150ms).
+- Placeholder is `--text-faint`, **regular weight (not italic)**. Text sits inset (`--space-5`) to clear the rail.
+- This supersedes the earlier filled-box input and the `›` prompt-glyph sketch: the single accent note stays the focus rail + caret, never a full bordered ring.
 
 ---
 
