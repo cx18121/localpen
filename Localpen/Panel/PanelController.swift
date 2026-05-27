@@ -56,7 +56,7 @@ final class PanelController {
     @ObservationIgnored private var clickOutsideMonitor: Any?
     @ObservationIgnored private var mouseInputMonitor: Any?
 
-    static let menuItems: [Action] = Action.fixed + [.respond("")] + [.custom("")]
+    static let menuItems: [Action] = Action.fixed + [.respond(""), .custom("")]
 
     @ObservationIgnored let openSettings: () -> Void
 
@@ -215,6 +215,10 @@ final class PanelController {
         }
     }
 
+    /// Validates and dispatches a compose-phase submission. Reads the action the
+    /// compose view was entered with from `ctx.action`, lets `Action.fromCompose`
+    /// decide whether to proceed (empty allowed for Respond, rejected for Custom),
+    /// and starts generation. A no-op if there's no compose context/action.
     func submitCompose(_ text: String) {
         guard case .visible(let ctx, .customPrompt) = state, let base = ctx.action else { return }
         guard let action = Action.fromCompose(base: base, text: text) else { return }
@@ -550,8 +554,7 @@ final class PanelController {
     // MARK: - Persistence
 
     private func buildInteraction(selection: Selection?, action: Action, output: String?, accepted: Bool, edited: String?) -> Interaction {
-        var customPrompt: String? = nil
-        if case let .custom(text) = action { customPrompt = text }
+        let customPrompt: String? = action.steerText
         return Interaction(
             id: nil,
             timestamp: Int64(Date().timeIntervalSince1970),
