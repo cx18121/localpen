@@ -67,7 +67,7 @@ struct ActionMenuView: View {
             .foregroundStyle(Tokens.textFaint)
             .frame(height: headerHeight, alignment: .bottomLeading)
             .padding(.horizontal, Spacing.s7)
-            .padding(.bottom, 4)
+            .padding(.bottom, headerBottomPad)
     }
 
     @ViewBuilder
