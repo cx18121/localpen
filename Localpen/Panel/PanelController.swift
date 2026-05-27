@@ -24,6 +24,23 @@ final class PanelController {
     /// thread, so a second follow-up submitted during the async create/persist
     /// can't spawn a duplicate thread for the same result.
     @ObservationIgnored private var isPromoting = false
+
+    /// Monotonic "intent" token for the conversation/promote/resume/history async
+    /// flows. `current === session` only proves the SUMMON is unchanged — it can't
+    /// see that the user navigated away (Back), accepted, or started a different
+    /// transition within the same summon, because the PanelSession object survives
+    /// those. Every navigation that should invalidate an in-flight conversation
+    /// transition bumps this; each async transition captures it and re-checks after
+    /// every await before mutating `current`/`conversation`/`state` or persisting.
+    @ObservationIgnored private var convEpoch: UInt64 = 0
+
+    /// Bumps the intent token, invalidating any in-flight conversation transition,
+    /// and returns the new value for a freshly-claimed transition to capture.
+    @discardableResult
+    private func bumpConvEpoch() -> UInt64 {
+        convEpoch &+= 1
+        return convEpoch
+    }
     /// Incremented to request keyboard focus on the input field (Tab from the
     /// menu). InputEditor focuses itself when this changes. Initial open
     /// auto-focuses via the editor's onAppear.
@@ -100,6 +117,7 @@ final class PanelController {
     }
 
     func dismiss() {
+        bumpConvEpoch()   // invalidate any in-flight promote/resume/turn continuation
         current?.cancelStreaming()
         // Capture the on-screen result before flushing — flushPendingAsRejected
         // clears the pending interaction.
@@ -246,6 +264,7 @@ final class PanelController {
     }
 
     func backToMenu() {
+        bumpConvEpoch()   // Back is explicit intent to leave; cancel pending promote/resume/turn
         current?.cancelStreaming()
         flushPendingAsRejected()
         if let sel = currentSelection() {
@@ -259,6 +278,7 @@ final class PanelController {
         guard case .visible(let ctx, .result(let text, _)) = state,
               let action = ctx.action,
               let session = current else { return }
+        bumpConvEpoch()   // terminal: a pending promote must not fire after accept
         let sel = ctx.selection
 
         // Persist as accepted (reuse the pending interaction if present).
@@ -375,6 +395,7 @@ final class PanelController {
     // MARK: - Capture + show
 
     private func captureAndShow() async {
+        bumpConvEpoch()   // a new summon invalidates any lingering conversation transition
         sessionCounter += 1
         let myID = sessionCounter
         let hotkeyTime = ContinuousClock.now
@@ -637,24 +658,26 @@ final class PanelController {
         // async create/persist below, so without this flag a second follow-up
         // submitted in that window would pass the guard and create a duplicate thread.
         isPromoting = true
+        let epoch = bumpConvEpoch()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.isPromoting = false }
-            // Persist the thread + seed exchange if persistence is available; a nil
-            // store or a failed create yields an ephemeral (unsaved, non-resumable)
-            // thread rather than blocking the conversation or orphaning the result.
-            let threadID = (try? await self.conversationStore?.createThread(originalSelection: sel)) ?? -1
-            if threadID > 0 {
-                try? await self.conversationStore?.appendExchange(
-                    threadID: threadID, userText: action.steerText ?? "", action: action,
-                    modelID: self.registry.activeModelID, assistantText: result)
-            }
-            // The one-shot result becomes the thread's first exchange; its pending
-            // interaction is now owned by the thread (persisted above when real).
-            session.pendingInteraction = nil
-            guard self.current === session else { return }
-            let convo = Conversation.seeded(threadID: threadID, originalSelection: sel,
+            // Atomic: the thread row and its seed exchange persist together or not
+            // at all (no malformed half-written thread). nil => no store or a write
+            // failure → an ephemeral (in-memory, non-resumable) thread; the one-shot
+            // stays pending so teardown still records it.
+            let threadID: Int64? = (try? await self.conversationStore?.createThreadWithSeed(
+                originalSelection: sel, seedUserText: action.steerText ?? "", seedAction: action,
+                modelID: self.registry.activeModelID, assistantText: result)) ?? nil
+            // Re-check intent: Back / accept / dismiss / a new summon during the await
+            // must not be overridden by this late completion (`current === session`
+            // alone can't see those — the session object survives them).
+            guard self.convEpoch == epoch, self.current === session else { return }
+            // Seed durably persisted → it now owns the record; otherwise keep the
+            // pending one-shot so teardown still flushes it as rejected.
+            if threadID != nil { session.pendingInteraction = nil }
+            let convo = Conversation.seeded(threadID: threadID ?? -1, originalSelection: sel,
                                             seedAction: action, result: result, followUp: trimmed)
             self.conversation = convo
             self.state = .visible(ctx, .conversing)
@@ -687,13 +710,14 @@ final class PanelController {
         convo.turnError = nil   // clear any prior failed-turn error before re-streaming
         convo.streamingText = ""
         convo.isStreaming = true
+        let epoch = bumpConvEpoch()   // this turn is the new current intent
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
-            await self?.streamConversation(convo, session: session)
+            await self?.streamConversation(convo, session: session, epoch: epoch)
         }
     }
 
-    private func streamConversation(_ convo: Conversation, session: PanelSession) async {
+    private func streamConversation(_ convo: Conversation, session: PanelSession, epoch: UInt64) async {
         let messages = [(role: "system", content: ActionPrompts.conversationSystem)] + convo.messages
         let sampling = registry.activeModel?.sampling
         var partial = ""
@@ -704,6 +728,9 @@ final class PanelController {
                 convo.streamingText = partial
             }
             if Task.isCancelled { return }
+            // The user may have accepted/navigated away as the last token arrived;
+            // never append or persist a reply they no longer have open.
+            guard convEpoch == epoch, current === session else { return }
             convo.turns.append(ConversationTurn(role: .assistant, text: partial))
             convo.streamingText = ""
             convo.isStreaming = false
@@ -716,7 +743,7 @@ final class PanelController {
             }
         } catch {
             if Task.isCancelled { return }
-            guard current === session else { return }
+            guard convEpoch == epoch, current === session else { return }
             // Keep the thread; surface the error inline (ConversationView renders it
             // with Retry). The failed user turn stays last in `turns`, so retry re-streams.
             convo.streamingText = ""
@@ -730,6 +757,11 @@ final class PanelController {
     /// resumed thread with no source-app context) copy the result to the clipboard.
     func acceptTurn(_ turn: ConversationTurn) {
         guard turn.role == .assistant, let convo = conversation, let session = current else { return }
+        // Terminal: stop any in-flight turn and invalidate its completion so a reply
+        // the user never accepted can't be appended/persisted after we close, and the
+        // stale `Use` buttons on earlier bubbles can't act on a superseded session.
+        bumpConvEpoch()
+        session.cancelStreaming()
         guard session.canPasteBack, convo.operationClass == .revise else {
             // Create-class output, or a resumed thread (no live source field to
             // paste into): leave the accepted text on the clipboard.
@@ -750,10 +782,13 @@ final class PanelController {
 
     func openHistory() {
         guard case .visible(let ctx, _) = state else { return }
+        let epoch = bumpConvEpoch()
         state = .visible(ctx, .history)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.recentThreads = (try? await self.conversationStore?.recentThreads(limit: 20)) ?? []
+            let threads = (try? await self.conversationStore?.recentThreads(limit: 20)) ?? []
+            guard self.convEpoch == epoch else { return }   // navigated away while loading
+            self.recentThreads = threads
         }
     }
 
@@ -763,11 +798,15 @@ final class PanelController {
         // resumed thread still restores the user's pre-invocation clipboard — the
         // resumed session inherits it for teardown rather than a blank `.empty`.
         let priorCapture = current?.capture ?? .empty
+        let epoch = bumpConvEpoch()
         Task { @MainActor [weak self] in
             guard let self else { return }
             let turns = (try? await store.loadTurns(threadID: id)) ?? []
-            guard let seed = turns.first(where: { $0.role == .user })?.action else { return }
             let sel = ((try? await store.loadThread(id: id)) ?? nil) ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+            // Dismiss, Back, or a second resume during the loads above must not be
+            // overridden by this late completion installing a stale session/thread.
+            guard self.convEpoch == epoch else { return }
+            guard let seed = turns.first(where: { $0.role == .user })?.action else { return }
             // Resume isn't a hotkey capture, but sendFollowUp/acceptTurn both need a
             // live session (`current`). Synthesize one that (a) carries the outgoing
             // clipboard snapshot for correct restore-on-dismiss, and (b) is marked

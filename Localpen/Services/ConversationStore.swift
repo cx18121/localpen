@@ -36,6 +36,32 @@ final class ConversationStore {
         }
     }
 
+    /// Atomically creates a thread AND its seed exchange in one transaction, so a
+    /// partial write can never leave a thread whose first row isn't the seed (which
+    /// would make `loadTurns` reconstruct the wrong seed action on resume). Returns
+    /// the new thread id; throws (rolling back both inserts) on any failure.
+    func createThreadWithSeed(originalSelection: Selection, seedUserText: String,
+                              seedAction: Action, modelID: String,
+                              assistantText: String) async throws -> Int64 {
+        let now = self.now()
+        let title = Self.title(from: originalSelection.text)
+        return try await dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title)
+                VALUES (?, ?, ?, ?, ?)
+                """, arguments: [now, now, originalSelection.sourceBundleID, originalSelection.text, title])
+            let threadID = db.lastInsertedRowID
+            var seed = Interaction(
+                id: nil, timestamp: now, sourceApp: nil, selection: nil,
+                action: seedAction.rawValue, customPrompt: seedUserText,
+                modelID: modelID, modelOutput: assistantText,
+                accepted: false, editedOutput: nil, threadID: threadID
+            )
+            try seed.insert(db)
+            return threadID
+        }
+    }
+
     /// Persists one user→assistant exchange as an interactions row.
     func appendExchange(threadID: Int64, userText: String, action: Action?,
                         modelID: String, assistantText: String) async throws {
