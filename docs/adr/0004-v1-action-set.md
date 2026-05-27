@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-05-24
 
+> **Amended by [ADR 0009](./0009-respond-create-action-class.md) (2026-05-26):** adds a `Respond` (Create) action and the revise/create operation-class distinction. The six transform-only actions below remain; Respond is additive.
+
 ## Context
 
 The Phase 1 quick-action surface presents the user with a menu of pre-defined transformations to apply to their selection. The earlier UI prototype shipped six actions: **Rewrite / Polish / Shorten / Expand / Translate / Custom**. This set needs to be locked before design (impeccable) and implementation work begins.
