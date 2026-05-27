@@ -73,10 +73,6 @@ targets:
       - target: Localpen
       - package: GRDB
         product: GRDB
-      - package: TOMLKit
-        product: TOMLKit
-      - package: KeyboardShortcuts
-        product: KeyboardShortcuts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.localpen.LocalpenTests
