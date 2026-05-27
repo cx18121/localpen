@@ -14,6 +14,7 @@ struct ReplyBox: View {
     @Binding var text: String
     var autoFocus: Bool
     var placeholder: String = "reply to keep refining…"
+    var showHints: Bool = true
     let onSubmit: (String) -> Void
 
     @State private var isFocused = false
@@ -48,17 +49,19 @@ struct ReplyBox: View {
             .animation(.easeOut(duration: 0.15), value: isFocused)
             .padding(.horizontal, Spacing.s7)
 
-            Hairline()
+            if showHints {
+                Hairline()
 
-            HStack(spacing: Spacing.s5) {
-                KbdHint("↩", "send")
-                KbdHint("⇧↩", "newline")
-                KbdHint("esc", "close")
+                HStack(spacing: Spacing.s5) {
+                    KbdHint("↩", "send")
+                    KbdHint("⇧↩", "newline")
+                    KbdHint("esc", "close")
+                }
+                .padding(.horizontal, Spacing.s6)
+                .padding(.vertical, Spacing.s3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Tokens.chromeTint)
             }
-            .padding(.horizontal, Spacing.s6)
-            .padding(.vertical, Spacing.s3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Tokens.chromeTint)
         }
     }
 }

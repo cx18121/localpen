@@ -131,7 +131,7 @@ private struct ResultPhaseView: View {
         // settled (not while the user is editing it inline).
         if !isEditing {
             Hairline()
-            ReplyBox(text: $replyText, autoFocus: false) { raw in
+            ReplyBox(text: $replyText, autoFocus: false, showHints: false) { raw in
                 controller.promoteToConversation(followUp: raw)
                 replyText = ""
             }
