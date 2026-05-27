@@ -29,6 +29,7 @@ final class Persistence {
     func deleteAll() async throws {
         try await dbQueue.write { db in
             try db.execute(sql: "DELETE FROM interactions")
+            try db.execute(sql: "DELETE FROM threads")
         }
     }
 
@@ -66,13 +67,16 @@ final class Persistence {
             try db.create(table: "threads") { t in
                 t.autoIncrementedPrimaryKey("id")
                 t.column("created_at", .integer).notNull()
-                t.column("updated_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull()   // bumped by ConversationStore on each appended turn (Task 4)
                 t.column("source_app", .text)
                 t.column("original_selection", .text)
-                t.column("title", .text)
+                t.column("title", .text)   // auto-generated snippet of the original selection; not user-editable
             }
             try db.alter(table: "interactions") { t in
-                t.add(column: "thread_id", .integer)   // nullable; NULL = one-shot
+                // Nullable FK; NULL = one-shot interaction. setNull on delete so
+                // deleting a thread leaves its interaction rows as orphan one-shots
+                // rather than dangling references.
+                t.add(column: "thread_id", .integer).references("threads", onDelete: .setNull)
             }
         }
         try migrator.migrate(queue)
