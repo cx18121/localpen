@@ -74,7 +74,9 @@ struct PanelView: View {
                     }
 
                 case .conversing:
-                    EmptyView()
+                    if let convo = controller.conversation {
+                        ConversationView(controller: controller, conversation: convo)
+                    }
 
                 case .history:
                     EmptyView()
