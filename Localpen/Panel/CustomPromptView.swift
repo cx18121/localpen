@@ -1,10 +1,16 @@
 import SwiftUI
 
 struct CustomPromptView: View {
+    let action: Action
     let onSubmit: (String) -> Void
 
     @State private var text: String = ""
     @State private var isFocused = false
+
+    private var isRespond: Bool {
+        if case .respond = action { return true }
+        return false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -15,7 +21,7 @@ struct CustomPromptView: View {
 
                 ZStack(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text("Type a custom prompt…")
+                        Text(isRespond ? "How should I reply?  (optional)" : "Type a custom prompt…")
                             .foregroundStyle(Tokens.textFaint)
                             .font(Typography.menuRow)
                             .padding(.top, GrowingTextEditor.topInset)
@@ -31,9 +37,7 @@ struct CustomPromptView: View {
                         autoFocus: true,
                         fontSize: 14,
                         onSubmit: { raw in
-                            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            onSubmit(trimmed)
+                            onSubmit(raw)
                         }
                     )
                     // Hug content height so the prompt box stays compact and

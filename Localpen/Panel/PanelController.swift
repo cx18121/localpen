@@ -56,7 +56,7 @@ final class PanelController {
     @ObservationIgnored private var clickOutsideMonitor: Any?
     @ObservationIgnored private var mouseInputMonitor: Any?
 
-    static let menuItems: [Action] = Action.fixed + [.custom("")]
+    static let menuItems: [Action] = Action.fixed + [.respond("")] + [.custom("")]
 
     @ObservationIgnored let openSettings: () -> Void
 
@@ -205,17 +205,20 @@ final class PanelController {
 
     func pick(_ action: Action) {
         switch action {
-        case .custom:
-            state = .visible(PanelContext(selection: selectionWithCurrentInput()), .customPrompt)
+        case .custom, .respond:
+            // Compose phase always carries its action in the context so submit,
+            // the toolbar, accept, and persistence can all read it. Without this
+            // the Respond flow silently runs as Custom.
+            state = .visible(PanelContext(selection: selectionWithCurrentInput(), action: action), .customPrompt)
         default:
             startGeneration(action: action, selection: selectionWithCurrentInput())
         }
     }
 
-    func submitCustomPrompt(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        startGeneration(action: .custom(trimmed))
+    func submitCompose(_ text: String) {
+        guard case .visible(let ctx, .customPrompt) = state, let base = ctx.action else { return }
+        guard let action = Action.fromCompose(base: base, text: text) else { return }
+        startGeneration(action: action, selection: ctx.selection)
     }
 
     func backToMenu() {

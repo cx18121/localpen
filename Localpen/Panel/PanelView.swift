@@ -32,7 +32,8 @@ struct PanelView: View {
                         Hairline()
                     }
                     CustomPromptView(
-                        onSubmit: { controller.submitCustomPrompt($0) }
+                        action: ctx.action ?? .custom(""),
+                        onSubmit: { controller.submitCompose($0) }
                     )
 
                 case .generating:
