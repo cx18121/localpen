@@ -91,7 +91,7 @@ final class TextIO {
         postCmdChord(keyCode: CGKeyCode(kVK_ANSI_V))
         // Give the target app time to read the pasteboard before we restore the
         // user's previous clipboard; restoring too early pastes the old content.
-        try? await Task.sleep(for: .milliseconds(250))
+        try? await Task.sleep(for: .milliseconds(150))
 
         restorePasteboard(capture.savedItems)
         return .pasted

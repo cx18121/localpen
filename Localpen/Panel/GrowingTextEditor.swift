@@ -35,6 +35,9 @@ struct GrowingTextEditor: NSViewRepresentable {
         tv.drawsBackground = false
         tv.font = .systemFont(ofSize: fontSize)
         tv.textColor = .labelColor
+        // Neutral caret to match the de-blued design (default is the system accent,
+        // a bright blue that clashes with the restrained palette).
+        tv.insertionPointColor = NSColor(Tokens.text)
         tv.isAutomaticQuoteSubstitutionEnabled = false
         tv.isAutomaticDashSubstitutionEnabled = false
         tv.textContainerInset = NSSize(width: 0, height: Self.topInset)

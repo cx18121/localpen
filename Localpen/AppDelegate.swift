@@ -156,9 +156,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             do {
                 try await server.start(modelPath: modelPath, contextSize: descriptor.contextSize)
                 self.log.info("llama-server ready on port \(server.port)")
+                self.warmUpModel(port: server.port)
             } catch {
                 self.log.error("llama-server failed: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Fire one throwaway token through the model right after the server is ready,
+    /// so the FIRST real action doesn't pay the cold prompt-eval / graph-setup cost.
+    /// We consume a single token then stop (cancelling tears down the request).
+    private func warmUpModel(port: Int) {
+        let client = StreamingClient(port: port)
+        Task.detached(priority: .utility) {
+            for try await _ in client.complete(systemPrompt: "Warmup.", userText: "Hi") { break }
         }
     }
 

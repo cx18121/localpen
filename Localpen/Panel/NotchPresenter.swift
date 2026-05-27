@@ -57,9 +57,9 @@ final class NotchPresenter {
         // otherwise inserts when converting compact→expanded, and use tighter,
         // less-bouncy curves so the surface feels crisp rather than springy.
         notch.transitionConfiguration = .init(
-            openingAnimation: .snappy(duration: 0.26),
-            closingAnimation: .snappy(duration: 0.20),
-            conversionAnimation: .snappy(duration: 0.24),
+            openingAnimation: .snappy(duration: 0.20),
+            closingAnimation: .snappy(duration: 0.16),
+            conversionAnimation: .snappy(duration: 0.18),
             skipIntermediateHides: true
         )
         observeHover()
