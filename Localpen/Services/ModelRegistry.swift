@@ -29,6 +29,7 @@ final class ModelRegistry {
         case .moreFormal:  return model.prompts.moreFormal
         case .moreCasual:  return model.prompts.moreCasual
         case .shorter:     return model.prompts.shorter
+        case .respond:     return ActionPrompts.systemPrompt(for: .respond(""))
         case .custom:      return ActionPrompts.systemPrompt(for: .custom(""))
         }
     }

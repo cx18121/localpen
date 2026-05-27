@@ -5,15 +5,26 @@ import Foundation
 // live in Resources/models.toml and are loaded via ModelRegistry. The Custom
 // action's prompt always comes from here — it isn't model-specific.
 enum ActionPrompts {
+    /// Phase-2 voice injection point. Empty today: appended to generative
+    /// system prompts so a learned style can be slotted in later with no
+    /// structural change. Keep the leading space so concatenation reads
+    /// cleanly when non-empty.
+    static let styleContext: String = ""
+
     /// Assembles the user-role message for a generation. Fixed actions send the
     /// selection verbatim; `.custom` wraps the instruction around the text (or
     /// sends the instruction alone when there's no selection).
     static func userMessage(for action: Action, text: String) -> String {
-        if case let .custom(instruction) = action {
+        switch action {
+        case .custom(let instruction):
             if text.isEmpty { return instruction }
             return "Instruction: \(instruction)\n\nText:\n\(text)"
+        case .respond(let steer):
+            let base = "Message to reply to:\n\(text)"
+            return steer.isEmpty ? base : "\(base)\n\nHow to reply: \(steer)"
+        default:
+            return text
         }
-        return text
     }
 
     static func systemPrompt(for action: Action) -> String {
@@ -51,6 +62,13 @@ enum ActionPrompts {
             Shorten the user's text. Preserve meaning. Cut words. \
             Output only the shortened text — no commentary, no quotes, no preamble.
             """
+        case .respond:
+            return """
+            Write a new reply to the message the user provides. Match a natural, \
+            human email/message register. If the user includes an instruction, \
+            follow it; otherwise write a concise, appropriate reply. \
+            Output only the reply — no commentary, no quotes, no preamble, no subject line.
+            """ + styleContext
         case .custom:
             return """
             You are a writing assistant. Apply the user's instruction to the text they provide. \
