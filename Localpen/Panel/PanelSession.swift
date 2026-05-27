@@ -10,6 +10,10 @@ final class PanelSession {
     let id: UInt64
     let capture: TextIO.Capture
     let hotkeyTime: ContinuousClock.Instant
+    /// False for a resumed-thread session: there is no live source-app context to
+    /// paste into, so accept copies the result to the clipboard instead of
+    /// synthesizing ⌘V (which would paste nowhere and then clear the clipboard).
+    let canPasteBack: Bool
 
     var streamingTask: Task<Void, Never>?
     var watchdogTask: Task<Void, Never>?
@@ -19,10 +23,12 @@ final class PanelSession {
     /// `PanelController.flushPendingAsRejected`).
     var pendingInteraction: Interaction?
 
-    init(id: UInt64, capture: TextIO.Capture, hotkeyTime: ContinuousClock.Instant) {
+    init(id: UInt64, capture: TextIO.Capture, hotkeyTime: ContinuousClock.Instant,
+         canPasteBack: Bool = true) {
         self.id = id
         self.capture = capture
         self.hotkeyTime = hotkeyTime
+        self.canPasteBack = canPasteBack
     }
 
     func cancelStreaming() {

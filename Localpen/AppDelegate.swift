@@ -19,6 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // When running under XCTest, skip all launch-time initialization so the
+        // test host process doesn't start a llama-server or open windows.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
+
         // Single-instance guard. Two copies (e.g. the /Applications build and a
         // DerivedData run, or a double-launch from Spotlight) share this bundle
         // id, and each would claim its own menu-bar item + hotkey tap — the

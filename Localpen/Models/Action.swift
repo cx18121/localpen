@@ -23,6 +23,19 @@ enum Action: Hashable, Identifiable {
         }
     }
 
+    /// Inverse of `rawValue` — keep the two in sync when adding a case.
+    static func reconstruct(rawValue: String, steer: String?) -> Action {
+        switch rawValue {
+        case "proofread":   return .proofread
+        case "polish":      return .polish
+        case "more_formal": return .moreFormal
+        case "more_casual": return .moreCasual
+        case "shorter":     return .shorter
+        case "respond":     return .respond(steer ?? "")
+        default:            return .custom(steer ?? "")
+        }
+    }
+
     var label: String {
         switch self {
         case .proofread:   return "Proofread"

@@ -45,6 +45,9 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.10"
         ENABLE_HARDENED_RUNTIME: YES
+        # Disable the Xcode 16 debug-dylib split so the app builds as a
+        # single binary; required for BUNDLE_LOADER to work in the test target.
+        ENABLE_DEBUG_DYLIB: NO
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: "2L525PQAPB"
         CODE_SIGN_IDENTITY: B34F936CCB151247A80B25244A2BF6E35AFC66DC
@@ -59,6 +62,31 @@ targets:
         product: GRDB
       - package: TOMLKit
         product: TOMLKit
+
+  LocalpenTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: LocalpenTests
+    dependencies:
+      - target: Localpen
+      - package: GRDB
+        product: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.localpen.LocalpenTests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.10"
+        # Hosted bundle: TEST_HOST injects the test bundle into the Localpen
+        # process so @testable import resolves. AppDelegate guards on
+        # XCTestConfigurationFilePath so llama-server never starts during tests.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Localpen.app/Contents/MacOS/Localpen"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: "2L525PQAPB"
+        CODE_SIGN_IDENTITY: B34F936CCB151247A80B25244A2BF6E35AFC66DC
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": B34F936CCB151247A80B25244A2BF6E35AFC66DC
 
 schemes:
   Localpen:
@@ -93,6 +121,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - LocalpenTests
     profile:
       config: Release
     analyze:

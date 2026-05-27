@@ -6,7 +6,7 @@ import GRDB
 struct Interaction: Codable, FetchableRecord, MutablePersistableRecord {
     var id: Int64?
     var timestamp: Int64        // unix epoch seconds
-    var sourceApp: String?
+    var sourceApp: String?      // populated on one-shot rows; NULL on thread-tagged rows (provenance lives in threads.source_app)
     var selection: String?
     var action: String
     var customPrompt: String?
@@ -14,6 +14,7 @@ struct Interaction: Codable, FetchableRecord, MutablePersistableRecord {
     var modelOutput: String?
     var accepted: Bool
     var editedOutput: String?
+    var threadID: Int64?        // nil for one-shot interactions; set for conversation turns
 
     static let databaseTableName = "interactions"
 
@@ -28,6 +29,7 @@ struct Interaction: Codable, FetchableRecord, MutablePersistableRecord {
         case modelOutput = "model_output"
         case accepted
         case editedOutput = "edited_output"
+        case threadID = "thread_id"
     }
 
     mutating func didInsert(_ inserted: InsertionSuccess) {

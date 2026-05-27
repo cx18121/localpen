@@ -29,6 +29,7 @@ final class Persistence {
     func deleteAll() async throws {
         try await dbQueue.write { db in
             try db.execute(sql: "DELETE FROM interactions")
+            try db.execute(sql: "DELETE FROM threads")
         }
     }
 
@@ -46,7 +47,7 @@ final class Persistence {
         return dir.appendingPathComponent("history.sqlite")
     }
 
-    private static func migrate(_ queue: DatabaseQueue) throws {
+    static func migrate(_ queue: DatabaseQueue) throws {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1.create_interactions") { db in
             try db.create(table: "interactions") { t in
@@ -60,6 +61,22 @@ final class Persistence {
                 t.column("model_output", .text)
                 t.column("accepted", .integer).notNull()
                 t.column("edited_output", .text)
+            }
+        }
+        migrator.registerMigration("v2.threads") { db in
+            try db.create(table: "threads") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull()   // bumped by ConversationStore on each appended turn (Task 4)
+                t.column("source_app", .text)
+                t.column("original_selection", .text)
+                t.column("title", .text)   // auto-generated snippet of the original selection; not user-editable
+            }
+            try db.alter(table: "interactions") { t in
+                // Nullable FK; NULL = one-shot interaction. setNull on delete so
+                // deleting a thread leaves its interaction rows as orphan one-shots
+                // rather than dangling references.
+                t.add(column: "thread_id", .integer).references("threads", onDelete: .setNull)
             }
         }
         try migrator.migrate(queue)
