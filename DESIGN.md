@@ -16,7 +16,7 @@ Upstream: [PRD.md](./PRD.md) · [CONTEXT.md](./CONTEXT.md) · [docs/adr/](./docs
 
 ## 1. Identity in one paragraph
 
-Localpen's panel is a quiet, anchored macOS surface that appears in 180ms, captures what you've selected, offers six precise actions, streams a result, and disappears — sitting alongside whatever app you were already writing in. It does not announce itself. It does not decorate. It coexists with Slack's purple chrome, Cursor's magenta, Mail's blue, by being almost monochrome and almost still. The only color note is a single low-chroma teal — used for active focus and the streaming caret, never for decoration. The voice is terse, native, slightly understated. The tool disappears into the task.
+Localpen's panel is a quiet, anchored macOS surface that appears in 180ms, captures what you've selected, offers six precise actions, streams a result, and disappears — sitting alongside whatever app you were already writing in. It does not announce itself. It does not decorate. It coexists with Slack's purple chrome, Cursor's magenta, Mail's blue, by being almost monochrome and almost still. The only color note is a single low-chroma blue, drawn from the neutrals' own blue family so it reads as the surface "lit up" rather than a separate hue — used for active focus and the streaming caret, never for decoration. The voice is terse, native, slightly understated. The tool disappears into the task.
 
 Anchors: Granola (form factor), Raycast (latency aesthetic), Things 3 (native-macOS polish floor).
 Anti-references: Apple Writing Tools' system-tooltip feel, ChatGPT Mac chrome, Electron command-bar typography.
@@ -40,10 +40,10 @@ All colors expressed in OKLCH. Never `#000` or `#fff`. Every neutral tinted towa
 | Soft text | `--text-soft` | `oklch(0.78 0.008 240)` | Menu items, default state. |
 | Muted text | `--text-mute` | `oklch(0.58 0.008 240)` | Hints, metadata ("from Slack"). |
 | Faint text | `--text-faint` | `oklch(0.44 0.008 240)` | Placeholder text. |
-| Accent (active / streaming) | `--accent` | `oklch(0.78 0.085 200)` | Desaturated teal. Used **only** for focus indicator + streaming caret + result-toolbar action pill text. |
+| Accent (active / streaming) | `--accent` | `oklch(0.74 0.10 255)` | Cohesive low-chroma blue (same family as the neutrals). Used **only** for focus indicator + streaming caret + result-toolbar action pill text. |
 | Accent rail (focus 2px bar) | `--accent` | same | Left-edge of focused row. |
-| Accent tint (focused row bg) | `--accent-tint` | `oklch(0.32 0.022 200 / 0.5)` | Subtle background tint of the focused row. |
-| Quote rule (selection bar) | `--accent-mute` | `oklch(0.40 0.030 200 / 0.6)` | 2px vertical rule beside the captured selection text. |
+| Accent tint (focused row bg) | `--accent-tint` | `oklch(0.34 0.045 255 / 0.5)` | Subtle background tint of the focused row. |
+| Quote rule (selection bar) | `--accent-mute` | `oklch(0.42 0.040 255 / 0.6)` | 2px vertical rule beside the captured selection text. |
 | Error accent | `--accent-error` | `oklch(0.72 0.10 28)` | Low-chroma warm; used **only** in error states. Same shape as `--accent`. |
 | Panel shadow | — | `0 14px 36px -8px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4)` | Drop shadow under the panel for elevation. |
 
@@ -61,7 +61,7 @@ Same hues, lightness inverted. Worth specifying as a token map; the swiftui-expe
 | Soft text | `oklch(0.34 0.008 240)` |
 | Muted text | `oklch(0.42 0.010 240)` |
 | Faint text (placeholders) | `oklch(0.52 0.010 240)` |
-| Accent | `oklch(0.52 0.10 200)` (slightly darker for contrast against light background) |
+| Accent | `oklch(0.50 0.13 255)` (slightly darker for contrast against light background) |
 
 Light mode follows from the inversion. If a color choice in dark conflicts with the light inversion (e.g., contrast falls below 4.5:1), dark's value wins and the light token rebalances individually.
 
@@ -202,7 +202,7 @@ When an action is picked, the **Action Menu** section transforms into the **Resu
 **Action Menu Grouping (Revise / Create).**
 - The action menu is divided into two named groups: **Revise** (the five transforms: Proofread, Polish, More formal, More casual, Shorter, plus Custom) and **Create** (Respond). Each group is preceded by a short section header label rendered in `--text-mute` at 11px, uppercase, non-interactive.
 - Keyboard navigation remains a single flat list — `↑↓` moves through all rows in document order across both groups, wrapping top/bottom. No submenus.
-- **Respond** is set apart with a **monochrome lift**, not a hue: its row label sits at full `--text` even at rest (instead of `--text-soft`), reading as quietly more prominent than the transforms above it. This preserves the single-accent discipline (the only color note stays the teal focus rail + caret). The CREATE group header carries the rest of the distinction. The focused state is identical to every other row (`--accent-tint` background + `--accent` rail). *(Superseded the earlier green "create" tint, which introduced a second accent hue and read as off-palette.)*
+- **Respond** is set apart with a **monochrome lift**, not a hue: its row label sits at full `--text` even at rest (instead of `--text-soft`), reading as quietly more prominent than the transforms above it. This preserves the single-accent discipline (the only color note stays the blue focus rail + caret). The CREATE group header carries the rest of the distinction. The focused state is identical to every other row (`--accent-tint` background + `--accent` rail). *(Superseded the earlier green "create" tint, which introduced a second accent hue and read as off-palette.)*
 - The Respond row is **disabled** when no selection was captured (S3 empty state): rendered at reduced opacity (`--text-faint`) and skipped by keyboard focus.
 - **Create results copy to the clipboard and do not paste back.** When the user accepts a Respond result (`⌘↩`), the result is placed on the clipboard and the panel dismisses — identical to `⌘C` on a Revise result. The result-toolbar footer hint updates to reflect this: "**⌘↩ copy reply** · esc back". The action pill in the toolbar reads "Respond."
 - Revise results continue to paste back as before.

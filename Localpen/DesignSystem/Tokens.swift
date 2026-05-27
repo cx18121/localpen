@@ -60,18 +60,21 @@ enum Tokens {
         dark:  .oklch(0.44, 0.008, 240)
     )
 
-    // Accent (desaturated teal)
+    // Accent (cohesive blue — hue 255 sits in the neutrals' own blue family,
+    // so the single accent reads as the panel "lit up" rather than a separate
+    // teal note. Used only for focus rail/tint, input rail, streaming caret,
+    // result pill.)
     static let accent      = Color.dynamic(
-        light: .oklch(0.52, 0.10, 200),
-        dark:  .oklch(0.78, 0.085, 200)
+        light: .oklch(0.50, 0.13, 255),
+        dark:  .oklch(0.74, 0.10, 255)
     )
     static let accentTint  = Color.dynamic(
-        light: .oklch(0.52, 0.10, 200, opacity: 0.14),
-        dark:  .oklch(0.32, 0.022, 200, opacity: 0.5)
+        light: .oklch(0.50, 0.12, 255, opacity: 0.14),
+        dark:  .oklch(0.34, 0.045, 255, opacity: 0.5)
     )
     static let accentMute  = Color.dynamic(
-        light: .oklch(0.52, 0.08, 200, opacity: 0.5),
-        dark:  .oklch(0.40, 0.030, 200, opacity: 0.6)
+        light: .oklch(0.50, 0.10, 255, opacity: 0.5),
+        dark:  .oklch(0.42, 0.040, 255, opacity: 0.6)
     )
     static let accentError = Color.dynamic(
         light: .oklch(0.55, 0.14, 28),

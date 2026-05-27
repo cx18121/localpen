@@ -68,16 +68,18 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           if [ "$CONFIGURATION" = "Debug" ]; then
-            # ditto (not cp -R) preserves the code signature + embedded-framework
-            # symlinks. Stage into a sibling path first, then swap: if a prior
-            # instance is still running FROM /Applications (we launch it there for
-            # Raycast), copying directly over the live bundle corrupts the
-            # signature and launchd refuses to spawn it. Staging keeps the signed
-            # bytes away from the running process, then a rename swaps cleanly.
             DEST="/Applications/$PRODUCT_NAME.app"
-            STAGE="/Applications/.$PRODUCT_NAME.staging.app"
-            rm -rf "$STAGE"
-            ditto "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "$STAGE"
+            # macOS protects a running executable, so copying over a live
+            # /Applications instance corrupts its signature (launchd then errors
+            # 163). Quit any instance running from THIS path first — this targets
+            # only the /Applications copy, never the Xcode/DerivedData run — then
+            # replace it with ditto (cp -R would strip the signature + framework
+            # symlinks). Relaunch via Raycast/Spotlight to run the new build.
+            pkill -f "$DEST/Contents/MacOS/$PRODUCT_NAME" 2>/dev/null || true
+            for _ in 1 2 3 4 5 6; do
+              pgrep -f "$DEST/Contents/MacOS/$PRODUCT_NAME" >/dev/null 2>&1 || break
+              sleep 0.3
+            done
             rm -rf "$DEST"
-            mv "$STAGE" "$DEST"
+            ditto "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "$DEST"
           fi
