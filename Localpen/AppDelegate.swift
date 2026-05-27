@@ -19,6 +19,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single-instance guard. Two copies (e.g. the /Applications build and a
+        // DerivedData run, or a double-launch from Spotlight) share this bundle
+        // id, and each would claim its own menu-bar item + hotkey tap — the
+        // duplicate-icon symptom. The already-running instance wins; this newer
+        // launch defers and quits before wiring anything up.
+        let others = NSRunningApplication
+            .runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0 != .current }
+        if let existing = others.first {
+            log.info("another Localpen instance is already running (pid \(existing.processIdentifier)); quitting this one")
+            existing.activate()
+            NSApp.terminate(nil)
+            return
+        }
+
         do {
             persistence = try Persistence()
         } catch {
