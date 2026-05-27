@@ -77,6 +77,18 @@ final class ConversationStore {
         }
     }
 
+    /// Loads a thread's stored context (for resume). Returns nil if the thread is gone.
+    func loadThread(id: Int64) async throws -> Selection? {
+        try await dbQueue.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT original_selection, source_app FROM threads WHERE id = ?
+                """, arguments: [id]) else { return nil }
+            let text: String = row["original_selection"] ?? ""
+            let app: String? = row["source_app"]
+            return Selection(text: text, sourceBundleID: app, sourceAppName: nil)
+        }
+    }
+
     /// Expands each stored exchange row into [user turn, assistant turn].
     func loadTurns(threadID: Int64) async throws -> [ConversationTurn] {
         let rows = try await dbQueue.read { db in

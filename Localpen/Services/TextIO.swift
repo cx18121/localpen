@@ -12,6 +12,16 @@ final class TextIO {
         let sourceAppName: String?
         let savedFrontmostApp: NSRunningApplication?
         let savedItems: [[NSPasteboard.PasteboardType: Data]]
+
+        /// A capture with no selection, no source app, and no saved clipboard —
+        /// used when synthesizing a session that didn't originate from a hotkey
+        /// capture (e.g. resuming a stored thread). `pasteBack` against this hits
+        /// the deny-list/skip path and falls back to leaving the result on the
+        /// clipboard, which is correct: there is no original field to paste into.
+        static let empty = Capture(
+            selection: nil, sourceBundleID: nil, sourceAppName: nil,
+            savedFrontmostApp: nil, savedItems: []
+        )
     }
 
     func captureSelection() async -> Capture {

@@ -13,6 +13,10 @@ final class Conversation {
     var turns: [ConversationTurn]
     var streamingText: String = ""
 
+    /// Set when the latest turn's stream failed; ConversationView shows it inline
+    /// with Retry. The failed user turn stays in `turns`, so retry just re-streams.
+    var turnError: PanelError?
+
     /// Invariant: if `turns` is non-empty, `turns[0]` must be a user turn whose
     /// `action` is non-nil — `messages` embeds the original selection only via that
     /// seed action. `seeded(...)` and `ConversationStore.loadTurns` both honor this.

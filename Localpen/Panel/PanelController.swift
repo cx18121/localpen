@@ -627,16 +627,20 @@ final class PanelController {
               let action = ctx.action, let sel = ctx.selection,
               let session = current else { return }
 
-        // The one-shot result becomes the thread's first exchange; its pending
-        // interaction is now owned by the thread (persisted by appendExchange below).
-        session.pendingInteraction = nil
-
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // Persist the thread + seed exchange if persistence is available; a nil
+            // store or a failed create yields an ephemeral (unsaved, non-resumable)
+            // thread rather than blocking the conversation or orphaning the result.
             let threadID = (try? await self.conversationStore?.createThread(originalSelection: sel)) ?? -1
-            try? await self.conversationStore?.appendExchange(
-                threadID: threadID, userText: action.pillLabel, action: action,
-                modelID: self.registry.activeModelID, assistantText: result)
+            if threadID > 0 {
+                try? await self.conversationStore?.appendExchange(
+                    threadID: threadID, userText: action.pillLabel, action: action,
+                    modelID: self.registry.activeModelID, assistantText: result)
+            }
+            // The one-shot result becomes the thread's first exchange; its pending
+            // interaction is now owned by the thread (persisted above when real).
+            session.pendingInteraction = nil
             guard self.current === session else { return }
             let convo = Conversation.seeded(threadID: threadID, originalSelection: sel,
                                             seedAction: action, result: result, followUp: trimmed)
@@ -657,8 +661,16 @@ final class PanelController {
     /// Tap a refinement chip — a preset follow-up instruction.
     func tapChip(_ instruction: String) { sendFollowUp(instruction) }
 
+    /// Retry the last (failed) conversation turn. The failed user turn is still
+    /// the last turn in `convo.turns`, so this just re-streams it.
+    func retryConversationTurn() {
+        guard conversation != nil else { return }
+        runConversationTurn()
+    }
+
     private func runConversationTurn() {
         guard let session = current, let convo = conversation else { return }
+        convo.turnError = nil   // clear any prior failed-turn error before re-streaming
         convo.streamingText = ""
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
@@ -681,14 +693,18 @@ final class PanelController {
             convo.streamingText = ""
             // The triggering user turn is the last .user turn before this assistant turn.
             let userText = convo.turns.dropLast().last(where: { $0.role == .user })?.text ?? ""
-            try? await conversationStore?.appendExchange(
-                threadID: convo.threadID, userText: userText, action: nil,
-                modelID: registry.activeModelID, assistantText: partial)
+            if convo.threadID > 0 {
+                try? await conversationStore?.appendExchange(
+                    threadID: convo.threadID, userText: userText, action: nil,
+                    modelID: registry.activeModelID, assistantText: partial)
+            }
         } catch {
             if Task.isCancelled { return }
-            // Keep the thread; surface the error in conversation context.
-            state = .visible(PanelContext(selection: convo.originalSelection),
-                             .error(PanelError(streamingError: error)))
+            guard current === session else { return }
+            // Keep the thread; surface the error inline (ConversationView renders it
+            // with Retry). The failed user turn stays last in `turns`, so retry re-streams.
+            convo.streamingText = ""
+            convo.turnError = PanelError(streamingError: error)
         }
     }
 
@@ -727,7 +743,15 @@ final class PanelController {
             guard let self else { return }
             let turns = (try? await store.loadTurns(threadID: id)) ?? []
             guard let seed = turns.first(where: { $0.role == .user })?.action else { return }
-            let sel = Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+            let sel = ((try? await store.loadThread(id: id)) ?? nil) ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+            // Resume isn't a hotkey capture, but sendFollowUp/acceptTurn both need
+            // a live session (`current`). Synthesize one with an empty capture so
+            // accept on a revise thread falls back to leaving the result on the
+            // clipboard (no original frontmost field to paste into).
+            self.sessionCounter += 1
+            let session = PanelSession(id: self.sessionCounter, capture: .empty,
+                                       hotkeyTime: ContinuousClock.now)
+            self.current = session
             let convo = Conversation(threadID: id, originalSelection: sel,
                                      operationClass: seed.operationClass, turns: turns)
             self.conversation = convo
