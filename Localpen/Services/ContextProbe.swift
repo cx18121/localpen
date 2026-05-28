@@ -101,8 +101,13 @@ struct SystemAXWindowTitleReader: ContextProbe.AXWindowTitleReader {
         AXUIElementSetMessagingTimeout(app, timeoutSeconds)
         var windowRef: CFTypeRef?
         let windowErr = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &windowRef)
-        guard windowErr == .success, let window = windowRef else { return nil }
-        let win = window as! AXUIElement
+        // CFTypeRef → AXUIElement guard mirrors the `as? String` pattern on
+        // the title line below. Defensive against a pathological AX tree
+        // returning the wrong CF type for this attribute.
+        guard windowErr == .success,
+              let windowRef,
+              CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
+        let win = windowRef as! AXUIElement
         AXUIElementSetMessagingTimeout(win, timeoutSeconds)
         var titleRef: CFTypeRef?
         let titleErr = AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &titleRef)
