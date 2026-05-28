@@ -35,8 +35,15 @@ enum ActionPrompts {
             let base = "Message to reply to:\n\(text)"
             return steer.isEmpty ? base : "\(base)\n\nHow to reply: \(steer)"
         case .ask(let question, _):
-            if text.isEmpty { return question }
-            return "Question: \(question)\n\nText:\n\(text)"
+            // Legacy text-only shape: callers that route through here pass
+            // selection in `text`. PanelController's askSubmitted uses the
+            // richer askUserMessage(question:context:) directly so the app
+            // chip is included; this branch handles any indirect caller.
+            return askUserMessage(
+                question: question,
+                context: AskContext(appLabel: nil,
+                                    selection: text.isEmpty ? nil : text)
+            )
         default:
             return text
         }
@@ -91,10 +98,25 @@ enum ActionPrompts {
             """
         case .ask:
             return """
-            Answer the user's question about the text they provide. Be direct and concise. \
-            If relevant, cite or quote from the provided text in your answer. \
-            Output only your answer — no preamble, no commentary.
-            """
+            You are Localpen, a local on-device assistant. Answer the user's \
+            question directly and concisely. If the question is a draft request \
+            (email, message, note), match the user's voice. If the user attaches \
+            a <context> block, treat it as background; the question still drives \
+            the response.
+            """ + styleContext
         }
+    }
+
+    /// Builds the user-role message for an ask action. Renders surviving
+    /// AskContext chips inside a `<context>` block; emits zero context lines
+    /// when both chips are nil so the prompt is byte-identical to a
+    /// chip-never-existed ask (Codex spec review §6). Both the app/window
+    /// chip AND the selection chip reach the model (Codex plan review MED).
+    static func askUserMessage(question: String, context: AskContext) -> String {
+        var lines: [String] = []
+        if let app = context.appLabel { lines.append("app: \(app)") }
+        if let sel = context.selection { lines.append("selection: \(sel)") }
+        if lines.isEmpty { return question }
+        return "<context>\n" + lines.joined(separator: "\n") + "\n</context>\n\n" + question
     }
 }
