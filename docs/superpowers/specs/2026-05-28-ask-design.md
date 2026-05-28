@@ -71,7 +71,14 @@ final class ContextProbe {
 
     init(axReader: any AXWindowTitleReader = SystemAXWindowTitleReader())
 
-    func capture() async -> Snapshot   // safe to call from any actor
+    /// `reusingSelection` lets callers that have already paid for selection
+    /// capture (notably `PanelController.presentForHotkey`, which must call
+    /// TextIO to decide routing) hand the result in instead of re-capturing.
+    /// Pass nil to capture inside the probe. Codex review v3 catch.
+    func capture(reusingSelection: String??) async -> Snapshot
+    // `String??` distinguishes "caller has no opinion, you decide" (nil-outer)
+    // from "caller already captured, here's the value, do not re-call TextIO"
+    // (Some(nil) = no selection found, Some(Some("text")) = found).
 }
 ```
 
@@ -83,7 +90,11 @@ final class ContextProbe {
   2. Then calls `AXUIElementCopyAttributeValue` for `kAXFocusedWindowAttribute` → `kAXTitleAttribute`.
   3. Returns nil on any error (including `kAXErrorCannotComplete` from the timeout).
 - Localpen already holds Accessibility permission for clipboard-mediated I/O (CGEvent ⌘C / ⌘V), so no new permission prompt.
-- `selection` is the existing `TextIO.copySelection()` result (its existing contract, also off-main per its current implementation). Empty string → nil.
+- `selection`:
+  - If `reusingSelection` is non-nil, the inner value is used directly (skipping any TextIO call).
+  - If `reusingSelection` is nil, the probe calls `TextIO.copySelection()` itself (its existing contract, also off-main per its current implementation).
+  - Empty string → nil in either path.
+  - **This is load-bearing for the hotkey budget:** `PanelController.presentForHotkey` already calls `TextIO.copySelection()` to decide whether to route to the menu or to ask; it passes that same result into `ContextProbe.capture(reusingSelection:)` so the ~90 ms cost is paid once, not twice. Codex review v3 catch — without this contract, the no-selection hotkey path pays ~180 ms before the user sees AskInput.
 - The whole `capture()` awaits the two sub-tasks via `async let`. Wall-clock is bounded by `max(150ms AX ceiling, ~90ms TextIO budget) ≈ 150ms` in the degraded path; in the common case, both finish in well under 50ms.
 
 **Latency budgets:**
@@ -123,7 +134,7 @@ Submitting calls `controller.askSubmitted(question:context:)` (see §3.5).
 
 Two surface-level changes plus one new flow.
 
-**a) No-selection routing.** When `presentForHotkey()` runs and `TextIO.copySelection()` returns empty, route to a new `Phase.ask` (with chips pre-populated from `ContextProbe`) instead of the action menu. When a selection is present, route to the menu as today.
+**a) No-selection routing.** When `presentForHotkey()` runs, call `TextIO.copySelection()` exactly once. If the result is empty, route to `Phase.ask` and call `ContextProbe.capture(reusingSelection: .some(nil))` so the probe does NOT re-call TextIO (per §3.2 — the single-capture invariant). If the result is non-empty, route to the menu as today; the selection is preserved for any subsequent Ask-row selection (also via `reusingSelection: .some(text)`).
 
 **b) "Ask" reachable from the menu.** The action menu gains a single "Ask" row, rendered by `ActionMenuView` as a dedicated row outside the `Action.fixed` loop (because `Action.fixed` stays scoped to the five transforms — adding `.ask("")` to it would entangle ask with the refine / quick-action plumbing that depends on `Action.fixed`'s shape). Placement of the row (above or below the five transforms) is a UI-pass decision and not material to the architecture. Selecting it transitions to `Phase.ask` with the selection chip pre-attached.
 
@@ -332,6 +343,10 @@ The "no-selection → ask directly" routing is the load-bearing UX bet of this s
 - **`ContextProbeTests.test_emptySelectionReturnsNil`** — empty-string selection normalizes to nil so chip rail is honest.
 - **`ContextProbeTests.test_blockingAXReader_capturesWithinBudget`** — **load-bearing for the freeze guard.** Inject a fake `AXWindowTitleReader` that blocks for 5 seconds; assert `capture()` returns within 250 ms (150 ms AX ceiling + comfortable slack) with `windowTitle == nil`. Without the off-main + AXUIElementSetMessagingTimeout design, this test fails — proves the production reader's timing guard is the AX layer, not a Task cancel. Implementation: production `SystemAXWindowTitleReader` calls `AXUIElementSetMessagingTimeout` before the attribute read; test uses a fake reader that respects the passed `timeoutSeconds` to simulate the AX timeout path.
 - **`ContextProbeTests.test_captureDoesNotBlockMainActor`** — assert `capture()` invoked from `@MainActor` does not stall the main actor while a slow AX reader is in flight. Specifically: post a `Task { @MainActor in flag = true }` after starting `capture()` with a 5s-blocking fake reader, assert `flag` flips to true within 20 ms. Guards against accidental future refactor that re-pins the AX read to the main actor.
+- **`ContextProbeTests.test_reusingSelection_skipsTextIO`** — call `capture(reusingSelection: .some("hello"))` with an injected fake TextIO that XCTFails if invoked. Assert snapshot.selection == "hello" and the fake was never called. Proves the single-capture invariant.
+
+**Hotkey end-to-end (Codex review v3 catch):**
+- **`AskRoutingTests.test_presentForHotkey_noSelection_completesWithinBudget`** — **load-bearing.** Inject a slow fake TextIO (~90 ms) and a fast AX reader; call `presentForHotkey()` with no selection; assert wall-clock from invoke to `Phase == .ask` is bounded by **one** TextIO budget + AX ceiling (≤ ~250 ms), NOT two TextIO budgets. Without the `reusingSelection` plumbing through routing into `ContextProbe`, this test fails by hitting ~180 ms of duplicated TextIO. Exercises the full hotkey path, not just `ContextProbe.capture()` in isolation.
 
 **Thread shape (Codex MED 1):**
 - **`AskResumeTests.test_noSelectionAskShowsInRecentWithQuestionAsTitle`** — a no-selection ask creates a thread whose Recent-list title derives from the user's question, not an empty string. Proves `createThreadForAsk` solved the originalSelection contradiction.
