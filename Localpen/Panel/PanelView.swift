@@ -71,8 +71,7 @@ struct PanelView: View {
                     ProfileView(controller: controller)
 
                 case .ask:
-                    // AskInput view lands in Task 8; placeholder keeps the project compiling.
-                    EmptyView()
+                    AskInput(controller: controller)
 
                 case .error(let err):
                     ErrorBanner(error: err, onAction: { controller.retryFromError() })

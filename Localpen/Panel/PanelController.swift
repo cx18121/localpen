@@ -672,6 +672,135 @@ final class PanelController {
         }
     }
 
+    // MARK: - Ask flow
+
+    func removeAskAppChip() {
+        askContext.appLabel = nil
+    }
+
+    func removeAskSelectionChip() {
+        askContext.selection = nil
+    }
+
+    /// Entry point from AskInput's submit. Builds the Action.ask with the
+    /// resolved withSelection flag from the surviving chip state and kicks
+    /// off the dedicated stream path. Does NOT call `pick(_:)` — Task 9's
+    /// pick(.ask) is a menu-open branch; routing submits through it would
+    /// loop back to the ask screen.
+    func askSubmitted(_ question: String) {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let withSel = (askContext.selection?.isEmpty == false)
+        let action = Action.ask(question: trimmed, withSelection: withSel)
+        let context = askContext   // snapshot at submit time
+        startAskStream(action: action, context: context)
+    }
+
+    /// Streams an ask response and persists the thread via
+    /// `ConversationStore.createThreadForAsk`. Mirrors the existing
+    /// `runStream` watchdog + session-ownership pattern exactly.
+    private func startAskStream(action: Action, context: AskContext) {
+        guard case .ask(let question, _) = action else { return }
+        guard let session = current else { return }
+
+        let epoch = bumpConvEpoch()
+        session.cancelStreaming()
+
+        state = .visible(PanelContext(action: action), .generating)
+        streamingText = ""
+
+        let baseSystemPrompt = registry.systemPrompt(for: action)
+        let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
+        let userMessage = ActionPrompts.askUserMessage(question: question, context: context)
+
+        session.streamingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            self.armWatchdog(action: action, selection: nil,
+                             timeout: PanelController.firstTokenTimeout)
+            defer { self.current?.watchdogTask?.cancel() }
+
+            var assembled = ""
+            do {
+                let sampling = self.registry.activeModel?.sampling
+                for try await token in self.askStreamProvider(systemPrompt,
+                                                              userMessage,
+                                                              sampling) {
+                    if Task.isCancelled { return }
+                    guard self.convEpoch == epoch, self.current === session else { return }
+                    assembled += token
+                    self.streamingText = assembled
+                    self.armWatchdog(action: action, selection: nil,
+                                     timeout: PanelController.interTokenTimeout)
+                }
+                if Task.isCancelled { return }
+            } catch {
+                if Task.isCancelled { return }
+                guard self.convEpoch == epoch, self.current === session else { return }
+                self.state = .visible(PanelContext(action: action),
+                                      .error(PanelError(streamingError: error)))
+                return
+            }
+
+            guard self.convEpoch == epoch, self.current === session else { return }
+
+            guard let store = self.conversationStore else {
+                self.state = .visible(PanelContext(action: action),
+                                      .result(finalResult: assembled, isEditing: false))
+                return
+            }
+            do {
+                let modelID = self.registry.activeModelID
+                let (threadID, _) = try await store.createThreadForAsk(
+                    question: question,
+                    contextSelection: context.selection,
+                    sourceApp: context.appLabel,
+                    modelID: modelID,
+                    assistantText: assembled
+                )
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                // Load the persisted thread and transition to .conversing.
+                let sel = ((try? await store.loadThread(id: threadID)) ?? nil)
+                    ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                let turns = (try? await store.loadTurns(threadID: threadID)) ?? []
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                let askCtx = try? await store.loadSeedAskContext(threadID: threadID)
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                let seedAction = turns.first?.action ?? Action.ask(question: question, withSelection: withSel(context: context))
+                let convo = Conversation(
+                    threadID: threadID,
+                    originalSelection: sel,
+                    operationClass: seedAction.operationClass,
+                    turns: turns,
+                    seedAskContext: askCtx
+                )
+                self.conversation = convo
+                self.state = .visible(PanelContext(), .conversing)
+            } catch {
+                guard self.convEpoch == epoch, self.current === session else { return }
+                self.state = .visible(PanelContext(action: action),
+                                      .result(finalResult: assembled, isEditing: false))
+            }
+        }
+    }
+
+    private func withSel(context: AskContext) -> Bool {
+        context.selection?.isEmpty == false
+    }
+
     // MARK: - Persistence
 
     private func buildInteraction(selection: Selection?, action: Action, output: String?, accepted: Bool, edited: String?) -> Interaction {
