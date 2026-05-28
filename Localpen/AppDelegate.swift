@@ -55,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let server = LlamaServerController()
         let streaming = StreamingClient(port: server.port)
 
+        // MemoryService needs persistence; gracefully nil if Persistence init failed.
+        let memory: MemoryService? = persistence.map { MemoryService(persistence: $0, streaming: streaming) }
+
         // Build the controller first: the presenter's DynamicNotch eagerly builds
         // its content (PanelView(controller:)) during the presenter's init, so the
         // controller must already exist. Then attach the presenter to the controller.
@@ -64,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             persistence: persistence,
             registry: registry,
             llamaServer: server,
+            memory: memory,
             openSettings: { [weak self] in self?.openSettings() }
         )
         let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })

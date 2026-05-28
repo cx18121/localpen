@@ -79,6 +79,7 @@ final class PanelController {
     @ObservationIgnored private let registry: ModelRegistry
     @ObservationIgnored private let conversationStore: ConversationStore?
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
+    @ObservationIgnored private let memory: MemoryService?
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
@@ -99,6 +100,7 @@ final class PanelController {
          persistence: Persistence?,
          registry: ModelRegistry,
          llamaServer: LlamaServerController?,
+         memory: MemoryService? = nil,
          openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
@@ -106,6 +108,7 @@ final class PanelController {
         self.conversationStore = persistence.map { ConversationStore(dbQueue: $0.dbQueue) }
         self.registry = registry
         self.llamaServer = llamaServer
+        self.memory = memory
         self.openSettings = openSettings
         installMouseTracking()
     }
@@ -586,7 +589,8 @@ final class PanelController {
     }
 
     private func runStream(action: Action, selection: Selection?) async {
-        let systemPrompt = registry.systemPrompt(for: action)
+        let baseSystemPrompt = registry.systemPrompt(for: action)
+        let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
         let userPrompt = ActionPrompts.userMessage(for: action, text: selection?.text ?? "")
 
         armWatchdog(action: action, selection: selection, timeout: Self.firstTokenTimeout)
@@ -737,7 +741,13 @@ final class PanelController {
     }
 
     private func streamConversation(_ convo: Conversation, session: PanelSession, epoch: UInt64) async {
-        let messages = [(role: "system", content: ActionPrompts.conversationSystem)] + convo.messages
+        let seedAction = convo.turns.first?.action
+        let conversationSystem = memory?.compose(
+            base: ActionPrompts.conversationSystem,
+            for: .custom(""),
+            seedAction: seedAction
+        ) ?? ActionPrompts.conversationSystem
+        let messages = [(role: "system", content: conversationSystem)] + convo.messages
         let sampling = registry.activeModel?.sampling
         var partial = ""
         do {
