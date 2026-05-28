@@ -12,13 +12,14 @@ The user's personal `~/.claude/CLAUDE.md` covers general working style. This fil
 
 Read in this order before doing project work:
 
-1. [PRD.md](./PRD.md) — vision, scope, phasing
-2. [CONTEXT.md](./CONTEXT.md) — domain glossary (surfaces, operations, action, interaction)
-3. [docs/adr/](./docs/adr/) — locked architectural decisions (numeric order)
-4. [DESIGN.md](./DESIGN.md) — design contract
-5. [SWIFTUI-SPEC.md](./SWIFTUI-SPEC.md) — engineering contract
-6. [PRODUCT.md](./PRODUCT.md) — impeccable's product-register file
-7. [PLAN.md](./PLAN.md) — Phase 1 build plan (when it exists)
+1. [PRD.md](./PRD.md) — original vision + market analysis (target-user phasing & distribution are historical)
+2. [ROADMAP.md](./ROADMAP.md) — **live north star + build sequence** (supersedes PRD phasing)
+3. [CONTEXT.md](./CONTEXT.md) — domain glossary (surfaces, operations, action, interaction)
+4. [docs/adr/](./docs/adr/) — locked architectural decisions (numeric order)
+5. [DESIGN.md](./DESIGN.md) — design contract
+6. [SWIFTUI-SPEC.md](./SWIFTUI-SPEC.md) — engineering contract
+7. [PRODUCT.md](./PRODUCT.md) — impeccable's product-register file
+8. [PLAN.md](./PLAN.md) — Phase 1 build plan (when it exists)
 
 ## Locked decisions
 
