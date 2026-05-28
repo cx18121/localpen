@@ -50,29 +50,49 @@ case ask(question: String, withSelection: Bool)
 
 ### 3.2 `ContextProbe` service
 
-A tiny `@MainActor` service that captures cheap, non-AX-scraping context at notch-open time:
+A tiny service that captures cheap, non-AX-scraping context at notch-open time. **Crucially, the AX read is off-main and bounded at the AX layer, not at the Task layer** — Codex caught (review v2) that Task cancellation cannot preempt a blocked synchronous C call like `AXUIElementCopyAttributeValue`, so a `@MainActor` + Task-timeout design would still freeze the notch on a hung frontmost app.
 
 ```swift
-@MainActor
+/// Off-main by design. The AX call is synchronous C and can block;
+/// running it nonisolated and bounding it via AXUIElementSetMessagingTimeout
+/// is what actually protects the notch from a frozen frontmost app.
 final class ContextProbe {
-    struct Snapshot {
+    struct Snapshot: Sendable {
         let appName: String?       // "Mail", "Xcode", "Safari"
         let windowTitle: String?   // "Re: budget Q3", "Foo.swift", "github.com — Pull Request"
         let selection: String?     // existing TextIO copy result, if any
     }
-    func capture() async -> Snapshot
+
+    /// AX reader is injectable — production uses the real AXUIElement path;
+    /// tests pass a fake that can block to prove the timing guard works.
+    protocol AXWindowTitleReader: Sendable {
+        func readWindowTitle(pid: pid_t, timeoutSeconds: Float) -> String?
+    }
+
+    init(axReader: any AXWindowTitleReader = SystemAXWindowTitleReader())
+
+    func capture() async -> Snapshot   // safe to call from any actor
 }
 ```
 
-- `appName` from `NSWorkspace.shared.frontmostApplication?.localizedName`. No permission needed.
-- `windowTitle` via `AXUIElement` on the frontmost PID — `kAXFocusedWindowAttribute` → `kAXTitleAttribute`. Localpen already holds Accessibility permission for clipboard-mediated I/O (CGEvent ⌘C / ⌘V), so this is free.
-- If AX access fails for any reason, `windowTitle = nil` and the probe still returns a usable snapshot. Never blocks or prompts.
-- `selection` is the existing `TextIO.copySelection()` result. Empty string → nil.
-- **Latency budgets are split**, because Codex caught a contradiction in v1: `TextIO.captureSelection` has a fixed ~90 ms clipboard-settle delay that cannot honestly fit a 50 ms target.
-  - **App + window probe (the new code)**: < 50 ms in the common case. AX call has a hard timeout (~150 ms ceiling) so a hung frontmost app cannot stall the notch open.
-  - **Selection capture**: inherits `TextIO.captureSelection`'s existing budget (~90 ms clipboard settle + read). Unchanged by B.
-  - The two run in parallel via `async let app = …; async let sel = …`, so wall-clock for the full probe is bounded by the slower path (~90 ms), not the sum.
-  - The 50 ms ceiling applies only to code introduced by B; the selection path is governed by TextIO's existing contract.
+**Implementation contract:**
+
+- `appName` comes from `NSWorkspace.shared.frontmostApplication?.localizedName`. No permission, no blocking, fetched on the calling context (cheap NSWorkspace property).
+- `windowTitle` is read by the injected `AXWindowTitleReader` on a **detached `Task`** (not the main actor). The production `SystemAXWindowTitleReader`:
+  1. Calls `AXUIElementSetMessagingTimeout(axApp, 0.15)` *before* the attribute read — this is the AX-native, enforceable bound. Unlike Task cancellation, AXUIElementSetMessagingTimeout is honored inside the AX framework and unblocks `AXUIElementCopyAttributeValue` itself.
+  2. Then calls `AXUIElementCopyAttributeValue` for `kAXFocusedWindowAttribute` → `kAXTitleAttribute`.
+  3. Returns nil on any error (including `kAXErrorCannotComplete` from the timeout).
+- Localpen already holds Accessibility permission for clipboard-mediated I/O (CGEvent ⌘C / ⌘V), so no new permission prompt.
+- `selection` is the existing `TextIO.copySelection()` result (its existing contract, also off-main per its current implementation). Empty string → nil.
+- The whole `capture()` awaits the two sub-tasks via `async let`. Wall-clock is bounded by `max(150ms AX ceiling, ~90ms TextIO budget) ≈ 150ms` in the degraded path; in the common case, both finish in well under 50ms.
+
+**Latency budgets:**
+
+- **App + window probe**: hard ceiling 150 ms, enforced at the AX layer (not via Task cancellation). Common-case target < 50 ms.
+- **Selection capture**: inherits `TextIO.captureSelection`'s existing ~90 ms budget. Unchanged by B.
+- **Main actor**: never blocks. The AX read is on a detached Task; the main actor only awaits the result, and awaiting yields cleanly.
+
+This is the **only** way to honestly meet the "hung Mail.app cannot freeze the notch" requirement. A `@MainActor` design with a Task-timeout would compile, ship, and silently fail on the first frozen app.
 
 ### 3.3 `AskContext` (chip model)
 
@@ -308,8 +328,10 @@ The "no-selection → ask directly" routing is the load-bearing UX bet of this s
 - **`AskContextChipTests.test_promptOmitsContextBlockWhenAllChipsCleared`** — `ActionPrompts.ask` produces output without any `<context>` block when both `appLabel` and `selection` are nil. The prompt is byte-identical to a chip-never-existed ask.
 
 **ContextProbe:**
-- **`ContextProbeTests.test_axFailureFallsBackToAppNameOnly`** — when AX read throws / times out, the snapshot still has `appName` populated and `windowTitle == nil`.
+- **`ContextProbeTests.test_axFailureFallsBackToAppNameOnly`** — when the injected `AXWindowTitleReader` returns nil, the snapshot still has `appName` populated and `windowTitle == nil`.
 - **`ContextProbeTests.test_emptySelectionReturnsNil`** — empty-string selection normalizes to nil so chip rail is honest.
+- **`ContextProbeTests.test_blockingAXReader_capturesWithinBudget`** — **load-bearing for the freeze guard.** Inject a fake `AXWindowTitleReader` that blocks for 5 seconds; assert `capture()` returns within 250 ms (150 ms AX ceiling + comfortable slack) with `windowTitle == nil`. Without the off-main + AXUIElementSetMessagingTimeout design, this test fails — proves the production reader's timing guard is the AX layer, not a Task cancel. Implementation: production `SystemAXWindowTitleReader` calls `AXUIElementSetMessagingTimeout` before the attribute read; test uses a fake reader that respects the passed `timeoutSeconds` to simulate the AX timeout path.
+- **`ContextProbeTests.test_captureDoesNotBlockMainActor`** — assert `capture()` invoked from `@MainActor` does not stall the main actor while a slow AX reader is in flight. Specifically: post a `Task { @MainActor in flag = true }` after starting `capture()` with a 5s-blocking fake reader, assert `flag` flips to true within 20 ms. Guards against accidental future refactor that re-pins the AX read to the main actor.
 
 **Thread shape (Codex MED 1):**
 - **`AskResumeTests.test_noSelectionAskShowsInRecentWithQuestionAsTitle`** — a no-selection ask creates a thread whose Recent-list title derives from the user's question, not an empty string. Proves `createThreadForAsk` solved the originalSelection contradiction.
@@ -318,7 +340,7 @@ These tests are load-bearing in the same sense as the four memory-arc tests: the
 
 ## 7. Risks & open questions
 
-- **AX timeout behavior on hung apps.** `AXUIElementCopyAttributeValue` can block on an unresponsive frontmost app. We must use the `kAXErrorCannotComplete` timeout path and a hard `Task` cancel deadline (~150ms) so a frozen Mail.app can't freeze the notch. **Implementation must include this guard; the test `test_axFailureFallsBackToAppNameOnly` proves the fallback path but not the timing.** A separate manual smoke test is appropriate.
+- **AX timeout behavior on hung apps.** Addressed in §3.2. The protection is **AXUIElementSetMessagingTimeout (AX-layer)** + **off-main detached Task**, not Task cancellation (which can't preempt blocked C calls). The two `ContextProbeTests.test_blockingAXReader_*` tests in §6 are load-bearing for this guarantee.
 - **Window-title privacy.** Some apps put genuinely sensitive content in window titles (1Password, Bitwarden, Banking apps). For B we accept this and rely on the chip being **visible and removable**: the user sees the title before sending and can drop it. A future ADR may add a per-app denylist if this becomes a real problem; out of scope here.
 - **What "no selection" means in apps that don't expose selection state via clipboard.** Today we test selection by attempting a synthetic ⌘C and checking whether the clipboard changed. In an app where ⌘C is unbound or the clipboard already matched, we may misclassify "selection present" as absent or vice versa. This is a pre-existing TextIO concern; ask routing inherits it but does not amplify it. Mitigation: the menu still has an Ask row, so users with a selection that's mis-detected can still ask.
 - **No new model, no new prompt-engineering experiment.** Ask shares Qwen 2.5 7B with every other action. Quality of free-form answers is bounded by the model. If quality is poor we treat that as a model-selection problem (ADR 0005 permits swapping) — not as license to grow B's scope.
