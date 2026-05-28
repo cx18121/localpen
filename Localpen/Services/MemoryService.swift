@@ -15,6 +15,9 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
     /// Single-flight gate for background generation. Filled by Task 5.
     private var generationTask: Task<Void, Never>?
 
+    /// Post-commit subscription token. Released in deinit.
+    private var observer: NSObjectProtocol?
+
     /// Compose injection thresholds (spec). Held as constants here so tests can pin them.
     static let coldStartGate = 15
     static let regenGrowthFactor = 1.5
@@ -25,6 +28,22 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
         self.persistence = persistence
         self.streaming = streaming
         Task { await self.refreshCache() }
+        self.observer = NotificationCenter.default.addObserver(
+            forName: .interactionPersisted, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.interactionDidPersist() }
+        }
+    }
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// Test-only: detach the auto-subscription so test cases can drive
+    /// `interactionDidPersist()` manually without observer-fired races.
+    func _detachPostCommitObserverForTests() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
     }
 
     func refreshCache() async {
@@ -111,10 +130,38 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
         injectsVoice(action)
     }
 
-    // MARK: - Regeneration (skeleton — implemented in Task 5)
+    // MARK: - Regeneration
 
-    /// Post-commit hook entry point. Wired in Task 4; implementation in Task 5.
+    /// Post-commit entry point. Decides (cheaply) whether to schedule a regen.
+    /// Single-flight: a second call while a generation is in flight is dropped.
     func interactionDidPersist() {
-        // no-op until Task 5
+        guard generationTask == nil else { return }
+        if cached.userEdited { return }   // user's hand-tuned profile is ground truth
+
+        Task { [weak self] in
+            guard let self else { return }
+            let before = self.cached.forgottenBefore
+            let eligible = await self.persistence.eligibleInteractionCount(since: before)
+            // Cold-start gate (no card under 15 eligible interactions).
+            guard eligible >= Self.coldStartGate else { return }
+            // Regenerate when grown ≥1.5× since last successful generation.
+            // First generation: cached.sampleCount == 0 → threshold is coldStartGate.
+            let threshold = max(Self.coldStartGate, Int(Double(self.cached.sampleCount) * Self.regenGrowthFactor))
+            guard eligible >= threshold else { return }
+            self.scheduleGeneration(eligibleAt: eligible)
+        }
     }
+
+    /// Stub. Task 5 fills this with the actual llama-server call. Held single-flight
+    /// behind `generationTask`. Overridable for tests (SpyService).
+    func scheduleGeneration(eligibleAt: Int) {
+        guard generationTask == nil else { return }
+        generationTask = Task { [weak self] in
+            defer { Task { @MainActor [weak self] in self?.generationTask = nil } }
+            await self?.runGeneration(eligibleAt: eligibleAt)
+        }
+    }
+
+    /// Stub. Task 5 implements.
+    func runGeneration(eligibleAt: Int) async { /* Task 5 */ }
 }

@@ -2,6 +2,13 @@ import Foundation
 import GRDB
 import os
 
+extension Notification.Name {
+    /// Posted after a durable user-authored row commits, on either persistence path
+    /// (one-shot Persistence.save OR ConversationStore.{createThreadWithSeed,
+    /// appendExchange}). MemoryService subscribes; tests assert one post per write.
+    static let interactionPersisted = Notification.Name("localpen.interactionPersisted")
+}
+
 // GRDB stack + migrations per SWIFTUI-SPEC.md §11 / ADR 0006.
 final class Persistence {
     let dbQueue: DatabaseQueue
@@ -31,6 +38,7 @@ final class Persistence {
             try await dbQueue.write { db in
                 try copy.insert(db)
             }
+            NotificationCenter.default.post(name: .interactionPersisted, object: nil)
         } catch {
             log.error("save failed: \(error.localizedDescription)")
         }
