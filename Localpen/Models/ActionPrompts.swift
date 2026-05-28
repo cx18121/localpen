@@ -34,6 +34,9 @@ enum ActionPrompts {
         case .respond(let steer):
             let base = "Message to reply to:\n\(text)"
             return steer.isEmpty ? base : "\(base)\n\nHow to reply: \(steer)"
+        case .ask(let question, _):
+            if text.isEmpty { return question }
+            return "Question: \(question)\n\nText:\n\(text)"
         default:
             return text
         }
@@ -85,6 +88,12 @@ enum ActionPrompts {
             return """
             You are a writing assistant. Apply the user's instruction to the text they provide. \
             Output only the transformed text — no commentary, no quotes, no preamble.
+            """
+        case .ask:
+            return """
+            Answer the user's question about the text they provide. Be direct and concise. \
+            If relevant, cite or quote from the provided text in your answer. \
+            Output only your answer — no preamble, no commentary.
             """
         }
     }

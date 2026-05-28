@@ -31,6 +31,7 @@ final class ModelRegistry {
         case .shorter:     return model.prompts.shorter
         case .respond:     return ActionPrompts.systemPrompt(for: .respond(""))
         case .custom:      return ActionPrompts.systemPrompt(for: .custom(""))
+        case .ask:         return ActionPrompts.systemPrompt(for: .ask(question: "", withSelection: false))
         }
     }
 
