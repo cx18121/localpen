@@ -15,6 +15,13 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
     /// Single-flight gate for background generation. Filled by Task 5.
     private var generationTask: Task<Void, Never>?
 
+    /// Bumped on every externally-driven profile mutation (user save, Forget,
+    /// cache refresh). `runGeneration` captures this at start and aborts the
+    /// commit if it changed during the long model-streaming await — otherwise a
+    /// background regen could clobber a hand-edit that landed mid-generation
+    /// (Codex review caught this).
+    private(set) var generationEpoch: Int = 0
+
     /// Post-commit subscription token. Released in deinit.
     private var observer: NSObjectProtocol?
 
@@ -112,16 +119,27 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
 
     func currentProfile() -> StyleProfile { cached }
 
-    /// External mutation (UI edit / Regenerate / Forget) re-syncs the cache.
+    /// External mutation (UI edit / Regenerate / Forget) re-syncs the cache and
+    /// bumps `generationEpoch` so any in-flight `runGeneration` aborts its commit.
     func saveProfile(_ p: StyleProfile) async {
+        generationEpoch &+= 1
         await persistence.saveStyleProfile(p)
         cached = p
     }
 
     func forget(at: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) async {
         // `at` is unix-epoch MILLISECONDS to match interactions.timestamp post-v4.
+        generationEpoch &+= 1
         await persistence.forgetMemory(at: at)
         cached = StyleProfile(forgottenBefore: at)
+    }
+
+    /// Test seam (and the runtime check `runGeneration` calls): a generation
+    /// started at `startEpoch` may commit only if no external mutation has
+    /// occurred since AND the profile is not user-edited. Either condition flips
+    /// the answer to false and the regen aborts without touching the cache.
+    func _isGenerationCommitValid(startEpoch: Int) -> Bool {
+        generationEpoch == startEpoch && !cached.userEdited
     }
 
     // MARK: - Composition
@@ -223,7 +241,10 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
     }
 
     func runGeneration(eligibleAt: Int) async {
-        // Pull samples through the attribution layer.
+        // Capture epoch at start. A user edit / Forget / saveProfile during the
+        // long model-streaming await will bump it; we abort the commit rather
+        // than overwrite the user's hand-tuned profile.
+        let startEpoch = generationEpoch
         let before = cached.forgottenBefore
         let cap = Self.generationSampleCap   // hoist off MainActor to satisfy Sendable closure
         let samples: [MemoryAttribution.Sample] = (try? await persistence.dbQueue.read { db in
@@ -247,6 +268,11 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
             return   // keep previous profile
         }
 
+        guard _isGenerationCommitValid(startEpoch: startEpoch) else {
+            log.info("regen aborted at commit: profile mutated or marked user-edited during generation")
+            return
+        }
+
         guard let parsed = Self.parseProfileJSON(raw) else {
             log.error("regen JSON parse failed; keeping previous profile")
             return
@@ -262,8 +288,10 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
         // eligible (1.5×) and leave the profile stale after substantial new data.
         next.sampleCount = samples.count
         next.userEdited = false
-        await persistence.saveStyleProfile(next)
-        cached = next
+        // Write through saveProfile so the epoch bumps consistently with every
+        // other commit path — without that, callers polling `generationEpoch`
+        // would miss this transition.
+        await saveProfile(next)
         log.info("regen committed: \(parsed.voiceCard.count) chars, \(parsed.facts.count) facts, basis=\(samples.count)")
     }
 }

@@ -131,6 +131,33 @@ All easing: `cubic-bezier(0.22, 1, 0.36, 1)` (ease-out-quart). No bounce, no spr
 
 ---
 
+### 2.7 Component vocabulary
+
+Surfaces in the notch are built by **composing a small set of named components**, not by re-applying tokens row-by-row. New features should reach for these first; tokens are an escape hatch for the rare case nothing fits. Each component already encodes its paddings, weights, hover treatment, and radii — that's the whole point.
+
+Source: [`Localpen/DesignSystem/Components/`](./Localpen/DesignSystem/Components/).
+
+| Component | What it is | Use it when… |
+|---|---|---|
+| **`SectionHeader(title:trailing:)`** | Small-caps 10pt semibold label, tracking 0.9, faint hue, padded to align with the row grid below. Optional inline `trailing` meta in subhead size (e.g. "editable", a count). | You're starting a labelled group of rows — "Recent", "Voice", "Facts", a future "Settings". **Not** for `ActionMenuView`'s headers, which are fixed-height for the sliding focus-highlight math. |
+| **`MenuRow(icon:title:trailing:action:)`** | The canonical tappable row: SF Symbol leading at width 18, body title, optional `.text(String)` / `.chevron` trailing. Neutral hover lift (`rowHighlight`), inner-radius rounded fill. | Any list-of-things surface. Recents, the pinned profile row, future settings rows. Pick a `Trailing` variant; pass the closure. |
+| **`BackBar(title:onBack:)`** | Small chevron-left + soft-toned label at the top of a detail surface. | Any pushed-from-list detail view: profile, future thread detail, future per-model settings. |
+| **`Card { content }`** | A subtle inset surface: `chromeTint` fill, 0.75pt hairline stroke, `innerRadius`. Pads its own content. | Grouping an editable or read-mostly content block inside a section — e.g. the voice-card editor, a future "what the model sees" preview. |
+| **`OutlineButton(title:role:action:)`** | Quiet pill button with hairline stroke and `rowHighlight` hover fill. `role: .normal` (soft text) or `.destructive` (`accentError` text). | Footer actions on detail surfaces — Regenerate, Forget everything, future Reset/Export. Pair two side-by-side; don't paint one as a primary fill (no glaring CTAs in this design). |
+| **`EmptyStateView(icon:title:caption:)`** | Centered light-weight icon + menu-row title + soft subhead caption. | The "nothing yet" panel for any list surface. Same family as the recents empty state, so cold-start states across the app read as a coherent set. |
+
+Plus the existing primitive **`Hairline()`** for 1px section dividers (lives in `Panel/PanelView.swift`).
+
+**Rules:**
+1. **Compose, don't re-style.** If you find yourself reaching for `RoundedRectangle(...)` + `Tokens.rowHighlight` + an `onHover` to build a row, you want `MenuRow`.
+2. **One canonical version per pattern.** If a component's defaults don't fit, prefer adding a new variant (e.g. a new `Trailing` case) over per-feature tokens.
+3. **Variants are explicit, not implicit.** A "destructive" button is `role: .destructive`, not "the same OutlineButton but the caller passed `Tokens.accentError`."
+4. **ActionMenuView is the exception.** Its group headers and the sliding focus-highlight have positioning math coupled to fixed dimensions; those stay bespoke. Document that locally; don't reach for the menu's internals from elsewhere.
+
+When a new pattern emerges that doesn't fit (third repetition, or it serves a meaningfully different role), extract a new component and add a row to this table.
+
+---
+
 ## 3. Panel anatomy & sizing
 
 ### 3.1 Window
