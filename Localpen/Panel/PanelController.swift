@@ -625,7 +625,7 @@ final class PanelController {
         let customPrompt: String? = action.steerText
         return Interaction(
             id: nil,
-            timestamp: Int64(Date().timeIntervalSince1970),
+            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
             sourceApp: selection?.sourceBundleID,
             selection: selection?.text,
             action: action.rawValue,
