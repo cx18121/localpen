@@ -72,7 +72,7 @@ final class PanelController {
     /// parameter: the presenter's `DynamicNotch` eagerly evaluates its content
     /// closure (which builds `PanelView(controller: self)`) during the presenter's
     /// own init, so the controller must already exist when the presenter is created.
-    @ObservationIgnored private var notch: NotchPresenter!
+    @ObservationIgnored private var notch: NotchPresenter?
     @ObservationIgnored private let textIO: TextIO
     @ObservationIgnored private let streaming: StreamingClient
     @ObservationIgnored private let persistence: Persistence?
@@ -80,7 +80,22 @@ final class PanelController {
     @ObservationIgnored private let conversationStore: ConversationStore?
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
     @ObservationIgnored private let memory: MemoryService?
+    @ObservationIgnored private let contextProbe: ContextProbe
+    /// Injection seam for the hotkey path's selection capture. Defaults to
+    /// the real TextIO; tests override to count calls + simulate timing.
+    /// The single-capture invariant is enforced through this closure being
+    /// invoked exactly once per `captureAndShow` call.
+    @ObservationIgnored private let captureSelection: @Sendable () async -> TextIO.Capture
+    /// Injection seam for the ask streaming path. Defaults to the real
+    /// StreamingClient; tests override to drive cancellation regressions.
+    /// Only `startAskStream` (Task 8) uses this seam; other actions still
+    /// call `streaming.complete` directly so the blast radius stays narrow.
+    typealias AskStreamProvider = @Sendable (String, String, ModelDescriptor.Sampling?) -> AsyncThrowingStream<String, Error>
+    @ObservationIgnored private let askStreamProvider: AskStreamProvider
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
+
+    /// Context attached to the current free-form ask session.
+    var askContext: AskContext = .empty
 
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
     /// everything scoped to one summon (capture, tasks, pending result) so a
@@ -110,6 +125,9 @@ final class PanelController {
          registry: ModelRegistry,
          llamaServer: LlamaServerController?,
          memory: MemoryService? = nil,
+         contextProbe: ContextProbe = ContextProbe(),
+         captureSelection: (@Sendable () async -> TextIO.Capture)? = nil,
+         askStreamProvider: AskStreamProvider? = nil,
          openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
@@ -118,6 +136,13 @@ final class PanelController {
         self.registry = registry
         self.llamaServer = llamaServer
         self.memory = memory
+        self.contextProbe = contextProbe
+        self.captureSelection = captureSelection ?? { [textIO] in
+            await textIO.captureSelection()
+        }
+        self.askStreamProvider = askStreamProvider ?? { [streaming] sys, user, sampling in
+            streaming.complete(systemPrompt: sys, userText: user, sampling: sampling)
+        }
         self.openSettings = openSettings
         installMouseTracking()
     }
@@ -172,7 +197,7 @@ final class PanelController {
     /// replacement for the old `hidePanelAnimated()` — the surface is never torn
     /// down, just collapsed, so hover/click invocation keeps working.
     private func goIdle() {
-        Task { @MainActor in await notch.idle() }
+        Task { @MainActor in await notch?.idle() }
     }
 
     /// The finished result text if the panel is currently showing one, else nil.
@@ -272,6 +297,11 @@ final class PanelController {
                 retryFromError()
                 return true
             }
+            return false
+
+        case .ask:
+            // Keyboard handling for .ask is provided by the AskInput view's
+            // GrowingTextEditor, not the panel keyboard router.
             return false
         }
     }
@@ -378,7 +408,7 @@ final class PanelController {
             return
         }
         let capture = session.capture
-        notch.resignKey()   // let the source app receive the synthetic ⌘V
+        notch?.resignKey()   // let the source app receive the synthetic ⌘V
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = await self.textIO.pasteBack(result: text, capture: capture)
@@ -471,7 +501,7 @@ final class PanelController {
 
     // MARK: - Capture + show
 
-    private func captureAndShow() async {
+    fileprivate func captureAndShow() async {
         bumpConvEpoch()   // a new summon invalidates any lingering conversation transition
         isAccepting = false
         sessionCounter += 1
@@ -480,31 +510,37 @@ final class PanelController {
         focusedActionIndex = 1
         lastInputSource = .keyboard
 
-        // Capture FIRST, then open already populated — so the captured text is on
-        // screen the instant the surface appears, with no empty→text flash. The
-        // notch stays in its resting (compact) state during the brief capture, then
-        // expands with content. Capturing before presenting also keeps the source app
-        // frontmost so the synthetic ⌘C lands there, and lets us take key focus
-        // immediately on expand.
-        let capture = await textIO.captureSelection()
+        // Capture exactly ONCE through the injection seam. Single-capture
+        // invariant: this same Capture is later handed to ContextProbe
+        // via reusingCapture so the probe does NOT re-call TextIO.
+        let capture = await captureSelection()
         guard sessionCounter == myID else { return }   // superseded during capture
 
         let session = PanelSession(id: myID, capture: capture, hotkeyTime: hotkeyTime)
         current = session
         inputText = capture.selection ?? ""
 
-        if let text = capture.selection, !text.isEmpty {
+        let route = HotkeyRouting.route(for: capture)
+        switch route {
+        case .menu:
+            let text = capture.selection ?? ""
             let sel = Selection(
                 text: text,
                 sourceBundleID: capture.sourceBundleID,
                 sourceAppName: capture.sourceAppName
             )
             state = .visible(PanelContext(selection: sel), .captured)
-        } else {
-            state = .visible(PanelContext(), .empty)
+        case .ask:
+            let snap = await contextProbe.capture(reusingCapture: capture)
+            // Post-probe supersession guard: a second hotkey landing during
+            // the AX probe could bump sessionCounter and current. The stale
+            // task must not stamp old state over new.
+            guard sessionCounter == myID, current === session else { return }
+            askContext = AskContext.from(snap)
+            state = .visible(PanelContext(), .ask)
         }
-        await notch.expand()
-        notch.focus()
+        await notch?.expand()
+        notch?.focus()
     }
 
     /// Hover-dwell / click invocation: open the assistant with NO capture. Routed
@@ -532,8 +568,8 @@ final class PanelController {
         inputText = ""
         state = .visible(PanelContext(), .empty)
         Task { @MainActor in
-            await notch.expand()
-            notch.focus()
+            await notch?.expand()
+            notch?.focus()
         }
     }
 
@@ -826,7 +862,7 @@ final class PanelController {
             return
         }
         let capture = session.capture
-        notch.resignKey()   // let the source app receive the synthetic ⌘V
+        notch?.resignKey()   // let the source app receive the synthetic ⌘V
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = await self.textIO.pasteBack(result: turn.text, capture: capture)
@@ -961,3 +997,15 @@ final class PanelController {
         return index
     }
 }
+
+#if DEBUG
+extension PanelController {
+    /// Exposed for unit tests so the hotkey path can be driven without the
+    /// real notch presenter. Invokes the same private `captureAndShow` flow
+    /// the hotkey would.
+    @MainActor
+    func captureAndShowForTesting() async {
+        await captureAndShow()
+    }
+}
+#endif
