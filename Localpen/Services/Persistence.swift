@@ -15,6 +15,16 @@ final class Persistence {
         log.info("Persistence ready at \(dbPath.path, privacy: .public)")
     }
 
+    /// Test-only constructor that uses an in-memory GRDB queue, so tests don't touch
+    /// Application Support and don't bleed state between cases.
+    init(testInMemory: Bool) throws {
+        precondition(testInMemory)
+        let queue = try DatabaseQueue()
+        try Self.migrate(queue)
+        self.dbQueue = queue
+        log.info("Persistence ready (in-memory test mode)")
+    }
+
     func save(_ interaction: Interaction) async {
         var copy = interaction
         do {
