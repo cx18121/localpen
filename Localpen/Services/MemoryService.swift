@@ -24,6 +24,66 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
     static let exemplarLimit = 5
     static let generationSampleCap = 40
 
+    // MemoryService is @MainActor, which makes static members actor-isolated by default
+    // and uncallable from non-@MainActor XCTest cases. The pure helpers below are
+    // stateless and safe to call from anywhere — mark them `nonisolated` explicitly.
+
+    nonisolated static let generationSystemPrompt: String = """
+        You analyze a user's writing samples and produce a compact voice profile and a \
+        conservative list of facts about them. Return STRICT JSON of the form:
+        {"voice_card": "...", "facts": ["...", "..."]}
+        Rules:
+        - voice_card: 150-250 words. Describe concrete, perceptible traits across: tone/register \
+          (and how it shifts), formality, typical sentence length & rhythm, vocabulary register, \
+          signature words to favor or avoid, punctuation & casing habits, openings/sign-offs, \
+          emoji & emphasis usage, contractions/hedging/directness. Do NOT invent traits not \
+          evidenced in the samples.
+        - facts: short, high-confidence bullets ONLY (name, role if stated, recurring people/\
+          projects, hard preferences). If a candidate fact is uncertain, OMIT it. An empty \
+          "facts": [] is correct and preferred over speculation.
+        - Output ONLY the JSON object, no preamble, no commentary, no code fences.
+        """
+
+    nonisolated static func buildGenerationUserPrompt(samples: [MemoryAttribution.Sample]) -> String {
+        // Label sources so the model can weight edits highest. Truncate per-sample at 600 chars.
+        var s = "Samples (most recent first):\n"
+        for sample in samples {
+            let label: String = {
+                switch sample.source {
+                case .userEdit:           return "[edit — user's correction]"
+                case .userText:           return "[own writing]"
+                case .replySteer:         return "[user's steer on a reply]"
+                case .customSteer:        return "[user's instruction]"
+                case .conversationTurn:   return "[user's chat turn]"
+                }
+            }()
+            let body = sample.text.count > 600 ? String(sample.text.prefix(600)) + "…" : sample.text
+            s += "\n\(label)\n\(body)\n"
+        }
+        return s
+    }
+
+    /// Tolerant JSON parser: strips code fences if the model added them, finds the first
+    /// '{' and the matching closing '}', tries to decode. Returns nil on any failure;
+    /// callers preserve the previous profile.
+    nonisolated static func parseProfileJSON(_ raw: String) -> (voiceCard: String, facts: [String])? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("```") {
+            // strip ```json … ``` fence
+            if let first = s.range(of: "\n") { s = String(s[first.upperBound...]) }
+            if let last = s.range(of: "```", options: .backwards) { s = String(s[..<last.lowerBound]) }
+            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let openIdx = s.firstIndex(of: "{"),
+              let closeIdx = s.lastIndex(of: "}"), closeIdx > openIdx else { return nil }
+        let jsonText = String(s[openIdx...closeIdx])
+        struct Decoded: Decodable { let voice_card: String; let facts: [String]? }
+        guard let data = jsonText.data(using: .utf8),
+              let d = try? JSONDecoder().decode(Decoded.self, from: data),
+              !d.voice_card.isEmpty else { return nil }
+        return (d.voice_card, d.facts ?? [])
+    }
+
     init(persistence: Persistence, streaming: StreamingClient) {
         self.persistence = persistence
         self.streaming = streaming
@@ -162,6 +222,48 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
         }
     }
 
-    /// Stub. Task 5 implements.
-    func runGeneration(eligibleAt: Int) async { /* Task 5 */ }
+    func runGeneration(eligibleAt: Int) async {
+        // Pull samples through the attribution layer.
+        let before = cached.forgottenBefore
+        let cap = Self.generationSampleCap   // hoist off MainActor to satisfy Sendable closure
+        let samples: [MemoryAttribution.Sample] = (try? await persistence.dbQueue.read { db in
+            try MemoryAttribution.collectGenerationSamples(in: db, forgottenBefore: before,
+                                                           cap: cap)
+        }) ?? []
+        guard samples.count >= Self.coldStartGate else {
+            log.info("regen aborted: only \(samples.count) eligible samples (< coldStartGate)")
+            return
+        }
+
+        let userPrompt = Self.buildGenerationUserPrompt(samples: samples)
+        var raw = ""
+        do {
+            for try await tok in streaming.complete(systemPrompt: Self.generationSystemPrompt,
+                                                    userText: userPrompt) {
+                raw += tok
+            }
+        } catch {
+            log.error("regen streaming failed: \(error.localizedDescription)")
+            return   // keep previous profile
+        }
+
+        guard let parsed = Self.parseProfileJSON(raw) else {
+            log.error("regen JSON parse failed; keeping previous profile")
+            return
+        }
+
+        var next = cached
+        next.voiceCard = parsed.voiceCard
+        next.facts = parsed.facts
+        next.generatedAt = Int64(Date().timeIntervalSince1970 * 1000)  // ms (post-v4 invariant)
+        // sampleCount = the basis the profile was actually built from, NOT raw
+        // eligibleAt. With generationSampleCap=40 and 100 eligible rows, the profile
+        // is built from 40 samples; recording 100 would delay the next regen to 150
+        // eligible (1.5×) and leave the profile stale after substantial new data.
+        next.sampleCount = samples.count
+        next.userEdited = false
+        await persistence.saveStyleProfile(next)
+        cached = next
+        log.info("regen committed: \(parsed.voiceCard.count) chars, \(parsed.facts.count) facts, basis=\(samples.count)")
+    }
 }
