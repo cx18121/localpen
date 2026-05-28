@@ -52,6 +52,22 @@ enum Action: Hashable, Identifiable {
     /// the action is shown as a static pill rather than a tappable menu item.
     var pillLabel: String { label.replacingOccurrences(of: "…", with: "") }
 
+    /// The seed-turn rendering inside a conversation thread: a plain-English
+    /// sentence the user "said" to start the thread, so the bubble reads like
+    /// a real message instead of a cryptic tag ("Proofread"). For `.custom` /
+    /// `.respond` we use the user's actual steer text when present.
+    var seedSentence: String {
+        switch self {
+        case .proofread:           return "Proofread this"
+        case .polish:              return "Polish this"
+        case .moreFormal:          return "Make this more formal"
+        case .moreCasual:          return "Make this more casual"
+        case .shorter:             return "Make this shorter"
+        case .respond(let steer):  return steer.isEmpty ? "Respond to this" : steer
+        case .custom(let instr):   return instr.isEmpty ? "Custom instruction" : instr
+        }
+    }
+
     static let fixed: [Action] = [.proofread, .polish, .moreFormal, .moreCasual, .shorter]
 
     enum OperationClass {

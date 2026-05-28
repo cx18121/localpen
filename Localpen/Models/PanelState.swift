@@ -28,6 +28,7 @@ enum PanelState: Equatable {
         case generating
         case conversing
         case history
+        case profile
         case result(finalResult: String, isEditing: Bool)
         case error(PanelError)
     }
@@ -57,6 +58,7 @@ enum PanelState: Equatable {
         case .error:        return 7
         case .conversing:   return 8
         case .history:      return 9
+        case .profile:      return 10
         }
     }
 }

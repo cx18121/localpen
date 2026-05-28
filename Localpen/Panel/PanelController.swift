@@ -79,6 +79,7 @@ final class PanelController {
     @ObservationIgnored private let registry: ModelRegistry
     @ObservationIgnored private let conversationStore: ConversationStore?
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
+    @ObservationIgnored private let memory: MemoryService?
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
@@ -92,6 +93,15 @@ final class PanelController {
 
     static let menuItems: [Action] = Action.fixed + [.respond(""), .custom("")]
 
+    /// Whether accepting an assistant reply right now would paste it back into
+    /// the source app (true) versus copy it to the clipboard (false). Lets the
+    /// conversation bubble show the honest verb ("Replace" vs "Copy") instead
+    /// of a generic "Use" that papers over real branching in `acceptTurn`.
+    var pastesBackOnAccept: Bool {
+        guard let session = current, let convo = conversation else { return false }
+        return session.canPasteBack && convo.operationClass == .revise
+    }
+
     @ObservationIgnored let openSettings: () -> Void
 
     init(textIO: TextIO,
@@ -99,6 +109,7 @@ final class PanelController {
          persistence: Persistence?,
          registry: ModelRegistry,
          llamaServer: LlamaServerController?,
+         memory: MemoryService? = nil,
          openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
@@ -106,6 +117,7 @@ final class PanelController {
         self.conversationStore = persistence.map { ConversationStore(dbQueue: $0.dbQueue) }
         self.registry = registry
         self.llamaServer = llamaServer
+        self.memory = memory
         self.openSettings = openSettings
         installMouseTracking()
     }
@@ -217,6 +229,10 @@ final class PanelController {
 
         case .history:
             if code == kVK_Escape { backToMenu(); return true }
+            return false
+
+        case .profile:
+            if code == kVK_Escape { dismissProfile(); return true }
             return false
 
         case .result(_, let isEditing):
@@ -586,7 +602,8 @@ final class PanelController {
     }
 
     private func runStream(action: Action, selection: Selection?) async {
-        let systemPrompt = registry.systemPrompt(for: action)
+        let baseSystemPrompt = registry.systemPrompt(for: action)
+        let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
         let userPrompt = ActionPrompts.userMessage(for: action, text: selection?.text ?? "")
 
         armWatchdog(action: action, selection: selection, timeout: Self.firstTokenTimeout)
@@ -625,7 +642,7 @@ final class PanelController {
         let customPrompt: String? = action.steerText
         return Interaction(
             id: nil,
-            timestamp: Int64(Date().timeIntervalSince1970),
+            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
             sourceApp: selection?.sourceBundleID,
             selection: selection?.text,
             action: action.rawValue,
@@ -737,7 +754,13 @@ final class PanelController {
     }
 
     private func streamConversation(_ convo: Conversation, session: PanelSession, epoch: UInt64) async {
-        let messages = [(role: "system", content: ActionPrompts.conversationSystem)] + convo.messages
+        let seedAction = convo.turns.first?.action
+        let conversationSystem = memory?.compose(
+            base: ActionPrompts.conversationSystem,
+            for: .custom(""),
+            seedAction: seedAction
+        ) ?? ActionPrompts.conversationSystem
+        let messages = [(role: "system", content: conversationSystem)] + convo.messages
         let sampling = registry.activeModel?.sampling
         var partial = ""
         do {
@@ -856,6 +879,54 @@ final class PanelController {
             self.conversation = convo
             self.state = .visible(PanelContext(selection: sel, action: seed), .conversing)
         }
+    }
+
+    // MARK: - Profile (memory inspect/edit)
+
+    // PanelController is @Observable — properties auto-observed; no @Published needed.
+    var profileDraft: StyleProfile = StyleProfile()
+    var profileEligibleCount: Int = 0
+
+    func showProfile() {
+        guard let memory else { return }
+        profileDraft = memory.currentProfile()
+        state = .visible(state.context ?? PanelContext(selection: nil), .profile)
+        Task {
+            if let p = persistence {
+                profileEligibleCount = await p.eligibleInteractionCount(since: profileDraft.forgottenBefore)
+            }
+        }
+    }
+
+    func saveProfileEdits() {
+        guard let memory else { return }
+        var draft = profileDraft
+        draft.userEdited = true
+        Task { await memory.saveProfile(draft) }
+    }
+
+    func regenerateProfileNow() {
+        guard let memory else { return }
+        // Clear userEdited so the regen isn't suppressed; reuse the eligible count.
+        Task {
+            var current = memory.currentProfile()
+            current.userEdited = false
+            await memory.saveProfile(current)
+            let count = await (persistence?.eligibleInteractionCount(since: current.forgottenBefore) ?? 0)
+            memory.scheduleGeneration(eligibleAt: count)
+        }
+    }
+
+    func forgetMemoryEverything() {
+        guard let memory else { return }
+        Task {
+            await memory.forget()
+            profileDraft = memory.currentProfile()
+        }
+    }
+
+    func dismissProfile() {
+        state = .visible(state.context ?? PanelContext(selection: nil), .empty)
     }
 
     // MARK: - Helpers

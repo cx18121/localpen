@@ -47,7 +47,7 @@ final class ConversationStore {
                               assistantText: String) async throws -> (threadID: Int64, seedInteractionID: Int64) {
         let now = self.now()
         let title = Self.title(from: originalSelection.text)
-        return try await dbQueue.write { db in
+        let result: (threadID: Int64, seedInteractionID: Int64) = try await dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO threads (created_at, updated_at, source_app, original_selection, title)
                 VALUES (?, ?, ?, ?, ?)
@@ -62,6 +62,8 @@ final class ConversationStore {
             try seed.insert(db)
             return (threadID, seed.id ?? db.lastInsertedRowID)
         }
+        NotificationCenter.default.post(name: .interactionPersisted, object: nil)
+        return result
     }
 
     /// Persists one user→assistant exchange as an interactions row; returns its id
@@ -82,12 +84,14 @@ final class ConversationStore {
             editedOutput: nil,
             threadID: threadID
         )
-        return try await dbQueue.write { db in
+        let rowID: Int64 = try await dbQueue.write { db in
             try row.insert(db)
             try db.execute(sql: "UPDATE threads SET updated_at = ? WHERE id = ?",
                            arguments: [now, threadID])
             return row.id ?? db.lastInsertedRowID
         }
+        NotificationCenter.default.post(name: .interactionPersisted, object: nil)
+        return rowID
     }
 
     /// Marks a persisted exchange accepted (the user applied/kept that assistant turn).
