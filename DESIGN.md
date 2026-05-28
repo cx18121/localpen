@@ -156,6 +156,11 @@ Plus the existing primitive **`Hairline()`** for 1px section dividers (lives in 
 
 When a new pattern emerges that doesn't fit (third repetition, or it serves a meaningfully different role), extract a new component and add a row to this table.
 
+**Ask chip rail** — small removable pills shown above `AskInput` representing
+auto-attached context (app + window title, selection). Reuses `Tokens.rowHighlight`
+fill and `Spacing.innerRadius`. No new design system pieces; lives in
+`AskInput.swift` as a private `AskChip` view.
+
 ---
 
 ## 3. Panel anatomy & sizing

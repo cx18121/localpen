@@ -19,9 +19,10 @@ struct ActionMenuView: View {
     /// Full rendered height of a group header (frame + its bottom padding).
     private var headerTotal: CGFloat { headerHeight + headerBottomPad }
 
-    private var respondIdx: Int { Action.fixed.count }                        // 5
-    private var customIdx: Int { Action.fixed.count + 1 }                     // 6
-    private var reviseRange: Range<Int> { 0..<Action.fixed.count }            // 0..4
+    private var respondIdx: Int { Action.fixed.count }            // 5
+    private var askIdx: Int { Action.fixed.count + 1 }            // 6
+    private var customIdx: Int { Action.fixed.count + 2 }         // 7
+    private var reviseRange: Range<Int> { 0..<Action.fixed.count }
 
     /// Top offset of the highlight for a given row index, accounting for the
     /// headers and divider physically above it.
@@ -34,6 +35,8 @@ struct ActionMenuView: View {
         y += headerTotal                               // CREATE header
         if index == respondIdx { return y }
         y += rowHeight                                 // past Respond
+        if index == askIdx { return y }                // Ask sits below Respond, above divider
+        y += rowHeight                                 // past Ask
         y += dividerHeight                             // divider
         return y                                       // Custom row
     }
@@ -55,6 +58,7 @@ struct ActionMenuView: View {
                 ForEach(reviseRange, id: \.self) { i in row(i) }
                 groupHeader("Create")
                 row(respondIdx)
+                row(askIdx)
                 Hairline().padding(.horizontal, Spacing.s4).padding(.vertical, 6)
                 row(customIdx)
             }

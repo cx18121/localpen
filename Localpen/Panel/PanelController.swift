@@ -106,7 +106,11 @@ final class PanelController {
     @ObservationIgnored private var sessionCounter: UInt64 = 0
     @ObservationIgnored private var mouseInputMonitor: Any?
 
-    static let menuItems: [Action] = Action.fixed + [.respond(""), .custom("")]
+    static let menuItems: [Action] = Action.fixed + [
+        .respond(""),
+        .ask(question: "", withSelection: false),   // placeholder; selection resolved when picked
+        .custom("")
+    ]
 
     /// Whether accepting an assistant reply right now would paste it back into
     /// the source app (true) versus copy it to the clipboard (false). Lets the
@@ -347,6 +351,18 @@ final class PanelController {
     func pick(_ action: Action) {
         if case .respond = action, !respondEnabled { return }
         switch action {
+        case .ask:
+            // Menu-open only. Submission goes through askSubmitted →
+            // startAskStream directly (Codex plan review HIGH 2: routing
+            // submit back through pick(.ask) would loop into menu-open
+            // and never reach the stream path).
+            if case .visible(let ctx, _) = state, let sel = ctx.selection {
+                askContext = AskContext(appLabel: sel.sourceAppName, selection: sel.text)
+            } else {
+                askContext = .empty
+            }
+            state = .visible(PanelContext(), .ask)
+            return
         case .custom, .respond:
             // Compose phase always carries its action in the context so submit,
             // the toolbar, accept, and persistence can all read it. Without this
