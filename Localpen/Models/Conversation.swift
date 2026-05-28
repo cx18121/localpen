@@ -22,21 +22,31 @@ final class Conversation {
     /// the live UI showing a user turn that never reaches persisted history.
     var isStreaming: Bool = false
 
+    /// For ask threads, the chip context at submit time. Used by `messages`
+    /// to rebuild the seed user message via `askUserMessage` on resume.
+    /// Without this, the rebuilt seed would wrap the question as its own
+    /// selection chip (since `originalSelection.text` is the question for
+    /// ask threads). Nil for non-ask threads.
+    let seedAskContext: AskContext?
+
     /// Invariant: if `turns` is non-empty, `turns[0]` must be a user turn whose
     /// `action` is non-nil — `messages` embeds the original selection only via that
     /// seed action. `seeded(...)` and `ConversationStore.loadTurns` both honor this.
     init(threadID: Int64, originalSelection: Selection,
-         operationClass: Action.OperationClass, turns: [ConversationTurn]) {
+         operationClass: Action.OperationClass, turns: [ConversationTurn],
+         seedAskContext: AskContext? = nil) {
         self.threadID = threadID
         self.originalSelection = originalSelection
         self.operationClass = operationClass
         self.turns = turns
+        self.seedAskContext = seedAskContext
     }
 
     /// Seeds a thread from a just-completed one-shot result plus the first
     /// follow-up: [user(seed action), assistant(result), user(follow-up)].
     static func seeded(threadID: Int64, originalSelection: Selection,
-                       seedAction: Action, result: String, followUp: String) -> Conversation {
+                       seedAction: Action, result: String, followUp: String,
+                       seedAskContext: AskContext? = nil) -> Conversation {
         Conversation(
             threadID: threadID,
             originalSelection: originalSelection,
@@ -45,7 +55,8 @@ final class Conversation {
                 ConversationTurn(role: .user, text: seedAction.pillLabel, action: seedAction),
                 ConversationTurn(role: .assistant, text: result),
                 ConversationTurn(role: .user, text: followUp)
-            ]
+            ],
+            seedAskContext: seedAskContext
         )
     }
 
@@ -59,6 +70,13 @@ final class Conversation {
                 return ("assistant", turn.text)
             case .user:
                 if idx == 0, let action = turn.action {
+                    // Codex HIGH 2: ask rebuilds via structured
+                    // askUserMessage so the question doesn't get wrapped
+                    // as its own selection context.
+                    if case .ask(let q, _) = action {
+                        let ctx = seedAskContext ?? AskContext.empty
+                        return ("user", ActionPrompts.askUserMessage(question: q, context: ctx))
+                    }
                     return ("user", ActionPrompts.userMessage(for: action, text: originalSelection.text))
                 }
                 return ("user", turn.text)
