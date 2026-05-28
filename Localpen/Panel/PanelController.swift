@@ -222,6 +222,10 @@ final class PanelController {
             if code == kVK_Escape { backToMenu(); return true }
             return false
 
+        case .profile:
+            if code == kVK_Escape { dismissProfile(); return true }
+            return false
+
         case .result(_, let isEditing):
             if isEditing {
                 if code == kVK_Escape { setEditing(false); return true }
@@ -866,6 +870,54 @@ final class PanelController {
             self.conversation = convo
             self.state = .visible(PanelContext(selection: sel, action: seed), .conversing)
         }
+    }
+
+    // MARK: - Profile (memory inspect/edit)
+
+    // PanelController is @Observable — properties auto-observed; no @Published needed.
+    var profileDraft: StyleProfile = StyleProfile()
+    var profileEligibleCount: Int = 0
+
+    func showProfile() {
+        guard let memory else { return }
+        profileDraft = memory.currentProfile()
+        state = .visible(state.context ?? PanelContext(selection: nil), .profile)
+        Task {
+            if let p = persistence {
+                profileEligibleCount = await p.eligibleInteractionCount(since: profileDraft.forgottenBefore)
+            }
+        }
+    }
+
+    func saveProfileEdits() {
+        guard let memory else { return }
+        var draft = profileDraft
+        draft.userEdited = true
+        Task { await memory.saveProfile(draft) }
+    }
+
+    func regenerateProfileNow() {
+        guard let memory else { return }
+        // Clear userEdited so the regen isn't suppressed; reuse the eligible count.
+        Task {
+            var current = memory.currentProfile()
+            current.userEdited = false
+            await memory.saveProfile(current)
+            let count = await (persistence?.eligibleInteractionCount(since: current.forgottenBefore) ?? 0)
+            memory.scheduleGeneration(eligibleAt: count)
+        }
+    }
+
+    func forgetMemoryEverything() {
+        guard let memory else { return }
+        Task {
+            await memory.forget()
+            profileDraft = memory.currentProfile()
+        }
+    }
+
+    func dismissProfile() {
+        state = .visible(state.context ?? PanelContext(selection: nil), .empty)
     }
 
     // MARK: - Helpers

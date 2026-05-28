@@ -67,6 +67,9 @@ struct PanelView: View {
                 case .history:
                     ThreadListView(controller: controller)
 
+                case .profile:
+                    ProfileView(controller: controller)
+
                 case .error(let err):
                     ErrorBanner(error: err, onAction: { controller.retryFromError() })
                 }
