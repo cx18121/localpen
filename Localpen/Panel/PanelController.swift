@@ -93,6 +93,15 @@ final class PanelController {
 
     static let menuItems: [Action] = Action.fixed + [.respond(""), .custom("")]
 
+    /// Whether accepting an assistant reply right now would paste it back into
+    /// the source app (true) versus copy it to the clipboard (false). Lets the
+    /// conversation bubble show the honest verb ("Replace" vs "Copy") instead
+    /// of a generic "Use" that papers over real branching in `acceptTurn`.
+    var pastesBackOnAccept: Bool {
+        guard let session = current, let convo = conversation else { return false }
+        return session.canPasteBack && convo.operationClass == .revise
+    }
+
     @ObservationIgnored let openSettings: () -> Void
 
     init(textIO: TextIO,

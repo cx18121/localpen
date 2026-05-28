@@ -43,7 +43,11 @@ struct ConversationView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: Spacing.s4) {
                     ForEach(conversation.turns) { turn in
-                        TurnBubble(turn: turn, onAccept: { controller.acceptTurn(turn) })
+                        TurnBubble(
+                            turn: turn,
+                            acceptAction: controller.pastesBackOnAccept ? .replace : .copy,
+                            onAccept: { controller.acceptTurn(turn) }
+                        )
                     }
 
                     if !conversation.streamingText.isEmpty {
@@ -51,6 +55,7 @@ struct ConversationView: View {
                         // affordance until the stream finishes.
                         TurnBubble(
                             turn: ConversationTurn(role: .assistant, text: conversation.streamingText),
+                            acceptAction: nil,
                             onAccept: nil
                         )
                     }
@@ -89,16 +94,35 @@ struct ConversationView: View {
 
 // MARK: - Turn bubble
 
+/// What "accept" actually does for the current session — drives the inline
+/// affordance label so it reads honestly. Mirrors the branching inside
+/// `PanelController.acceptTurn`.
+enum AcceptAction {
+    case replace   // paste back into the original app's selection
+    case copy      // write to clipboard (create-class or resumed-thread)
+
+    var label: String {
+        switch self {
+        case .replace: return "Replace"
+        case .copy:    return "Copy"
+        }
+    }
+}
+
 /// One thread bubble. Two shapes:
 /// - assistant: leading panelBG2 bubble with a small bottom-leading corner; a
-///   quiet "Use this reply" affordance underneath calls `onAccept`.
+///   tiny `↩ Replace` / `↩ Copy` meta-line underneath calls `onAccept`. The
+///   label reflects what'll actually happen (paste-back vs clipboard).
 /// - user (seed action AND free-form follow-ups): trailing bubble. The seed
 ///   turn carries an `action`; we use `action.seedSentence` so it reads as a
 ///   real first message ("Proofread this", "Make this more formal") instead
 ///   of a cryptic "Proofread" tag.
 private struct TurnBubble: View {
     let turn: ConversationTurn
+    let acceptAction: AcceptAction?
     let onAccept: (() -> Void)?
+
+    @State private var acceptHover = false
 
     /// Display text for a user turn — the seed action's conversational sentence
     /// when present, otherwise the typed follow-up.
@@ -120,7 +144,7 @@ private struct TurnBubble: View {
         // don't run edge-to-edge. fixed-width panel; switch to GeometryReader if the panel ever resizes.
         let maxBubbleWidth = PanelController.panelSize.width * 0.86
         return HStack {
-            VStack(alignment: .leading, spacing: Spacing.s2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(turn.text)
                     .font(Typography.result)
                     .foregroundStyle(Tokens.text)
@@ -137,20 +161,35 @@ private struct TurnBubble: View {
                         )
                     )
 
-                if let onAccept {
-                    Button(action: onAccept) {
-                        Text("Use this reply")
-                            .font(Typography.footerHint)
-                            .foregroundStyle(Tokens.textSoft)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 2)
-                    .help("Replace the original selection with this reply (or copy it if paste-back isn't available)")
+                if let onAccept, let acceptAction {
+                    acceptAffordance(action: acceptAction, onTap: onAccept)
                 }
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A tiny meta-line that reads as bubble metadata more than a CTA — return
+    /// glyph + verb in faint text, lifts to soft on hover so it's discoverable
+    /// without ever feeling loud.
+    private func acceptAffordance(action: AcceptAction, onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                Image(systemName: "return")
+                    .font(.system(size: 9, weight: .medium))
+                Text(action.label)
+                    .font(Typography.footerHint)
+            }
+            .foregroundStyle(acceptHover ? Tokens.textSoft : Tokens.textFaint)
+            .padding(.leading, Spacing.bubbleInsetH - 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { acceptHover = $0 }
+        .help(action == .replace
+              ? "Replace the original selection in the source app with this reply"
+              : "Copy this reply to the clipboard")
     }
 
     private var userBubble: some View {
