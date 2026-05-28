@@ -4,6 +4,7 @@ struct ThreadListView: View {
     @Bindable var controller: PanelController
 
     @State private var hoveredID: Int64? = nil
+    @State private var profileHover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -15,20 +16,20 @@ struct ThreadListView: View {
                 .padding(.top, Spacing.s6)
                 .padding(.bottom, Spacing.s3)
 
-            if controller.recentThreads.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    VStack(spacing: 2) {
-                        ForEach(controller.recentThreads, id: \.id) { t in
-                            row(t)
-                        }
+            ScrollView {
+                VStack(spacing: 2) {
+                    profileRow
+                    if controller.recentThreads.isEmpty {
+                        emptyState
+                    } else {
+                        Divider().background(Tokens.hairline).padding(.vertical, Spacing.s3)
+                        ForEach(controller.recentThreads, id: \.id) { t in row(t) }
                     }
-                    .padding(.horizontal, Spacing.s4)
-                    .padding(.bottom, Spacing.s4)
                 }
-                .frame(maxHeight: 360)
+                .padding(.horizontal, Spacing.s4)
+                .padding(.bottom, Spacing.s4)
             }
+            .frame(maxHeight: 360)
         }
     }
 
@@ -64,6 +65,35 @@ struct ThreadListView: View {
             if hovering { hoveredID = t.id }
             else if hoveredID == t.id { hoveredID = nil }
         }
+    }
+
+    private var profileRow: some View {
+        Button { controller.showProfile() } label: {
+            HStack(spacing: Spacing.s4) {
+                Image(systemName: "person.crop.square")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Tokens.textFaint)
+                    .frame(width: 18)
+                Text("Your writing profile")
+                    .font(Typography.menuRow)
+                    .foregroundStyle(Tokens.text)
+                Spacer(minLength: Spacing.s4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Tokens.textFaint)
+            }
+            .padding(.horizontal, Spacing.s5)
+            .padding(.vertical, Spacing.s4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
+                    .fill(Tokens.rowHighlight)
+                    .opacity(profileHover ? 0.7 : 0)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { profileHover = $0 }
     }
 
     private var emptyState: some View {
