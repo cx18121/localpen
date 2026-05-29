@@ -902,14 +902,16 @@ final class PanelController {
         // The hotkey .ask path tags no current-session read (calendar arrives
         // synchronously via ContextProbe.capture), so submit stays synchronous there.
         if let pending = calendarAttachTask, calendarAttachSession == sessionCounter {
-            let submitSession = sessionCounter
+            let submitEpoch = convEpoch
             Task { @MainActor [weak self] in
                 await pending.value
-                // Re-check after the await: if the user dismissed and opened a new
-                // panel while the calendar read was finishing, sessionCounter has
-                // moved on — drop this stale submit so the old question can't stream
-                // into the new session (Codex review HIGH).
-                guard let self, self.sessionCounter == submitSession else { return }
+                // Re-check the intent token after the await. convEpoch is bumped by
+                // EVERY way the user can move on while the read finishes — dismiss,
+                // reopen (new session), History, Back-to-menu. Guarding on it (not
+                // just sessionCounter, which History/Back leave intact) drops the
+                // stale submit so the old question can't stream over the new surface
+                // (Codex review HIGH + its same-session-navigation follow-up).
+                guard let self, self.convEpoch == submitEpoch else { return }
                 self.finishAskSubmit(trimmed)
             }
         } else {
