@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(ModelRegistry.self) private var registry
     let persistence: Persistence?
+    let switchModel: (String) -> Void
 
     var body: some View {
         TabView {
@@ -11,7 +12,7 @@ struct SettingsView: View {
                 .padding(Spacing.s8)
                 .frame(width: 480, height: 240)
 
-            ModelPickerView(registry: registry)
+            ModelPickerView(registry: registry, switchModel: switchModel)
                 .tabItem { Label("Model", systemImage: "cube") }
                 .padding(Spacing.s8)
                 .frame(width: 480, height: 320)

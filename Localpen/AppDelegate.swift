@@ -137,7 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             existing.makeKeyAndOrderFront(nil)
             return
         }
-        let view = SettingsView(persistence: persistence)
+        let view = SettingsView(
+            persistence: persistence,
+            switchModel: { [weak self] id in self?.switchModel(id: id) }
+        )
             .environment(registry)
         let host = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: host)
@@ -166,6 +169,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self.warmUpModel(port: server.port)
             } catch {
                 self.log.error("llama-server failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Switch the active model from Settings: persist the choice durably, then
+    /// stop the running llama-server and start it on the new model's path. The
+    /// stop()/start() surfaces the same .starting → .ready states the launch path
+    /// uses, so the hotkey's isReady guard naturally beats during the reload.
+    func switchModel(id: String) {
+        guard id != registry.activeModelID else { return }
+        registry.setActiveModel(id: id)
+        guard let server = llamaServer, let descriptor = registry.activeModel else { return }
+
+        server.stop()
+        // Force the next startServerIfNeeded() to actually (re)spawn for this model.
+        serverStartedForModel = descriptor.id
+        let modelPath = registry.modelPath(for: descriptor).path
+        Task { @MainActor in
+            do {
+                try await server.start(modelPath: modelPath, contextSize: descriptor.contextSize)
+                self.log.info("llama-server ready on new model \(descriptor.id, privacy: .public)")
+                self.warmUpModel(port: server.port)
+            } catch {
+                self.log.error("llama-server failed after model switch: \(error.localizedDescription)")
             }
         }
     }
