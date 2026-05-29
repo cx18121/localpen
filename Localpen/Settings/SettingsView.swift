@@ -1,28 +1,12 @@
 import SwiftUI
 
-struct SettingsView: View {
-    @Environment(ModelRegistry.self) private var registry
-    let persistence: Persistence?
-    let switchModel: (String) -> Void
-
-    var body: some View {
-        TabView {
-            GeneralTab()
-                .tabItem { Label("General", systemImage: "gear") }
-
-            ModelPickerView(registry: registry, switchModel: switchModel)
-                .tabItem { Label("Model", systemImage: "cube") }
-
-            HistorySettingsView(persistence: persistence)
-                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
-        }
-        // One consistent window size; each grouped Form scrolls within it and
-        // manages its own section insets, so tabs no longer hand-tune padding/frames.
-        .frame(width: 500, height: 400)
-    }
-}
-
-private struct GeneralTab: View {
+/// The General settings pane. The Settings window itself is an AppKit
+/// `NSTabViewController(.toolbar)` built in `AppDelegate.openSettings` — that
+/// gives the native System-Preferences toolbar tabs + per-pane window sizing,
+/// while staying an on-demand AppKit window (the SwiftUI `Settings` scene is
+/// avoided: on macOS 14 it auto-opens at launch, and the suppression fix is
+/// macOS 15+). Each pane is a grouped `Form`.
+struct GeneralSettingsView: View {
     // Mirrors SMAppService status into view state; re-read on appear so an
     // out-of-app change (System Settings > Login Items) reflects when reopened.
     @State private var launchAtLogin = LaunchAtLogin.isEnabled

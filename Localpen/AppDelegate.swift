@@ -137,16 +137,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             existing.makeKeyAndOrderFront(nil)
             return
         }
-        let view = SettingsView(
-            persistence: persistence,
-            switchModel: { [weak self] id in self?.switchModel(id: id) }
-        )
-            .environment(registry)
-        let host = NSHostingController(rootView: view)
-        let window = NSWindow(contentViewController: host)
+
+        // Native System-Preferences look: an NSTabViewController with `.toolbar`
+        // style renders icon+label tabs in a unified toolbar and resizes the
+        // window to each pane (no fixed oversized frame). Each pane is a SwiftUI
+        // grouped Form hosted with `.preferredContentSize` so its fitting size
+        // drives the window.
+        let tabVC = NSTabViewController()
+        tabVC.tabStyle = .toolbar
+
+        func tab(_ title: String, _ symbol: String, _ root: some View, height: CGFloat) -> NSTabViewItem {
+            let hc = NSHostingController(rootView: root.frame(width: 460, height: height))
+            hc.sizingOptions = [.preferredContentSize]
+            let item = NSTabViewItem(viewController: hc)
+            item.label = title
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+            return item
+        }
+
+        tabVC.addTabViewItem(tab("General", "gear", GeneralSettingsView(), height: 200))
+        tabVC.addTabViewItem(tab("Model", "cube",
+            ModelPickerView(registry: registry,
+                            switchModel: { [weak self] id in self?.switchModel(id: id) }),
+            height: 240))
+        tabVC.addTabViewItem(tab("History", "clock.arrow.circlepath",
+            HistorySettingsView(persistence: persistence), height: 220))
+
+        let window = NSWindow(contentViewController: tabVC)
         window.title = "Localpen Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 480, height: 320))
         window.isReleasedWhenClosed = false
         window.center()
         settingsWindow = window
