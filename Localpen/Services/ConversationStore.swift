@@ -66,6 +66,43 @@ final class ConversationStore {
         return result
     }
 
+    /// Creates an ask-seeded thread. Unlike `createThreadWithSeed`, the
+    /// caller-provided `question` is the title source AND the seed user
+    /// text, because the primary no-selection ask flow has no selection at
+    /// all. Persists the optional `contextSelection` on the seed Interaction
+    /// row so `loadTurns` → `Action.reconstruct` can rehydrate the
+    /// `withSelection` flag, and `loadSeedAskContext` can rebuild the chip
+    /// state for `Conversation.messages` on resume.
+    func createThreadForAsk(question: String,
+                            contextSelection: String?,
+                            sourceApp: String?,
+                            modelID: String,
+                            assistantText: String) async throws -> (threadID: Int64, seedInteractionID: Int64) {
+        let now = self.now()
+        let title = Self.title(from: question)
+        let result: (threadID: Int64, seedInteractionID: Int64) = try await dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title)
+                VALUES (?, ?, ?, ?, ?)
+                """, arguments: [now, now, sourceApp, question, title])
+            let threadID = db.lastInsertedRowID
+            // `selection` carries the chip-attached selection (or nil) so
+            // the withSelection flag rehydrates on resume.
+            var seed = Interaction(
+                id: nil, timestamp: now, sourceApp: sourceApp,
+                selection: contextSelection,
+                action: "ask",
+                customPrompt: question,
+                modelID: modelID, modelOutput: assistantText,
+                accepted: false, editedOutput: nil, threadID: threadID
+            )
+            try seed.insert(db)
+            return (threadID, seed.id ?? db.lastInsertedRowID)
+        }
+        NotificationCenter.default.post(name: .interactionPersisted, object: nil)
+        return result
+    }
+
     /// Persists one user→assistant exchange as an interactions row; returns its id
     /// (so the assistant turn can be marked accepted on acceptance).
     @discardableResult
@@ -144,11 +181,35 @@ final class ConversationStore {
         }
     }
 
+    /// For an ask thread, returns the seed Interaction's chip context — the
+    /// selection chip's text (if any) plus the source-app label persisted
+    /// on the thread. Returns nil for non-ask threads. The persisted
+    /// `original_selection` holds the question for title purposes
+    /// (createThreadForAsk); the actual chip selection lives on the seed
+    /// Interaction's `selection` column. Used by `Conversation.messages` on
+    /// resume to rebuild the seed user message via `askUserMessage` —
+    /// without this, the question would be wrapped as its own selection,
+    /// corrupting the model boundary.
+    func loadSeedAskContext(threadID: Int64) async throws -> AskContext? {
+        try await dbQueue.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT i.selection AS sel, t.source_app AS app
+                FROM interactions i
+                JOIN threads t ON t.id = i.thread_id
+                WHERE i.thread_id = ? AND i.action = 'ask'
+                ORDER BY i.timestamp ASC, i.id ASC LIMIT 1
+                """, arguments: [threadID]) else { return nil }
+            let sel: String? = row["sel"]
+            let app: String? = row["app"]
+            return AskContext(appLabel: app, selection: sel)
+        }
+    }
+
     /// Expands each stored exchange row into [user turn, assistant turn].
     func loadTurns(threadID: Int64) async throws -> [ConversationTurn] {
         let rows = try await dbQueue.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT id, action, custom_prompt, model_output FROM interactions
+                SELECT id, action, custom_prompt, model_output, selection FROM interactions
                 WHERE thread_id = ? ORDER BY timestamp ASC, id ASC
                 """, arguments: [threadID])
         }
@@ -158,8 +219,11 @@ final class ConversationStore {
             let rawAction: String = row["action"] ?? "custom"
             let steer: String? = row["custom_prompt"]
             let model: String = row["model_output"] ?? ""
+            let selection: String? = row["selection"]
             if idx == 0 {
-                let action = Action.reconstruct(rawValue: rawAction, steer: steer)
+                // Pass selection so .ask rehydrates its withSelection flag.
+                // Other actions ignore the parameter (additive signature).
+                let action = Action.reconstruct(rawValue: rawAction, steer: steer, selection: selection)
                 turns.append(ConversationTurn(role: .user, text: action.pillLabel, action: action))
             } else {
                 turns.append(ConversationTurn(role: .user, text: steer ?? ""))

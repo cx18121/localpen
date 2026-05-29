@@ -14,10 +14,45 @@ struct ConversationView: View {
 
     /// The chip row shows only when the latest turn is an assistant reply that
     /// isn't streaming and didn't error — i.e. there is something to refine.
+    /// Suppressed for ask threads: the chips are writing-transform follow-ups
+    /// (Soften/Tighten/…), nonsensical for a free-form Q&A answer.
     private var showChips: Bool {
         conversation.turnError == nil
             && conversation.streamingText.isEmpty
             && conversation.turns.last?.role == .assistant
+            && !conversation.isAsk
+    }
+
+    /// Which accept affordances each finished assistant bubble shows. Replace
+    /// pastes back into the source app; Copy writes to the clipboard. Ask
+    /// threads always offer Copy (an answer is information you may want to
+    /// keep), so ask-with-selection offers BOTH — you decide whether the
+    /// answer overwrites your selection. See `AcceptAffordances.resolve`.
+    private var affordances: (replace: Bool, copy: Bool) {
+        AcceptAffordances.resolve(pastesBack: controller.pastesBackOnAccept,
+                                  isAsk: conversation.isAsk)
+    }
+
+    /// The pinned context above the thread. Writing threads show the original
+    /// selection being transformed. Ask threads show the *attached* selection
+    /// (the real context) when one survived submit — never the question, which
+    /// already reads as the seed user bubble. Ask-without-selection shows nothing.
+    @ViewBuilder
+    private var contextBlock: some View {
+        if conversation.isAsk {
+            if let sel = conversation.seedAskContext?.selection,
+               !sel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                SelectionBlock(selection: Selection(
+                    text: sel,
+                    sourceBundleID: nil,
+                    sourceAppName: conversation.seedAskContext?.appLabel
+                ))
+                Hairline()
+            }
+        } else {
+            SelectionBlock(selection: conversation.originalSelection)
+            Hairline()
+        }
     }
 
     var body: some View {
@@ -37,16 +72,15 @@ struct ConversationView: View {
             .padding(.horizontal, Spacing.s6)
             .padding(.top, Spacing.s3)
 
-            SelectionBlock(selection: conversation.originalSelection)
-            Hairline()
+            contextBlock
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: Spacing.s4) {
                     ForEach(conversation.turns) { turn in
                         TurnBubble(
                             turn: turn,
-                            acceptAction: controller.pastesBackOnAccept ? .replace : .copy,
-                            onAccept: { controller.acceptTurn(turn) }
+                            onReplace: affordances.replace ? { controller.acceptTurn(turn) } : nil,
+                            onCopy: affordances.copy ? { controller.copyTurn(turn) } : nil
                         )
                     }
 
@@ -55,8 +89,8 @@ struct ConversationView: View {
                         // affordance until the stream finishes.
                         TurnBubble(
                             turn: ConversationTurn(role: .assistant, text: conversation.streamingText),
-                            acceptAction: nil,
-                            onAccept: nil
+                            onReplace: nil,
+                            onCopy: nil
                         )
                     }
 
@@ -80,7 +114,8 @@ struct ConversationView: View {
 
             Hairline()
 
-            ReplyBox(text: $replyText, autoFocus: true) { raw in
+            ReplyBox(text: $replyText, autoFocus: true,
+                     placeholder: conversation.isAsk ? "Ask a follow-up…" : "reply to keep refining…") { raw in
                 controller.sendFollowUp(raw)
                 replyText = ""
             }
@@ -92,37 +127,38 @@ struct ConversationView: View {
     }
 }
 
-// MARK: - Turn bubble
+// MARK: - Accept affordance policy
 
-/// What "accept" actually does for the current session — drives the inline
-/// affordance label so it reads honestly. Mirrors the branching inside
-/// `PanelController.acceptTurn`.
-enum AcceptAction {
-    case replace   // paste back into the original app's selection
-    case copy      // write to clipboard (create-class or resumed-thread)
-
-    var label: String {
-        switch self {
-        case .replace: return "Replace"
-        case .copy:    return "Copy"
-        }
+/// Pure decision for which accept affordances a finished assistant bubble
+/// offers, extracted so the rule is unit-testable without rendering a view.
+///
+/// - `replace`: paste the reply back over the source app's selection. Only
+///   when the live session can paste back (writing transforms, and
+///   ask-with-selection).
+/// - `copy`: write the reply to the clipboard. Whenever paste-back is
+///   unavailable (create-class, resumed threads), AND additionally on every
+///   ask thread — an answer is information you may want to keep rather than
+///   stamp over your selection. So ask-with-selection offers BOTH.
+enum AcceptAffordances {
+    static func resolve(pastesBack: Bool, isAsk: Bool) -> (replace: Bool, copy: Bool) {
+        (replace: pastesBack, copy: !pastesBack || isAsk)
     }
 }
 
+// MARK: - Turn bubble
+
 /// One thread bubble. Two shapes:
 /// - assistant: leading panelBG2 bubble with a small bottom-leading corner; a
-///   tiny `↩ Replace` / `↩ Copy` meta-line underneath calls `onAccept`. The
-///   label reflects what'll actually happen (paste-back vs clipboard).
+///   tiny `↩ Replace` / `↩ Copy` meta-line underneath. Either, both, or neither
+///   may show, per `AcceptAffordances`.
 /// - user (seed action AND free-form follow-ups): trailing bubble. The seed
 ///   turn carries an `action`; we use `action.seedSentence` so it reads as a
 ///   real first message ("Proofread this", "Make this more formal") instead
 ///   of a cryptic "Proofread" tag.
 private struct TurnBubble: View {
     let turn: ConversationTurn
-    let acceptAction: AcceptAction?
-    let onAccept: (() -> Void)?
-
-    @State private var acceptHover = false
+    let onReplace: (() -> Void)?
+    let onCopy: (() -> Void)?
 
     /// Display text for a user turn — the seed action's conversational sentence
     /// when present, otherwise the typed follow-up.
@@ -161,35 +197,28 @@ private struct TurnBubble: View {
                         )
                     )
 
-                if let onAccept, let acceptAction {
-                    acceptAffordance(action: acceptAction, onTap: onAccept)
+                if onReplace != nil || onCopy != nil {
+                    HStack(spacing: Spacing.s4) {
+                        if let onReplace {
+                            AcceptAffordanceButton(
+                                label: "Replace",
+                                help: "Replace the original selection in the source app with this reply",
+                                onTap: onReplace
+                            )
+                        }
+                        if let onCopy {
+                            AcceptAffordanceButton(
+                                label: "Copy",
+                                help: "Copy this reply to the clipboard",
+                                onTap: onCopy
+                            )
+                        }
+                    }
                 }
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// A tiny meta-line that reads as bubble metadata more than a CTA — return
-    /// glyph + verb in faint text, lifts to soft on hover so it's discoverable
-    /// without ever feeling loud.
-    private func acceptAffordance(action: AcceptAction, onTap: @escaping () -> Void) -> some View {
-        Button(action: onTap) {
-            HStack(spacing: 4) {
-                Image(systemName: "return")
-                    .font(.system(size: 9, weight: .medium))
-                Text(action.label)
-                    .font(Typography.footerHint)
-            }
-            .foregroundStyle(acceptHover ? Tokens.textSoft : Tokens.textFaint)
-            .padding(.leading, Spacing.bubbleInsetH - 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { acceptHover = $0 }
-        .help(action == .replace
-              ? "Replace the original selection in the source app with this reply"
-              : "Copy this reply to the clipboard")
     }
 
     private var userBubble: some View {
@@ -210,6 +239,35 @@ private struct TurnBubble: View {
                     )
                 )
         }
+    }
+}
+
+/// A tiny meta-line under an assistant bubble that reads as metadata more than
+/// a CTA — return glyph + verb in faint text, lifting to soft on hover so it's
+/// discoverable without ever feeling loud. Owns its own hover state so two can
+/// sit side by side (Replace + Copy) without sharing a highlight.
+private struct AcceptAffordanceButton: View {
+    let label: String
+    let help: String
+    let onTap: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                Image(systemName: "return")
+                    .font(.system(size: 9, weight: .medium))
+                Text(label)
+                    .font(Typography.footerHint)
+            }
+            .foregroundStyle(hover ? Tokens.textSoft : Tokens.textFaint)
+            .padding(.leading, Spacing.bubbleInsetH - 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(help)
     }
 }
 

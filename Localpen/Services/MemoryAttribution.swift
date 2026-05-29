@@ -47,6 +47,11 @@ enum MemoryAttribution {
                 -- respond: selection is third-party content; the user's steer
                 -- phrasing (custom_prompt) IS legitimate user-voice signal.
                 WHEN action = 'respond' THEN custom_prompt
+                -- ask (Codex HIGH 1 explicit branch): question lives in
+                -- custom_prompt; selection is third-party context; model_output
+                -- is the model's prose. Placed before thread_id so the invariant
+                -- doesn't depend on threadID assignment policy.
+                WHEN action = 'ask' THEN custom_prompt
                 -- conversation: selection is always NULL; user follow-up is in custom_prompt.
                 WHEN thread_id IS NOT NULL THEN custom_prompt
                 -- custom one-shot with empty selection: fall back to the user's
@@ -124,6 +129,13 @@ enum MemoryAttribution {
                     out.append(.init(text: c, source: .replySteer))
                 }
                 // raw model_output is the model's style, NOT user voice — skip.
+            } else if action == "ask" {
+                // Codex HIGH 1 explicit branch — mirrors the SQL clause.
+                // selection (third-party context) and model_output (model prose)
+                // are NEVER user voice for ask. custom_prompt is the question.
+                if let c = customPrompt, c.count >= 20 {
+                    out.append(.init(text: c, source: .conversationTurn))
+                }
             } else if threadID != nil {
                 if let c = customPrompt, c.count >= 20 {
                     out.append(.init(text: c, source: .conversationTurn))

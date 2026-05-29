@@ -29,6 +29,7 @@ enum PanelState: Equatable {
         case conversing
         case history
         case profile
+        case ask                         // free-form ask input
         case result(finalResult: String, isEditing: Bool)
         case error(PanelError)
     }
@@ -59,6 +60,7 @@ enum PanelState: Equatable {
         case .conversing:   return 8
         case .history:      return 9
         case .profile:      return 10
+        case .ask:          return 11
         }
     }
 }

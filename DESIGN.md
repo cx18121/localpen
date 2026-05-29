@@ -156,6 +156,30 @@ Plus the existing primitive **`Hairline()`** for 1px section dividers (lives in 
 
 When a new pattern emerges that doesn't fit (third repetition, or it serves a meaningfully different role), extract a new component and add a row to this table.
 
+**Ask chip rail** — small removable pills shown above `AskInput` representing
+auto-attached context (app + window title, selection). Reuses `Tokens.rowHighlight`
+fill and `Spacing.innerRadius`. No new design system pieces; lives in
+`AskInput.swift` as a private `AskChip` view.
+
+**Ask in the conversation surface** — the conversation/refinement surface is
+shared with writing transforms, so ask-specific affordances are gated on
+`Conversation.isAsk` (derived from the seed action, reliable on resume):
+
+- *No refine chips.* "Soften / Tighten / More formal / More casual" are
+  writing follow-ups; a Q&A answer has nothing to soften. Suppressed for ask.
+- *Context block shows the attached selection, not the question.* For
+  ask-with-selection the pinned block shows the text you attached (the real
+  context); the question already reads as the seed user bubble. Ask-without-selection
+  shows no block — there is no source.
+- *Accept offers both Replace and Copy.* An answer is information you may want
+  to keep, not a stamp over your selection. Ask-with-selection therefore offers
+  BOTH (`AcceptAffordances.resolve`): Replace pastes back over the selection,
+  Copy writes to the clipboard. Ask-without-selection and resumed asks are
+  Copy-only (no live source field). Writing transforms keep their single
+  Replace affordance.
+- *Reply placeholder* reads "Ask a follow-up…" rather than "reply to keep
+  refining…".
+
 ---
 
 ## 3. Panel anatomy & sizing

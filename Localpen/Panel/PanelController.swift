@@ -72,7 +72,7 @@ final class PanelController {
     /// parameter: the presenter's `DynamicNotch` eagerly evaluates its content
     /// closure (which builds `PanelView(controller: self)`) during the presenter's
     /// own init, so the controller must already exist when the presenter is created.
-    @ObservationIgnored private var notch: NotchPresenter!
+    @ObservationIgnored private var notch: NotchPresenter?
     @ObservationIgnored private let textIO: TextIO
     @ObservationIgnored private let streaming: StreamingClient
     @ObservationIgnored private let persistence: Persistence?
@@ -80,7 +80,22 @@ final class PanelController {
     @ObservationIgnored private let conversationStore: ConversationStore?
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
     @ObservationIgnored private let memory: MemoryService?
+    @ObservationIgnored private let contextProbe: ContextProbe
+    /// Injection seam for the hotkey path's selection capture. Defaults to
+    /// the real TextIO; tests override to count calls + simulate timing.
+    /// The single-capture invariant is enforced through this closure being
+    /// invoked exactly once per `captureAndShow` call.
+    @ObservationIgnored private let captureSelection: @Sendable () async -> TextIO.Capture
+    /// Injection seam for the ask streaming path. Defaults to the real
+    /// StreamingClient; tests override to drive cancellation regressions.
+    /// Only `startAskStream` (Task 8) uses this seam; other actions still
+    /// call `streaming.complete` directly so the blast radius stays narrow.
+    typealias AskStreamProvider = @Sendable (String, String, ModelDescriptor.Sampling?) -> AsyncThrowingStream<String, Error>
+    @ObservationIgnored private let askStreamProvider: AskStreamProvider
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
+
+    /// Context attached to the current free-form ask session.
+    var askContext: AskContext = .empty
 
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
     /// everything scoped to one summon (capture, tasks, pending result) so a
@@ -91,7 +106,11 @@ final class PanelController {
     @ObservationIgnored private var sessionCounter: UInt64 = 0
     @ObservationIgnored private var mouseInputMonitor: Any?
 
-    static let menuItems: [Action] = Action.fixed + [.respond(""), .custom("")]
+    static let menuItems: [Action] = Action.fixed + [
+        .respond(""),
+        .ask(question: "", withSelection: false),   // placeholder; selection resolved when picked
+        .custom("")
+    ]
 
     /// Whether accepting an assistant reply right now would paste it back into
     /// the source app (true) versus copy it to the clipboard (false). Lets the
@@ -110,6 +129,9 @@ final class PanelController {
          registry: ModelRegistry,
          llamaServer: LlamaServerController?,
          memory: MemoryService? = nil,
+         contextProbe: ContextProbe = ContextProbe(),
+         captureSelection: (@Sendable () async -> TextIO.Capture)? = nil,
+         askStreamProvider: AskStreamProvider? = nil,
          openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
@@ -118,6 +140,13 @@ final class PanelController {
         self.registry = registry
         self.llamaServer = llamaServer
         self.memory = memory
+        self.contextProbe = contextProbe
+        self.captureSelection = captureSelection ?? { [textIO] in
+            await textIO.captureSelection()
+        }
+        self.askStreamProvider = askStreamProvider ?? { [streaming] sys, user, sampling in
+            streaming.complete(systemPrompt: sys, userText: user, sampling: sampling)
+        }
         self.openSettings = openSettings
         installMouseTracking()
     }
@@ -172,7 +201,7 @@ final class PanelController {
     /// replacement for the old `hidePanelAnimated()` — the surface is never torn
     /// down, just collapsed, so hover/click invocation keeps working.
     private func goIdle() {
-        Task { @MainActor in await notch.idle() }
+        Task { @MainActor in await notch?.idle() }
     }
 
     /// The finished result text if the panel is currently showing one, else nil.
@@ -273,6 +302,11 @@ final class PanelController {
                 return true
             }
             return false
+
+        case .ask:
+            // Keyboard handling for .ask is provided by the AskInput view's
+            // GrowingTextEditor, not the panel keyboard router.
+            return false
         }
     }
 
@@ -317,6 +351,18 @@ final class PanelController {
     func pick(_ action: Action) {
         if case .respond = action, !respondEnabled { return }
         switch action {
+        case .ask:
+            // Menu-open only. Submission goes through askSubmitted →
+            // startAskStream directly (Codex plan review HIGH 2: routing
+            // submit back through pick(.ask) would loop into menu-open
+            // and never reach the stream path).
+            if case .visible(let ctx, _) = state, let sel = ctx.selection {
+                askContext = AskContext(appLabel: sel.sourceAppName, selection: sel.text)
+            } else {
+                askContext = .empty
+            }
+            state = .visible(PanelContext(), .ask)
+            return
         case .custom, .respond:
             // Compose phase always carries its action in the context so submit,
             // the toolbar, accept, and persistence can all read it. Without this
@@ -378,7 +424,7 @@ final class PanelController {
             return
         }
         let capture = session.capture
-        notch.resignKey()   // let the source app receive the synthetic ⌘V
+        notch?.resignKey()   // let the source app receive the synthetic ⌘V
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = await self.textIO.pasteBack(result: text, capture: capture)
@@ -471,7 +517,7 @@ final class PanelController {
 
     // MARK: - Capture + show
 
-    private func captureAndShow() async {
+    fileprivate func captureAndShow() async {
         bumpConvEpoch()   // a new summon invalidates any lingering conversation transition
         isAccepting = false
         sessionCounter += 1
@@ -480,31 +526,37 @@ final class PanelController {
         focusedActionIndex = 1
         lastInputSource = .keyboard
 
-        // Capture FIRST, then open already populated — so the captured text is on
-        // screen the instant the surface appears, with no empty→text flash. The
-        // notch stays in its resting (compact) state during the brief capture, then
-        // expands with content. Capturing before presenting also keeps the source app
-        // frontmost so the synthetic ⌘C lands there, and lets us take key focus
-        // immediately on expand.
-        let capture = await textIO.captureSelection()
+        // Capture exactly ONCE through the injection seam. Single-capture
+        // invariant: this same Capture is later handed to ContextProbe
+        // via reusingCapture so the probe does NOT re-call TextIO.
+        let capture = await captureSelection()
         guard sessionCounter == myID else { return }   // superseded during capture
 
         let session = PanelSession(id: myID, capture: capture, hotkeyTime: hotkeyTime)
         current = session
         inputText = capture.selection ?? ""
 
-        if let text = capture.selection, !text.isEmpty {
+        let route = HotkeyRouting.route(for: capture)
+        switch route {
+        case .menu:
+            let text = capture.selection ?? ""
             let sel = Selection(
                 text: text,
                 sourceBundleID: capture.sourceBundleID,
                 sourceAppName: capture.sourceAppName
             )
             state = .visible(PanelContext(selection: sel), .captured)
-        } else {
-            state = .visible(PanelContext(), .empty)
+        case .ask:
+            let snap = await contextProbe.capture(reusingCapture: capture)
+            // Post-probe supersession guard: a second hotkey landing during
+            // the AX probe could bump sessionCounter and current. The stale
+            // task must not stamp old state over new.
+            guard sessionCounter == myID, current === session else { return }
+            askContext = AskContext.from(snap)
+            state = .visible(PanelContext(), .ask)
         }
-        await notch.expand()
-        notch.focus()
+        await notch?.expand()
+        notch?.focus()
     }
 
     /// Hover-dwell / click invocation: open the assistant with NO capture. Routed
@@ -532,8 +584,8 @@ final class PanelController {
         inputText = ""
         state = .visible(PanelContext(), .empty)
         Task { @MainActor in
-            await notch.expand()
-            notch.focus()
+            await notch?.expand()
+            notch?.focus()
         }
     }
 
@@ -634,6 +686,169 @@ final class PanelController {
             if Task.isCancelled { return }
             state = .visible(PanelContext(selection: selection, action: action), .error(PanelError(streamingError: error)))
         }
+    }
+
+    // MARK: - Ask flow
+
+    func removeAskAppChip() {
+        askContext.appLabel = nil
+    }
+
+    func removeAskSelectionChip() {
+        askContext.selection = nil
+    }
+
+    /// Entry point from AskInput's submit. Builds the Action.ask with the
+    /// resolved withSelection flag from the surviving chip state and kicks
+    /// off the dedicated stream path. Does NOT call `pick(_:)` — Task 9's
+    /// pick(.ask) is a menu-open branch; routing submits through it would
+    /// loop back to the ask screen.
+    func askSubmitted(_ question: String) {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let withSel = (askContext.selection?.isEmpty == false)
+        let action = Action.ask(question: trimmed, withSelection: withSel)
+        let context = askContext   // snapshot at submit time
+        startAskStream(action: action, context: context)
+    }
+
+    /// Streams an ask response and persists the thread via
+    /// `ConversationStore.createThreadForAsk`. Mirrors the existing
+    /// `runStream` watchdog + session-ownership pattern exactly.
+    private func startAskStream(action: Action, context: AskContext) {
+        guard case .ask(let question, _) = action else { return }
+        guard let session = current else { return }
+
+        let epoch = bumpConvEpoch()
+        session.cancelStreaming()
+
+        // Stream the answer straight into the conversation surface so there's no
+        // .generating → .conversing layout jump: the user's question shows as the
+        // seed bubble and the reply streams into a live assistant bubble in place.
+        // threadID 0 = not yet persisted; we persist on completion, so a mid-stream
+        // dismiss fails the epoch guard before createThreadForAsk and leaves nothing
+        // in Recent (see test_dismissDuringAskStream_doesNotPersistThread).
+        let liveConvo = Conversation(
+            threadID: 0,
+            originalSelection: Selection(text: question,
+                                         sourceBundleID: session.capture.sourceBundleID,
+                                         sourceAppName: session.capture.sourceAppName),
+            operationClass: action.operationClass,
+            turns: [ConversationTurn(role: .user, text: action.pillLabel, action: action)],
+            seedAskContext: context
+        )
+        liveConvo.isStreaming = true
+        conversation = liveConvo
+        state = .visible(PanelContext(), .conversing)
+
+        let baseSystemPrompt = registry.systemPrompt(for: action)
+        let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
+        let userMessage = ActionPrompts.askUserMessage(question: question, context: context)
+
+        session.streamingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            self.armWatchdog(action: action, selection: nil,
+                             timeout: PanelController.firstTokenTimeout)
+            defer { self.current?.watchdogTask?.cancel() }
+
+            var assembled = ""
+            do {
+                let sampling = self.registry.activeModel?.sampling
+                for try await token in self.askStreamProvider(systemPrompt,
+                                                              userMessage,
+                                                              sampling) {
+                    if Task.isCancelled { return }
+                    guard self.convEpoch == epoch, self.current === session else { return }
+                    assembled += token
+                    liveConvo.streamingText = assembled
+                    self.armWatchdog(action: action, selection: nil,
+                                     timeout: PanelController.interTokenTimeout)
+                }
+                if Task.isCancelled { return }
+            } catch {
+                if Task.isCancelled { return }
+                guard self.convEpoch == epoch, self.current === session else { return }
+                self.state = .visible(PanelContext(action: action),
+                                      .error(PanelError(streamingError: error)))
+                return
+            }
+
+            guard self.convEpoch == epoch, self.current === session else { return }
+
+            guard let store = self.conversationStore else {
+                // No persistence available: finalize the answer in the conversation
+                // surface anyway (no Recent entry, but the answer + accept show).
+                liveConvo.turns.append(ConversationTurn(role: .assistant, text: assembled))
+                liveConvo.streamingText = ""
+                liveConvo.isStreaming = false
+                return
+            }
+            do {
+                let modelID = self.registry.activeModelID
+                let (threadID, _) = try await store.createThreadForAsk(
+                    question: question,
+                    contextSelection: context.selection,
+                    sourceApp: context.appLabel,
+                    modelID: modelID,
+                    assistantText: assembled
+                )
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                // Load the persisted thread and transition to .conversing.
+                let sel = ((try? await store.loadThread(id: threadID)) ?? nil)
+                    ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                let turns = (try? await store.loadTurns(threadID: threadID)) ?? []
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                // Reload must yield a usable thread (seed + assistant). If it
+                // didn't — load failed or returned no rows — don't install a
+                // blank conversation that drops the streamed answer; finalize the
+                // in-memory liveConvo (which holds the completed answer) instead.
+                guard turns.contains(where: { $0.role == .assistant }) else {
+                    liveConvo.turns.append(ConversationTurn(role: .assistant, text: assembled))
+                    liveConvo.streamingText = ""
+                    liveConvo.isStreaming = false
+                    return
+                }
+                let askCtx = try? await store.loadSeedAskContext(threadID: threadID)
+                guard self.convEpoch == epoch, self.current === session else {
+                    try? await store.deleteThread(id: threadID)
+                    return
+                }
+                let seedAction = turns.first?.action ?? Action.ask(question: question, withSelection: withSel(context: context))
+                let convo = Conversation(
+                    threadID: threadID,
+                    originalSelection: sel,
+                    operationClass: seedAction.operationClass,
+                    turns: turns,
+                    seedAskContext: askCtx
+                )
+                self.conversation = convo
+                self.state = .visible(PanelContext(), .conversing)
+            } catch {
+                guard self.convEpoch == epoch, self.current === session else { return }
+                // Persisted, but a reload step threw: finalize in the conversation
+                // surface rather than jumping to a one-shot result view.
+                if liveConvo.turns.last?.role != .assistant {
+                    liveConvo.turns.append(ConversationTurn(role: .assistant, text: assembled))
+                }
+                liveConvo.streamingText = ""
+                liveConvo.isStreaming = false
+            }
+        }
+    }
+
+    private func withSel(context: AskContext) -> Bool {
+        context.selection?.isEmpty == false
     }
 
     // MARK: - Persistence
@@ -826,7 +1041,7 @@ final class PanelController {
             return
         }
         let capture = session.capture
-        notch.resignKey()   // let the source app receive the synthetic ⌘V
+        notch?.resignKey()   // let the source app receive the synthetic ⌘V
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = await self.textIO.pasteBack(result: turn.text, capture: capture)
@@ -835,6 +1050,24 @@ final class PanelController {
             self.state = .hidden; self.conversation = nil
             self.current = nil; self.goIdle()
         }
+    }
+
+    /// Copy-only accept: write the reply to the clipboard and dismiss, never
+    /// pasting back over the source selection. Distinct from `acceptTurn` so an
+    /// ask-with-selection bubble can offer BOTH — Replace (acceptTurn) when you
+    /// want the answer to overwrite the selection, Copy (this) when you just
+    /// want to keep it. Mirrors acceptTurn's single-flight + terminal teardown.
+    func copyTurn(_ turn: ConversationTurn) {
+        guard !isAccepting,
+              turn.role == .assistant, conversation != nil, current != nil else { return }
+        isAccepting = true
+        bumpConvEpoch()
+        current?.cancelStreaming()
+        if let rowID = turn.interactionID {
+            Task { try? await conversationStore?.markAccepted(interactionID: rowID) }
+        }
+        writeToClipboard(turn.text)
+        state = .hidden; conversation = nil; current = nil; goIdle()
     }
 
     func openHistory() {
@@ -861,6 +1094,13 @@ final class PanelController {
             guard let self else { return }
             let turns = (try? await store.loadTurns(threadID: id)) ?? []
             let sel = ((try? await store.loadThread(id: id)) ?? nil) ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+            // For ask threads, the attached selection lives on the seed interaction,
+            // not in `originalSelection` (which holds the question). Without this,
+            // `Conversation.messages` rebuilds the seed prompt against `.empty` and
+            // the context block has nothing to show — a resumed ask-with-selection
+            // follow-up would lose the source text it's meant to reason over.
+            // Returns nil for non-ask threads, so non-ask resume is unaffected.
+            let askCtx = try? await store.loadSeedAskContext(threadID: id)
             // Dismiss, Back, or a second resume during the loads above must not be
             // overridden by this late completion installing a stale session/thread.
             guard self.convEpoch == epoch else { return }
@@ -875,7 +1115,8 @@ final class PanelController {
                                        hotkeyTime: ContinuousClock.now, canPasteBack: false)
             self.current = session
             let convo = Conversation(threadID: id, originalSelection: sel,
-                                     operationClass: seed.operationClass, turns: turns)
+                                     operationClass: seed.operationClass, turns: turns,
+                                     seedAskContext: askCtx)
             self.conversation = convo
             self.state = .visible(PanelContext(selection: sel, action: seed), .conversing)
         }
@@ -961,3 +1202,15 @@ final class PanelController {
         return index
     }
 }
+
+#if DEBUG
+extension PanelController {
+    /// Exposed for unit tests so the hotkey path can be driven without the
+    /// real notch presenter. Invokes the same private `captureAndShow` flow
+    /// the hotkey would.
+    @MainActor
+    func captureAndShowForTesting() async {
+        await captureAndShow()
+    }
+}
+#endif

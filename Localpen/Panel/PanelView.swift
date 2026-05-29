@@ -70,6 +70,9 @@ struct PanelView: View {
                 case .profile:
                     ProfileView(controller: controller)
 
+                case .ask:
+                    AskInput(controller: controller)
+
                 case .error(let err):
                     ErrorBanner(error: err, onAction: { controller.retryFromError() })
                 }

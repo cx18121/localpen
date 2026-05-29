@@ -187,19 +187,19 @@ class MemoryService {   // not `final`: MemoryRegenerationTests overrides schedu
     // MARK: - Gating matrix
 
     /// Voice card injection — see spec §"Injection rules (action-aware)".
-    /// Excluded: proofread (no drift), shorter (mechanical). respond and custom
+    /// Excluded: proofread (no drift), shorter (mechanical). respond, custom, and ask
     /// get voice because the user IS the composer being mimicked.
     static func injectsVoice(_ action: Action) -> Bool {
         switch action {
         case .proofread, .shorter: return false
-        case .polish, .moreFormal, .moreCasual, .respond, .custom: return true
+        case .polish, .moreFormal, .moreCasual, .respond, .custom, .ask: return true
         }
     }
 
     /// Facts only where the model composes new content directed at people/projects.
     static func injectsFacts(_ action: Action) -> Bool {
         switch action {
-        case .respond, .custom: return true
+        case .respond, .custom, .ask: return true
         default: return false
         }
     }

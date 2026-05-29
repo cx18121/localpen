@@ -8,6 +8,13 @@ enum Action: Hashable, Identifiable {
     case shorter
     case respond(String)
     case custom(String)
+    /// Free-form ask. `withSelection` is decided at submit time from whether
+    /// the AskContext selection chip survived; `operationClass` derives from
+    /// it so the existing accept-path predicate (`operationClass == .revise`)
+    /// works unchanged. The flag is NOT serialized in `rawValue`; it's
+    /// rehydrated on resume by reading the persisted Interaction row's
+    /// `selection` column (passed to `reconstruct`).
+    case ask(question: String, withSelection: Bool)
 
     var id: String { rawValue }
 
@@ -20,11 +27,15 @@ enum Action: Hashable, Identifiable {
         case .shorter:     return "shorter"
         case .respond:     return "respond"
         case .custom:      return "custom"
+        case .ask:         return "ask"
         }
     }
 
-    /// Inverse of `rawValue` — keep the two in sync when adding a case.
-    static func reconstruct(rawValue: String, steer: String?) -> Action {
+    /// Inverse of `rawValue`. `selection` is read from the persisted
+    /// Interaction row and only consulted for `.ask` (to rehydrate the
+    /// `withSelection` flag). Existing cases ignore it, so the signature
+    /// extension is additive.
+    static func reconstruct(rawValue: String, steer: String?, selection: String? = nil) -> Action {
         switch rawValue {
         case "proofread":   return .proofread
         case "polish":      return .polish
@@ -32,6 +43,9 @@ enum Action: Hashable, Identifiable {
         case "more_casual": return .moreCasual
         case "shorter":     return .shorter
         case "respond":     return .respond(steer ?? "")
+        case "ask":
+            return .ask(question: steer ?? "",
+                        withSelection: !(selection ?? "").isEmpty)
         default:            return .custom(steer ?? "")
         }
     }
@@ -45,6 +59,7 @@ enum Action: Hashable, Identifiable {
         case .shorter:     return "Shorter"
         case .respond:     return "Respond"
         case .custom:      return "Custom…"
+        case .ask:         return "Ask"
         }
     }
 
@@ -55,16 +70,17 @@ enum Action: Hashable, Identifiable {
     /// The seed-turn rendering inside a conversation thread: a plain-English
     /// sentence the user "said" to start the thread, so the bubble reads like
     /// a real message instead of a cryptic tag ("Proofread"). For `.custom` /
-    /// `.respond` we use the user's actual steer text when present.
+    /// `.respond` / `.ask` we use the user's actual steer text when present.
     var seedSentence: String {
         switch self {
-        case .proofread:           return "Proofread this"
-        case .polish:              return "Polish this"
-        case .moreFormal:          return "Make this more formal"
-        case .moreCasual:          return "Make this more casual"
-        case .shorter:             return "Make this shorter"
-        case .respond(let steer):  return steer.isEmpty ? "Respond to this" : steer
-        case .custom(let instr):   return instr.isEmpty ? "Custom instruction" : instr
+        case .proofread:                  return "Proofread this"
+        case .polish:                     return "Polish this"
+        case .moreFormal:                 return "Make this more formal"
+        case .moreCasual:                 return "Make this more casual"
+        case .shorter:                    return "Make this shorter"
+        case .respond(let steer):         return steer.isEmpty ? "Respond to this" : steer
+        case .custom(let instr):          return instr.isEmpty ? "Custom instruction" : instr
+        case .ask(let q, _):              return q.isEmpty ? "Ask" : q
         }
     }
 
@@ -79,34 +95,38 @@ enum Action: Hashable, Identifiable {
     }
 
     /// Which class this action belongs to. Drives prompt framing AND accept
-    /// behavior, so the two can't drift apart. Custom defaults to `.revise`
-    /// (paste-back); the user can still copy a custom result instead.
+    /// behavior, so the two can't drift apart. .ask: revise iff a selection
+    /// chip survived submit; otherwise create.
     var operationClass: OperationClass {
         switch self {
-        case .respond: return .create
-        default:       return .revise
+        case .respond:                    return .create
+        case .ask(_, let withSelection):  return withSelection ? .revise : .create
+        default:                          return .revise
         }
     }
 
     /// The free-text the user supplied for the actions that carry one
-    /// (the Custom instruction, the Respond steer). Persisted in
-    /// `Interaction.customPrompt`.
+    /// (the Custom instruction, the Respond steer, the Ask question).
+    /// Persisted in `Interaction.customPrompt`.
     var steerText: String? {
         switch self {
-        case .custom(let t):  return t.isEmpty ? nil : t
-        case .respond(let t): return t.isEmpty ? nil : t
-        default:              return nil
+        case .custom(let t):       return t.isEmpty ? nil : t
+        case .respond(let t):      return t.isEmpty ? nil : t
+        case .ask(let q, _):       return q.isEmpty ? nil : q
+        default:                   return nil
         }
     }
 
     /// Resolves the compose field's entered text into the action to generate,
     /// or nil when the submission should be ignored. Respond accepts empty
-    /// (empty steer = a sensible default reply); Custom requires non-empty.
+    /// (empty steer = a sensible default reply); Custom and Ask require non-empty.
     static func fromCompose(base: Action, text: String) -> Action? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         switch base {
         case .custom:  return trimmed.isEmpty ? nil : .custom(trimmed)
         case .respond: return .respond(trimmed)
+        case .ask(_, let withSelection):
+            return trimmed.isEmpty ? nil : .ask(question: trimmed, withSelection: withSelection)
         default:       return nil
         }
     }
