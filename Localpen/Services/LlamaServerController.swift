@@ -102,9 +102,14 @@ final class LlamaServerController {
     /// touched; excluding our own pid means a restart never kills its successor.
     private func reapOrphanedServers(binaryPath: String) async {
         let ownPID = process?.processIdentifier
-        func orphans() -> [pid_t] { pgrepPIDs(matching: binaryPath).filter { $0 != ownPID } }
+        // pgrep is a synchronous subprocess; run it off the main actor so launch /
+        // error-retry restart don't hitch the UI. (start() runs on @MainActor.)
+        func orphans() async -> [pid_t] {
+            await Task.detached { Self.pgrepPIDs(matching: binaryPath) }.value
+                .filter { $0 != ownPID }
+        }
 
-        let initial = orphans()
+        let initial = await orphans()
         guard !initial.isEmpty else { return }
         log.info("reaping \(initial.count) orphaned llama-server(s) from a prior run")
         for pid in initial { kill(pid, SIGTERM) }
@@ -112,19 +117,20 @@ final class LlamaServerController {
         // Wait for them to exit (and release the port) before returning.
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
-            if orphans().isEmpty { return }
+            if await orphans().isEmpty { return }
             try? await Task.sleep(for: .milliseconds(100))
         }
         // Still alive after SIGTERM — escalate so our bind doesn't fail.
-        for pid in orphans() {
+        for pid in await orphans() {
             log.error("orphaned llama-server pid=\(pid) ignored SIGTERM; sending SIGKILL")
             kill(pid, SIGKILL)
         }
     }
 
     /// PIDs whose full command line matches `pattern`, via `/usr/bin/pgrep -f`.
-    /// Returns [] on any failure — reaping is best-effort.
-    private func pgrepPIDs(matching pattern: String) -> [pid_t] {
+    /// Returns [] on any failure — reaping is best-effort. `nonisolated static` so
+    /// it can run off the main actor (it touches no instance state).
+    private nonisolated static func pgrepPIDs(matching pattern: String) -> [pid_t] {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         proc.arguments = ["-f", pattern]

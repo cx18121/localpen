@@ -110,6 +110,12 @@ final class PanelController {
     /// Monotonic session-ID source. Also detects supersession during the
     /// pre-capture await, before a PanelSession object exists yet.
     @ObservationIgnored private var sessionCounter: UInt64 = 0
+    /// Set synchronously when a hotkey capture is launched and cleared when it
+    /// returns. captureAndShow only sets `state = .visible` AFTER the ~90ms ⌘C
+    /// settle, so a second hotkey within that window would otherwise pass the
+    /// `.isVisible` check and fire a second synthetic ⌘C — corrupting the saved
+    /// clipboard snapshot. This collapses a rapid double-tap to one capture.
+    @ObservationIgnored private var captureInFlight = false
     @ObservationIgnored private var mouseInputMonitor: Any?
 
     static let menuItems: [Action] = Action.fixed + [
@@ -174,7 +180,9 @@ final class PanelController {
         // name promises a toggle, and reaching for Esc/click-away to undo your
         // own hotkey is a daily-use papercut.
         if state.isVisible { dismiss(); return }
-        Task { await captureAndShow() }
+        if captureInFlight { return }   // a capture is mid-settle; ignore the second press
+        captureInFlight = true
+        Task { await captureAndShow(); captureInFlight = false }
     }
 
     func dismiss() {
@@ -401,9 +409,15 @@ final class PanelController {
     }
 
     func acceptResult() {
-        guard case .visible(let ctx, .result(let text, _)) = state,
+        // Single-flight, mirroring acceptTurn/copyTurn: a fast double Return (or
+        // Enter key-repeat) during the ~850ms paste-back window must not launch a
+        // second synthetic ⌘V that re-clobbers the clipboard. isAccepting resets on
+        // every summon/dismiss path, and the .pasteBackFallback branch below.
+        guard !isAccepting,
+              case .visible(let ctx, .result(let text, _)) = state,
               let action = ctx.action,
               let session = current else { return }
+        isAccepting = true
         bumpConvEpoch()   // terminal: a pending promote must not fire after accept
         let sel = ctx.selection
 
@@ -502,6 +516,7 @@ final class PanelController {
         case .pasteBackFallback:
             current?.cancelStreaming()
             flushPendingAsRejected()
+            isAccepting = false   // acceptResult/acceptTurn set this; clear it on this terminal path
             state = .hidden
             current = nil
             goIdle()
@@ -663,10 +678,15 @@ final class PanelController {
 
     private func armWatchdog(action: Action, selection: Selection?, timeout: Duration) {
         guard let session = current else { return }
+        let armedEpoch = convEpoch
         session.watchdogTask?.cancel()
         session.watchdogTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: timeout)
-            guard !Task.isCancelled, let self else { return }
+            // Only fire if we still own the exact session+intent we armed for — a
+            // navigation, dismiss, or new turn during the wait must not let a stale
+            // watchdog cancel a live stream or stamp .error over a fresh surface.
+            guard !Task.isCancelled, let self,
+                  self.current === session, self.convEpoch == armedEpoch else { return }
             self.current?.streamingTask?.cancel()
             self.state = .visible(PanelContext(selection: selection, action: action), .error(.timeout))
         }
@@ -795,6 +815,10 @@ final class PanelController {
             }
 
             guard self.convEpoch == epoch, self.current === session else { return }
+            // No more tokens are coming — disarm the inter-token watchdog before the
+            // DB awaits below, so a slow disk can't let it fire and stamp
+            // .error(.timeout) over a completed answer mid-persist.
+            self.current?.watchdogTask?.cancel()
 
             guard let store = self.conversationStore else {
                 // No persistence available: finalize the answer in the conversation

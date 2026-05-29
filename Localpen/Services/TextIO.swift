@@ -119,6 +119,11 @@ final class TextIO {
     }
 
     private func restorePasteboard(_ items: [[NSPasteboard.PasteboardType: Data]]) {
+        // Nothing was captured (hover/click open and resumed-thread teardown use
+        // an empty capture): the user's real OS clipboard was never touched, so
+        // leave it alone. Without this guard, clearContents() below wipes whatever
+        // the user had copied elsewhere and writes nothing back — silent data loss.
+        guard !items.isEmpty else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let restored: [NSPasteboardItem] = items.map { dataMap in
