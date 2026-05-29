@@ -97,6 +97,12 @@ final class PanelController {
     /// Context attached to the current free-form ask session.
     var askContext: AskContext = .empty
 
+    /// The AskContext snapshot of the most recent `startAskStream`, kept so a
+    /// retry from the error banner can re-run the ask through `startAskStream`
+    /// (preserving the context block + prompt shape) instead of `startGeneration`,
+    /// which would rebuild the prompt via `userMessage(for:.ask)` and lose it.
+    @ObservationIgnored private var pendingAskContext: AskContext = .empty
+
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
     /// everything scoped to one summon (capture, tasks, pending result) so a
     /// "did the world move on?" check is `current === session`, not a token.
@@ -482,14 +488,14 @@ final class PanelController {
             Task { @MainActor [weak self] in
                 await self?.restartServer()
                 if let action = ctx.action {
-                    self?.startGeneration(action: action, selection: ctx.selection)
+                    self?.retryGeneration(action: action, selection: ctx.selection)
                 } else {
                     self?.backToMenu()
                 }
             }
         case .timeout, .network:
             if let action = ctx.action {
-                startGeneration(action: action, selection: ctx.selection)
+                retryGeneration(action: action, selection: ctx.selection)
             } else {
                 backToMenu()
             }
@@ -625,6 +631,19 @@ final class PanelController {
 
     // MARK: - Streaming
 
+    /// Re-dispatch a retry to the right streaming path. Ask must go back through
+    /// `startAskStream` (rebuilds via `askUserMessage` + streams into the
+    /// conversation surface); every other action uses `startGeneration`. Without
+    /// this, a retried ask would lose its context block and flash the `.generating`
+    /// view, since `startGeneration` builds the prompt with `userMessage(for:.ask)`.
+    private func retryGeneration(action: Action, selection: Selection?) {
+        if case .ask = action {
+            startAskStream(action: action, context: pendingAskContext)
+        } else {
+            startGeneration(action: action, selection: selection)
+        }
+    }
+
     private func startGeneration(action: Action, selection explicitSel: Selection? = nil) {
         guard let session = current else { return }
         let sel = explicitSel ?? currentSelection()
@@ -721,6 +740,7 @@ final class PanelController {
 
         let epoch = bumpConvEpoch()
         session.cancelStreaming()
+        pendingAskContext = context   // so a retry-from-error can re-run the ask, not startGeneration
 
         // Stream the answer straight into the conversation surface so there's no
         // .generating → .conversing layout jump: the user's question shows as the
