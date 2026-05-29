@@ -1,8 +1,0 @@
-# Bundle IDs where synthetic ⌘V is known to silently fail per ADR 0003 / SWIFTUI-SPEC §9.3.
-# When a source app matches an entry here, Localpen skips the paste-back attempt and
-# surfaces the "Result copied. Press ⌘V in your app." fallback message.
-# Populated empirically during M7 (app coverage validation).
-
-bundle_ids = [
-    # placeholder — fill during M7 manual testing
-]

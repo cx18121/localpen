@@ -46,9 +46,9 @@ final class TextIO {
 
         /// A capture with no selection, no source app, and no saved clipboard —
         /// used when synthesizing a session that didn't originate from a hotkey
-        /// capture (e.g. resuming a stored thread). `pasteBack` against this hits
-        /// the deny-list/skip path and falls back to leaving the result on the
-        /// clipboard, which is correct: there is no original field to paste into.
+        /// capture (e.g. resuming a stored thread). Such sessions are never
+        /// pasteable (`canPasteBack` is false), so the accepted result is copied
+        /// to the clipboard rather than pasted — there is no original field here.
         static let empty = Capture(
             selection: nil, sourceBundleID: nil, sourceAppName: nil,
             savedFrontmostApp: nil, savedItems: [], didCapture: false
@@ -96,19 +96,13 @@ final class TextIO {
 
     enum PasteBackResult: Equatable {
         case pasted
-        case skipped  // bundle in deny-list (or AX revoked); result remains on pasteboard for manual ⌘V
+        case skipped  // AX revoked before paste; result remains on pasteboard for manual ⌘V
     }
 
     func pasteBack(result: String, capture: Capture) async -> PasteBackResult {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(result, forType: .string)
-
-        if PasteBackDenyList.shouldSkip(capture.sourceBundleID) {
-            log.info("pasteBack skipped (deny-list) for \(capture.sourceBundleID ?? "nil", privacy: .public)")
-            // Do NOT restore the original pasteboard — user needs the result on the clipboard.
-            return .skipped
-        }
 
         // Accessibility can be revoked AFTER capture but BEFORE the user accepts
         // (System Settings → Privacy). Without trust the synthetic ⌘V no-ops, so
