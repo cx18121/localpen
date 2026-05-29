@@ -63,21 +63,8 @@ struct HistorySettingsView: View {
 
     private func prepareExport() async {
         guard let persistence else { return }
-        let json = (try? await persistence.dbQueue.read { db -> String in
-            // Light-touch JSON export of all rows.
-            let rows = try Row.fetchAll(db, sql: "SELECT * FROM interactions ORDER BY id")
-            let dicts: [[String: Any]] = rows.map { row in
-                var d: [String: Any] = [:]
-                for col in row.columnNames {
-                    if let v = row[col] {
-                        d[col] = v
-                    }
-                }
-                return d
-            }
-            let data = try JSONSerialization.data(withJSONObject: dicts, options: [.prettyPrinted, .sortedKeys])
-            return String(data: data, encoding: .utf8) ?? "[]"
-        }) ?? "[]"
+        // Tombstone-filtered so Forgotten history never leaks into the export.
+        let json = await persistence.exportInteractionsJSON()
         exportDocument = HistoryDocument(text: json)
         showingExporter = true
     }

@@ -57,6 +57,29 @@ final class Persistence {
         }) ?? 0
     }
 
+    /// JSON export of interactions that survive the Forget tombstone. Rows older
+    /// than `style_profile.forgotten_before` are excluded so Forgotten history
+    /// never leaks through the export — the export is the data-portability path,
+    /// and Forget must be durable across it (the privacy bug was a plain
+    /// `SELECT * FROM interactions` that ignored the tombstone). Conversation
+    /// turns are interaction rows too, so this also covers thread history.
+    func exportInteractionsJSON() async -> String {
+        (try? await dbQueue.read { db -> String in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT * FROM interactions
+                WHERE timestamp >= (SELECT forgotten_before FROM style_profile WHERE id = 1)
+                ORDER BY id
+                """)
+            let dicts: [[String: Any]] = rows.map { row in
+                var d: [String: Any] = [:]
+                for col in row.columnNames where row[col] != nil { d[col] = row[col] }
+                return d
+            }
+            let data = try JSONSerialization.data(withJSONObject: dicts, options: [.prettyPrinted, .sortedKeys])
+            return String(data: data, encoding: .utf8) ?? "[]"
+        }) ?? "[]"
+    }
+
     func loadStyleProfile() async -> StyleProfile {
         (try? await dbQueue.read { db in
             try StyleProfile.fetchOne(db, key: 1)
