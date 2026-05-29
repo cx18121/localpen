@@ -70,6 +70,9 @@ struct PanelView: View {
                 case .profile:
                     ProfileView(controller: controller)
 
+                case .warming:
+                    WarmingView()
+
                 case .ask:
                     AskInput(controller: controller)
 
@@ -167,6 +170,25 @@ struct Hairline: View {
         Rectangle()
             .fill(Tokens.hairline)
             .frame(height: 1)
+    }
+}
+
+/// The cold-launch beat: the hotkey fired before the llama-server finished
+/// loading. A quiet spinner + line so the hotkey reads as "working on it"
+/// rather than broken. Auto-collapses (PanelController.showWarmingUp) — this
+/// view is intentionally inert (no buttons), matching the panel's calm rest.
+struct WarmingView: View {
+    var body: some View {
+        HStack(spacing: Spacing.s4) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Setting up the model…")
+                .font(Typography.body)
+                .foregroundStyle(Tokens.textSoft)
+            Spacer()
+        }
+        .padding(Spacing.s7)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

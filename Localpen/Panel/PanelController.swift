@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Observation
 import Carbon.HIToolbox
+import ApplicationServices
 import os
 
 @MainActor
@@ -92,6 +93,10 @@ final class PanelController {
     /// call `streaming.complete` directly so the blast radius stays narrow.
     typealias AskStreamProvider = @Sendable (String, String, ModelDescriptor.Sampling?) -> AsyncThrowingStream<String, Error>
     @ObservationIgnored private let askStreamProvider: AskStreamProvider
+    /// Injection seam for the runtime Accessibility-trust check. Defaults to the
+    /// real `AXIsProcessTrusted()`; tests override to drive the revocation surface
+    /// without toggling a real system permission.
+    @ObservationIgnored private let isAccessibilityTrusted: @Sendable () -> Bool
     @ObservationIgnored private let log = Logger(subsystem: "app.localpen.Localpen", category: "Latency")
 
     /// Context attached to the current free-form ask session.
@@ -117,6 +122,10 @@ final class PanelController {
     /// clipboard snapshot. This collapses a rapid double-tap to one capture.
     @ObservationIgnored private var captureInFlight = false
     @ObservationIgnored private var mouseInputMonitor: Any?
+    /// The auto-collapse timer for the `.warming` beat, cancelled if the user
+    /// dismisses it first (Esc/click-away) so it can't goIdle a panel the user
+    /// has since reopened.
+    @ObservationIgnored private var warmingTask: Task<Void, Never>?
 
     static let menuItems: [Action] = Action.fixed + [
         .respond(""),
@@ -144,6 +153,7 @@ final class PanelController {
          contextProbe: ContextProbe = ContextProbe(),
          captureSelection: (@Sendable () async -> TextIO.Capture)? = nil,
          askStreamProvider: AskStreamProvider? = nil,
+         isAccessibilityTrusted: (@Sendable () -> Bool)? = nil,
          openSettings: @escaping () -> Void) {
         self.textIO = textIO
         self.streaming = streaming
@@ -159,6 +169,7 @@ final class PanelController {
         self.askStreamProvider = askStreamProvider ?? { [streaming] sys, user, sampling in
             streaming.complete(systemPrompt: sys, userText: user, sampling: sampling)
         }
+        self.isAccessibilityTrusted = isAccessibilityTrusted ?? { AXIsProcessTrusted() }
         self.openSettings = openSettings
         installMouseTracking()
     }
@@ -188,6 +199,7 @@ final class PanelController {
     func dismiss() {
         bumpConvEpoch()   // invalidate any in-flight promote/resume/turn continuation
         isAccepting = false
+        warmingTask?.cancel()   // kill any pending warming auto-collapse
         current?.cancelStreaming()
         // Capture the on-screen result before flushing — flushPendingAsRejected
         // clears the pending interaction.
@@ -264,6 +276,11 @@ final class PanelController {
 
         case .generating:
             if code == kVK_Escape { backToMenu(); return true }
+            return false
+
+        case .warming:
+            // Inert beat: Esc dismisses (same as the auto-collapse), nothing else.
+            if code == kVK_Escape { dismiss(); return true }
             return false
 
         case .conversing:
@@ -526,6 +543,12 @@ final class PanelController {
         case .hotkeyConflict:
             openSettings()
             backToMenu()
+        case .accessibilityLost:
+            // Deep-link straight to the Accessibility privacy pane so the fix is
+            // one click away, then collapse — re-granting trust happens in System
+            // Settings, and the next hotkey press will capture normally.
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+            dismiss()
         }
     }
 
@@ -546,6 +569,23 @@ final class PanelController {
         let hotkeyTime = ContinuousClock.now
         focusedActionIndex = 1
         lastInputSource = .keyboard
+
+        // Accessibility can be revoked AFTER first-run (System Settings → Privacy).
+        // Without trust, the synthetic ⌘C capture and ⌘V paste-back silently no-op,
+        // so the panel would open over a stale/empty selection and "do nothing".
+        // Surface it loudly instead: set up a non-pasteable session (so dismiss
+        // tears down cleanly) and present the error, skipping capture entirely.
+        if !isAccessibilityTrusted() {
+            let session = PanelSession(id: myID, capture: .empty,
+                                       hotkeyTime: hotkeyTime, canPasteBack: false)
+            current = session
+            conversation = nil
+            inputText = ""
+            state = .visible(PanelContext(), .error(.accessibilityLost))
+            await notch?.expand()
+            notch?.focus()
+            return
+        }
 
         // Capture exactly ONCE through the injection seam. Single-capture
         // invariant: this same Capture is later handed to ContextProbe
@@ -626,6 +666,46 @@ final class PanelController {
         Task { @MainActor in
             await notch?.expand()
             notch?.focus()
+        }
+    }
+
+    /// The hotkey fired before the llama-server finished loading. Rather than a
+    /// silent beep (which reads as a broken hotkey on every cold launch), open
+    /// a quiet "setting up the model" beat so the press visibly does something.
+    /// Sets up a minimal non-pasteable session (mirroring `showFromHover`) so a
+    /// later dismiss tears down cleanly, then auto-collapses after a short beat —
+    /// Esc / click-away dismiss it normally before then.
+    func showWarmingUp() {
+        // Already up (or mid-capture): don't stomp a real session with a warming beat.
+        if state.isVisible { return }
+        if captureInFlight { return }
+        bumpConvEpoch()
+        isAccepting = false
+        current?.cancelStreaming()
+        flushPendingAsRejected()
+        if let session = current { textIO.restoreClipboard(session.capture) }
+
+        sessionCounter += 1
+        focusedActionIndex = 1
+        lastInputSource = .keyboard
+        current = PanelSession(id: sessionCounter, capture: .empty,
+                               hotkeyTime: ContinuousClock.now, canPasteBack: false)
+        conversation = nil
+        inputText = ""
+        state = .visible(PanelContext(), .warming)
+        Task { @MainActor in
+            await notch?.expand()
+            notch?.focus()
+        }
+
+        // Auto-collapse if the user hasn't dismissed it: a quiet beat, not a
+        // sticky panel. Only acts while still showing `.warming` (a real summon
+        // landing in the meantime would have replaced the phase).
+        warmingTask?.cancel()
+        warmingTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(2500))
+            guard !Task.isCancelled, let self else { return }
+            if case .visible(_, .warming) = self.state { self.dismiss() }
         }
     }
 

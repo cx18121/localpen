@@ -7,6 +7,7 @@ enum PanelError: Error, Equatable {
     case diskFull(needed: Int64, available: Int64)
     case hotkeyConflict
     case network
+    case accessibilityLost
 
     /// Classifies a transport/streaming failure: a refused connection means
     /// the llama-server process is down (retry re-spawns it); anything else is
@@ -31,6 +32,7 @@ enum PanelError: Error, Equatable {
             return String(format: "Not enough space — need %.1f GB, have %.1f GB.", neededGB, availableGB)
         case .hotkeyConflict:    return "Couldn't capture the hotkey. Change in Localpen settings."
         case .network:           return "Can't reach the model server. Check your connection."
+        case .accessibilityLost: return "Localpen lost Accessibility access — re-enable it to capture and paste."
         }
     }
 
@@ -40,6 +42,7 @@ enum PanelError: Error, Equatable {
         case .pasteBackFallback:              return "Dismiss"
         case .diskFull:                       return "Open Storage Settings"
         case .hotkeyConflict:                 return "Open Settings"
+        case .accessibilityLost:              return "Open Settings"
         }
     }
 }

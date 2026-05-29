@@ -21,6 +21,7 @@ enum PanelState: Equatable {
     enum Phase: Equatable {
         case empty
         case captured
+        case warming                     // server still loading; quiet "setting up" beat
         case customPrompt
         // The streamed text lives in PanelController.streamingText (a separate
         // observed property) so per-token updates re-render only the result
@@ -61,6 +62,7 @@ enum PanelState: Equatable {
         case .history:      return 9
         case .profile:      return 10
         case .ask:          return 11
+        case .warming:      return 12
         }
     }
 }

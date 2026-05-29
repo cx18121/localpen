@@ -189,8 +189,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             return
         }
         guard let server = llamaServer, server.isReady else {
-            log.info("hotkey ignored — llama-server not ready yet")
-            NSSound.beep()
+            log.info("hotkey before llama-server ready — showing warming-up beat")
+            panelController?.showWarmingUp()
             return
         }
         panelController?.toggleFromHotkey()
