@@ -26,6 +26,10 @@ struct SettingsView: View {
 }
 
 private struct GeneralTab: View {
+    // Mirrors SMAppService status into view state; re-read on appear so an
+    // out-of-app change (System Settings > Login Items) reflects when reopened.
+    @State private var launchAtLogin = LaunchAtLogin.isEnabled
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s5) {
             Text("Global hotkey")
@@ -38,8 +42,16 @@ private struct GeneralTab: View {
                 .font(Typography.subhead)
                 .foregroundStyle(Tokens.textMute)
 
+            Toggle("Launch Localpen at login", isOn: $launchAtLogin)
+                .font(Typography.body)
+                .foregroundStyle(Tokens.text)
+                .onChange(of: launchAtLogin) { _, newValue in
+                    LaunchAtLogin.isEnabled = newValue
+                }
+
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onAppear { launchAtLogin = LaunchAtLogin.isEnabled }
     }
 }
