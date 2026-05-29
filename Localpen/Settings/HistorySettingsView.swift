@@ -1,6 +1,5 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import GRDB
 
 struct HistorySettingsView: View {
     let persistence: Persistence?
@@ -10,35 +9,30 @@ struct HistorySettingsView: View {
     @State private var exportDocument: HistoryDocument?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.s5) {
-            Text("Interaction history")
-                .font(Typography.body)
-                .foregroundStyle(Tokens.text)
+        Form {
+            Section {
+                LabeledContent("Saved interactions", value: "\(rowCount)")
+            } header: {
+                Text("History")
+            } footer: {
+                Text("History never leaves this Mac. Stored at ~/Library/Application Support/Localpen/history.sqlite.")
+            }
 
-            Text("\(rowCount) interaction\(rowCount == 1 ? "" : "s") saved locally.")
-                .font(Typography.subhead)
-                .foregroundStyle(Tokens.textMute)
-
-            HStack(spacing: Spacing.s5) {
+            Section {
                 Button("Export…") {
                     Task { await prepareExport() }
                 }
                 .disabled(persistence == nil || rowCount == 0)
 
-                Button("Clear history") {
+                Button("Clear History…", role: .destructive) {
                     showingClearConfirm = true
                 }
                 .disabled(persistence == nil || rowCount == 0)
+            } footer: {
+                Text("Export writes a JSON copy (Forgotten items are excluded). Clear permanently deletes all saved interactions.")
             }
-
-            Spacer()
-
-            Text("History never leaves this Mac. Stored at ~/Library/Application Support/Localpen/history.sqlite.")
-                .font(Typography.subhead)
-                .foregroundStyle(Tokens.textFaint)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .formStyle(.grouped)
         .task {
             rowCount = await persistence?.count() ?? 0
         }

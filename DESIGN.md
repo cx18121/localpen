@@ -426,7 +426,7 @@ Reasoning:
 - `⌥Space` and `⌥⌘Space` are sometimes claimed by clipboard managers.
 - `⌃⌥Space` is rarely claimed and easy to chord.
 
-User can change the hotkey via Settings (Phase 1 ships a Settings window with one row: "Hotkey: [chord recorder]"). Conflict detection: if the recorded hotkey is claimed by another app, the recorder shows "Already used by <App>" and rejects the binding.
+User can change the hotkey via Settings. The Settings window is a standard macOS window with three tabs (General · Model · History), each a native **grouped `Form`** (`.formStyle(.grouped)`) — labelled sections with footnote captions, matching System Settings rather than the bespoke notch-panel vocabulary (which stays scoped to the floating surface). General: the chord recorder + launch-at-login. Model: selectable installed-models list (active model checked; selecting one persists the choice and reloads the local server). History: saved-interaction count + Export / Clear. Conflict detection: if the recorded hotkey is claimed by another app, the recorder shows "Already used by <App>" and rejects the binding.
 
 ### 5.5 Dismiss model
 
