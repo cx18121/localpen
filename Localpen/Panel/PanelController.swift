@@ -596,6 +596,10 @@ final class PanelController {
         flushPendingAsRejected()
         if let session = current { textIO.restoreClipboard(session.capture) }
 
+        // Grab the frontmost app BEFORE we touch the notch (hover is non-activating,
+        // so this is still the user's app) to show as ask context.
+        let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName
+
         sessionCounter += 1
         focusedActionIndex = 1
         lastInputSource = .mouse
@@ -603,7 +607,12 @@ final class PanelController {
                                hotkeyTime: ContinuousClock.now, canPasteBack: false)
         conversation = nil
         inputText = ""
-        state = .visible(PanelContext(), .empty)
+        // Land on free-form Ask (the headline pivot), not the transform menu, so the
+        // most ambient entry point reaches the assistant. No selection (hover is a
+        // no-capture entry — never synthesize ⌘C here); the frontmost app shows as a
+        // context chip. Submitting is Copy-only (non-pasteable session).
+        askContext = AskContext(appLabel: frontmostName, selection: nil)
+        state = .visible(PanelContext(), .ask)
         Task { @MainActor in
             await notch?.expand()
             notch?.focus()
@@ -689,6 +698,25 @@ final class PanelController {
                   self.current === session, self.convEpoch == armedEpoch else { return }
             self.current?.streamingTask?.cancel()
             self.state = .visible(PanelContext(selection: selection, action: action), .error(.timeout))
+        }
+    }
+
+    /// Stall watchdog for conversation/ask follow-up turns. Unlike `armWatchdog`
+    /// (one-shot path → global `.error(.timeout)` banner), a stalled turn surfaces
+    /// INLINE via `convo.turnError`, so ConversationView's existing TurnErrorRow +
+    /// retry re-runs the turn rather than routing through `startGeneration`. Closes
+    /// the ADR 0010 deferral (no watchdog on conversation turns).
+    private func armConversationWatchdog(_ convo: Conversation, session: PanelSession,
+                                         epoch: UInt64, timeout: Duration) {
+        session.watchdogTask?.cancel()
+        session.watchdogTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled, let self,
+                  self.current === session, self.convEpoch == epoch else { return }
+            self.current?.streamingTask?.cancel()
+            convo.streamingText = ""
+            convo.isStreaming = false
+            convo.turnError = .timeout
         }
     }
 
@@ -1021,17 +1049,21 @@ final class PanelController {
         ) ?? ActionPrompts.conversationSystem
         let messages = [(role: "system", content: conversationSystem)] + convo.messages
         let sampling = registry.activeModel?.sampling
+        defer { session.watchdogTask?.cancel() }
+        armConversationWatchdog(convo, session: session, epoch: epoch, timeout: Self.firstTokenTimeout)
         var partial = ""
         do {
             for try await token in streaming.complete(messages: messages, sampling: sampling) {
                 if Task.isCancelled { return }
                 partial += token
                 convo.streamingText = partial
+                armConversationWatchdog(convo, session: session, epoch: epoch, timeout: Self.interTokenTimeout)
             }
             if Task.isCancelled { return }
             // The user may have accepted/navigated away as the last token arrived;
             // never append or persist a reply they no longer have open.
             guard convEpoch == epoch, current === session else { return }
+            session.watchdogTask?.cancel()   // no more tokens; don't let it fire during persist
             convo.turns.append(ConversationTurn(role: .assistant, text: partial))
             convo.streamingText = ""
             convo.isStreaming = false
