@@ -173,28 +173,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
-    /// Switch the active model from Settings: persist the choice durably, then
-    /// stop the running llama-server and start it on the new model's path. The
-    /// stop()/start() surfaces the same .starting → .ready states the launch path
-    /// uses, so the hotkey's isReady guard naturally beats during the reload.
+    /// Switch the active model from Settings, staged so a failed load can't strand
+    /// the user. The naïve path persisted the new model and stopped the working
+    /// server BEFORE proving the new model starts — a corrupt GGUF / timeout / port
+    /// conflict then left a dead server and a persisted pointer at the broken model
+    /// across relaunch (Codex [high]). `ModelSwitcher` stops the old server, starts
+    /// the NEW model, and only commits the active-model pointer once it's ready; on
+    /// failure it restarts the previous model and surfaces a visible error instead
+    /// of only logging.
     func switchModel(id: String) {
         guard id != registry.activeModelID else { return }
-        registry.setActiveModel(id: id)
-        guard let server = llamaServer, let descriptor = registry.activeModel else { return }
+        guard let server = llamaServer,
+              let candidate = registry.models.first(where: { $0.id == id }),
+              let previous = registry.activeModel else { return }
 
-        server.stop()
-        // Force the next startServerIfNeeded() to actually (re)spawn for this model.
-        serverStartedForModel = descriptor.id
-        let modelPath = registry.modelPath(for: descriptor).path
+        let candidateStage = ModelSwitcher.ModelStage(
+            id: candidate.id,
+            path: registry.modelPath(for: candidate).path,
+            contextSize: candidate.contextSize
+        )
+        let previousStage = ModelSwitcher.ModelStage(
+            id: previous.id,
+            path: registry.modelPath(for: previous).path,
+            contextSize: previous.contextSize
+        )
+
+        let switcher = ModelSwitcher(
+            start: { path, ctx in try await server.start(modelPath: path, contextSize: ctx) },
+            stop: { server.stop() },
+            commit: { [weak self] newID in self?.registry.setActiveModel(id: newID) }
+        )
+
         Task { @MainActor in
-            do {
-                try await server.start(modelPath: modelPath, contextSize: descriptor.contextSize)
-                self.log.info("llama-server ready on new model \(descriptor.id, privacy: .public)")
+            let outcome = await switcher.switchTo(candidate: candidateStage, previous: previousStage)
+            switch outcome {
+            case .switched(let newID):
+                // Mark which model the running server now serves so a later
+                // startServerIfNeeded() doesn't needlessly respawn it.
+                self.serverStartedForModel = newID
+                self.log.info("llama-server ready on new model \(newID, privacy: .public)")
                 self.warmUpModel(port: server.port)
-            } catch {
-                self.log.error("llama-server failed after model switch: \(error.localizedDescription)")
+            case .failed(let newID, let previousID, let message, let previousRestored):
+                self.serverStartedForModel = previousRestored ? previousID : nil
+                self.log.error("model switch to \(newID, privacy: .public) failed: \(message, privacy: .public)")
+                self.presentModelSwitchFailure(newID: newID, message: message, previousRestored: previousRestored)
             }
         }
+    }
+
+    /// Visible failure surface for a model switch that couldn't start the new
+    /// model — the Settings model picker is the user's last touchpoint, so an
+    /// alert there is the honest place to say "that didn't work" rather than
+    /// burying it in Console.
+    private func presentModelSwitchFailure(newID: String, message: String, previousRestored: Bool) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't switch to that model."
+        alert.informativeText = previousRestored
+            ? "\(newID) failed to start (\(message)). Your previous model is still active."
+            : "\(newID) failed to start (\(message)), and the previous model couldn't be restarted. Try switching again or restart Localpen."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     /// Fire one throwaway token through the model right after the server is ready,

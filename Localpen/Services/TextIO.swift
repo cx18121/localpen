@@ -1,10 +1,21 @@
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 import os
 
 @MainActor
 final class TextIO {
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "TextIO")
+
+    /// Injection seam for the runtime Accessibility-trust check, re-evaluated
+    /// immediately before synthesizing ⌘V. Defaults to the real
+    /// `AXIsProcessTrusted()`; tests override to drive the revoke-after-display
+    /// regression without toggling a real system permission.
+    private let isAccessibilityTrusted: @Sendable () -> Bool
+
+    init(isAccessibilityTrusted: (@Sendable () -> Bool)? = nil) {
+        self.isAccessibilityTrusted = isAccessibilityTrusted ?? { AXIsProcessTrusted() }
+    }
 
     struct Capture {
         let selection: String?
@@ -83,9 +94,9 @@ final class TextIO {
         )
     }
 
-    enum PasteBackResult {
+    enum PasteBackResult: Equatable {
         case pasted
-        case skipped  // bundle in deny-list; result remains on pasteboard for manual ⌘V
+        case skipped  // bundle in deny-list (or AX revoked); result remains on pasteboard for manual ⌘V
     }
 
     func pasteBack(result: String, capture: Capture) async -> PasteBackResult {
@@ -96,6 +107,17 @@ final class TextIO {
         if PasteBackDenyList.shouldSkip(capture.sourceBundleID) {
             log.info("pasteBack skipped (deny-list) for \(capture.sourceBundleID ?? "nil", privacy: .public)")
             // Do NOT restore the original pasteboard — user needs the result on the clipboard.
+            return .skipped
+        }
+
+        // Accessibility can be revoked AFTER capture but BEFORE the user accepts
+        // (System Settings → Privacy). Without trust the synthetic ⌘V no-ops, so
+        // restoring the old clipboard here would clobber the result we just wrote
+        // and dismiss as if it pasted — the output is lost. Re-check trust at the
+        // last moment and bail to the same skipped contract (result stays on the
+        // pasteboard for a real, user-typed ⌘V, which works regardless of trust).
+        guard isAccessibilityTrusted() else {
+            log.error("pasteBack skipped: Accessibility trust revoked before paste; leaving result on clipboard")
             return .skipped
         }
 
