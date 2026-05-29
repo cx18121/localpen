@@ -19,7 +19,8 @@ struct AskInput: View {
     private var chipRail: some View {
         let appLabel = controller.askContext.appLabel
         let selection = controller.askContext.selection
-        if appLabel != nil || selection != nil {
+        let calendar = controller.askContext.calendar
+        if appLabel != nil || selection != nil || calendar != nil {
             HStack(spacing: Spacing.s2) {
                 if let appLabel {
                     AskChip(text: appLabel, onRemove: { controller.removeAskAppChip() })
@@ -27,6 +28,10 @@ struct AskInput: View {
                 if let selection {
                     AskChip(text: Self.selectionPreview(selection),
                             onRemove: { controller.removeAskSelectionChip() })
+                }
+                if let calendar {
+                    AskChip(text: "Calendar · " + Self.selectionPreview(calendar),
+                            onRemove: { controller.removeAskCalendarChip() })
                 }
                 Spacer()
             }

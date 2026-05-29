@@ -200,6 +200,17 @@ final class Persistence {
                  WHERE timestamp < 10000000000
                 """)
         }
+
+        // v5: Calendar context (ADR 0012). Stored on the THREAD, parallel to
+        // source_app, so a resumed ask thread replays the exact prompt the model
+        // saw. Deliberately NOT on the interactions row — keeps calendar text out
+        // of the interactions export + memory inference. Nullable: writing threads
+        // and pre-v5 ask threads leave it NULL (no calendar line on resume).
+        migrator.registerMigration("v5.thread_context_calendar") { db in
+            try db.alter(table: "threads") { t in
+                t.add(column: "context_calendar", .text)
+            }
+        }
         try migrator.migrate(queue)
     }
 }

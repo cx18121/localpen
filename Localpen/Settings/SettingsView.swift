@@ -11,6 +11,13 @@ struct GeneralSettingsView: View {
     // out-of-app change (System Settings > Login Items) reflects when reopened.
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
+    // Calendar context (ADR 0012). `calendarEnabled` is the user's intent;
+    // `calendarAuthorized` mirrors the OS grant so the footer can guide the user
+    // to System Settings when they enabled it but the grant is missing.
+    @State private var calendarEnabled = CalendarAccess.isEnabled
+    @State private var calendarAuthorized = CalendarAccess.isAuthorized
+    @State private var calendarDenied = CalendarAccess.isDeniedOrRestricted
+
     var body: some View {
         Form {
             Section {
@@ -19,6 +26,14 @@ struct GeneralSettingsView: View {
                 Text("Hotkey")
             } footer: {
                 Text("Press the chord you want to use. Conflicts with other apps are flagged.")
+            }
+
+            Section {
+                Toggle("Use calendar context", isOn: $calendarEnabled)
+            } header: {
+                Text("Calendar")
+            } footer: {
+                Text(calendarFooter)
             }
 
             Section {
@@ -33,6 +48,38 @@ struct GeneralSettingsView: View {
         .onChange(of: launchAtLogin) { _, newValue in
             LaunchAtLogin.isEnabled = newValue
         }
-        .onAppear { launchAtLogin = LaunchAtLogin.isEnabled }
+        .onChange(of: calendarEnabled) { _, newValue in
+            CalendarAccess.isEnabled = newValue
+            // Request the OS grant the first time it's switched on. macOS can only
+            // prompt from .notDetermined; if already .denied the user must fix it in
+            // System Settings (the footer says so). The completion is on an arbitrary
+            // queue — hop to the main actor before touching view state.
+            if newValue, !CalendarAccess.isAuthorized, !CalendarAccess.isDeniedOrRestricted {
+                CalendarAccess.requestAccess { _ in
+                    Task { @MainActor in refreshCalendarStatus() }
+                }
+            }
+            refreshCalendarStatus()
+        }
+        .onAppear {
+            launchAtLogin = LaunchAtLogin.isEnabled
+            refreshCalendarStatus()
+        }
+    }
+
+    private func refreshCalendarStatus() {
+        calendarEnabled = CalendarAccess.isEnabled
+        calendarAuthorized = CalendarAccess.isAuthorized
+        calendarDenied = CalendarAccess.isDeniedOrRestricted
+    }
+
+    private var calendarFooter: String {
+        if calendarEnabled && calendarDenied {
+            return "Calendar access is turned off in macOS. Open System Settings → Privacy & Security → Calendars and allow Localpen, then toggle this off and on."
+        }
+        if calendarEnabled && calendarAuthorized {
+            return "On. Your next 7 days (titles, times, locations — never edited) ride along as a removable context chip on each ask. Read-only; nothing leaves this Mac."
+        }
+        return "Let the assistant see your upcoming schedule as context on asks. Read-only — Localpen never edits your calendar, and nothing leaves this Mac."
     }
 }

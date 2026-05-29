@@ -49,6 +49,25 @@ struct ConversationView: View {
                 ))
                 Hairline()
             }
+            // The calendar context the answer was grounded in (ADR 0012). Pinned
+            // so a resumed thread shows the schedule the model actually saw — it's
+            // a point-in-time snapshot, not live.
+            if let cal = conversation.seedAskContext?.calendar,
+               !cal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                HStack(alignment: .top, spacing: Spacing.s2) {
+                    Image(systemName: "calendar")
+                        .font(Typography.selectionMeta)
+                        .foregroundStyle(Tokens.textMute)
+                    Text(cal)
+                        .font(Typography.selectionMeta)
+                        .foregroundStyle(Tokens.textMute)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, Spacing.s7)
+                .padding(.vertical, Spacing.s4)
+                Hairline()
+            }
         } else {
             SelectionBlock(selection: conversation.originalSelection)
             Hairline()

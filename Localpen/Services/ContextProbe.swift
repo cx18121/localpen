@@ -24,6 +24,20 @@ final class ContextProbe {
         let appName: String?
         let windowTitle: String?
         let selection: String?
+        /// Formatted upcoming-calendar context (ADR 0012), or nil when calendar
+        /// context is disabled/unauthorized/empty. Read once at capture and
+        /// frozen for the session — the probe's single-capture invariant means a
+        /// long-open thread shows this point-in-time snapshot, not live schedule.
+        let calendar: String?
+
+        // Explicit init so `calendar` defaults to nil for the non-calendar call
+        // sites (a `let`-optional doesn't get an implicit memberwise default).
+        init(appName: String?, windowTitle: String?, selection: String?, calendar: String? = nil) {
+            self.appName = appName
+            self.windowTitle = windowTitle
+            self.selection = selection
+            self.calendar = calendar
+        }
     }
 
     // MARK: Injection seams
@@ -36,23 +50,40 @@ final class ContextProbe {
         func captureSelectionForProbe() async -> String?
     }
 
+    /// Read-only calendar source (ADR 0012). Returns the formatted context line
+    /// or nil. Sendable so it can run in the off-main detached step; the
+    /// production impl (`SystemCalendarReader`) holds no state.
+    protocol CalendarReading: Sendable {
+        func upcomingContext() -> String?
+    }
+
     private let axReader: any AXWindowTitleReader
     private let textIO: any SelectionCapturing
+    private let calendarReader: any CalendarReading
     private let appName: @Sendable () -> String?
     private let pid: @Sendable () -> pid_t
+    /// Synchronous gate for the calendar read — `CalendarAccess.isActive` in
+    /// production (user toggle ON and authorization granted). When false the
+    /// probe skips the calendar fetch entirely, so the ask path is never blocked
+    /// and the prompt is byte-identical to calendar-never-existed.
+    private let isCalendarAuthorized: @Sendable () -> Bool
 
     init(axReader: any AXWindowTitleReader = SystemAXWindowTitleReader(),
          textIO: any SelectionCapturing = TextIOProbeAdapter(),
+         calendarReader: any CalendarReading = SystemCalendarReader(),
          appName: @escaping @Sendable () -> String? = {
              NSWorkspace.shared.frontmostApplication?.localizedName
          },
          pid: @escaping @Sendable () -> pid_t = {
              NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
-         }) {
+         },
+         isCalendarAuthorized: @escaping @Sendable () -> Bool = { CalendarAccess.isActive }) {
         self.axReader = axReader
         self.textIO = textIO
+        self.calendarReader = calendarReader
         self.appName = appName
         self.pid = pid
+        self.isCalendarAuthorized = isCalendarAuthorized
     }
 
     // MARK: Capture
@@ -83,9 +114,24 @@ final class ContextProbe {
             reader.readWindowTitle(pid: pidValue, timeoutSeconds: 0.15)
         }.value
 
+        let calendar = await readCalendarOffMain()
+
         return Snapshot(appName: resolvedAppName,
                         windowTitle: windowTitle,
-                        selection: normalizedSelection)
+                        selection: normalizedSelection,
+                        calendar: calendar)
+    }
+
+    /// Reads the calendar context off-main, gated by `isCalendarAuthorized`.
+    /// Exposed so the no-capture hover entry (`PanelController.showFromHover`),
+    /// which builds its AskContext without running the full probe, can still
+    /// attach calendar context. Returns nil when disabled/unauthorized/empty.
+    func readCalendarOffMain() async -> String? {
+        guard isCalendarAuthorized() else { return nil }
+        let reader = calendarReader
+        return await Task.detached(priority: .userInitiated) {
+            reader.upcomingContext()
+        }.value
     }
 }
 

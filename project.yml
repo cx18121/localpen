@@ -40,6 +40,7 @@ targets:
         LSMinimumSystemVersion: "14.0"
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: "Copyright © 2026 Localpen."
+        NSCalendarsFullAccessUsageDescription: "Localpen reads your calendar on-device to give your writing assistant schedule context. It never edits your calendar, and your data never leaves this Mac."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.localpen.Localpen

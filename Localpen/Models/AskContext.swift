@@ -7,12 +7,14 @@ import Foundation
 struct AskContext: Equatable {
     var appLabel: String?    // "Mail · Re: budget Q3" — formatted from probe snapshot
     var selection: String?   // raw text; the chip shows a "N words selected" summary
+    var calendar: String?    // formatted upcoming-events line (ADR 0012); chip + `calendar:` prompt line
 
     static let empty = AskContext()
 
     /// Builds an AskContext from a ContextProbe snapshot. Formats the
     /// appLabel as "<app> · <window>" when both are present, falls back
-    /// gracefully to whichever single field is non-nil.
+    /// gracefully to whichever single field is non-nil. Calendar is already
+    /// formatted in the probe (matching how appLabel-not-raw lands here).
     static func from(_ snapshot: ContextProbe.Snapshot) -> AskContext {
         let label: String?
         switch (snapshot.appName, snapshot.windowTitle) {
@@ -21,6 +23,6 @@ struct AskContext: Equatable {
         case (nil, let title?):       label = title
         case (nil, nil):              label = nil
         }
-        return AskContext(appLabel: label, selection: snapshot.selection)
+        return AskContext(appLabel: label, selection: snapshot.selection, calendar: snapshot.calendar)
     }
 }

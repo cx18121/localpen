@@ -392,6 +392,7 @@ final class PanelController {
             } else {
                 askContext = .empty
             }
+            attachCalendarContext()   // menu→ask builds askContext without the probe
             state = .visible(PanelContext(), .ask)
             return
         case .custom, .respond:
@@ -662,6 +663,7 @@ final class PanelController {
         // no-capture entry — never synthesize ⌘C here); the frontmost app shows as a
         // context chip. Submitting is Copy-only (non-pasteable session).
         askContext = AskContext(appLabel: frontmostName, selection: nil)
+        attachCalendarContext()   // hover is a no-capture entry; calendar rides this side path
         state = .visible(PanelContext(), .ask)
         Task { @MainActor in
             await notch?.expand()
@@ -855,6 +857,27 @@ final class PanelController {
         askContext.selection = nil
     }
 
+    func removeAskCalendarChip() {
+        askContext.calendar = nil
+    }
+
+    /// Attach calendar context (ADR 0012) to the current `askContext` via an
+    /// off-main read. Used by the ask entry points that build `askContext`
+    /// WITHOUT running the full ContextProbe — the no-capture hover entry and the
+    /// menu→ask pivot. (The hotkey .ask route already gets calendar inside
+    /// `ContextProbe.capture`.) The session-counter guard drops a late read whose
+    /// session has been superseded, so a stale calendar can't bleed into a new
+    /// ask. A nil result (disabled/unauthorized/empty) leaves the field nil.
+    private func attachCalendarContext() {
+        let myCounter = sessionCounter
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let cal = await self.contextProbe.readCalendarOffMain()
+            guard self.sessionCounter == myCounter, let cal else { return }
+            self.askContext.calendar = cal
+        }
+    }
+
     /// Entry point from AskInput's submit. Builds the Action.ask with the
     /// resolved withSelection flag from the surviving chip state and kicks
     /// off the dedicated stream path. Does NOT call `pick(_:)` — Task 9's
@@ -952,6 +975,7 @@ final class PanelController {
                     question: question,
                     contextSelection: context.selection,
                     sourceApp: context.appLabel,
+                    contextCalendar: context.calendar,
                     modelID: modelID,
                     assistantText: assembled
                 )

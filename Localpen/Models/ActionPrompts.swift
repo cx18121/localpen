@@ -116,6 +116,7 @@ enum ActionPrompts {
         var lines: [String] = []
         if let app = context.appLabel { lines.append("app: \(app)") }
         if let sel = context.selection { lines.append("selection: \(sel)") }
+        if let cal = context.calendar { lines.append("calendar: \(cal)") }
         if lines.isEmpty { return question }
         return "<context>\n" + lines.joined(separator: "\n") + "\n</context>\n\n" + question
     }
