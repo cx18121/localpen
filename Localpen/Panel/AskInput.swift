@@ -65,6 +65,16 @@ struct AskInput: View {
                 .font(Typography.subhead)
                 .foregroundStyle(Tokens.textFaint)
             Spacer()
+            // Recents access from the Ask surface — the ambient entry point
+            // (hover/click) lands here, so history must be reachable without
+            // first routing through the transform menu.
+            Button { controller.openHistory() } label: {
+                Image(systemName: "clock")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Tokens.textFaint)
+            }
+            .buttonStyle(.plain)
+            .help("Recent conversations")
         }
     }
 
