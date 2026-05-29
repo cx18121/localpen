@@ -722,8 +722,24 @@ final class PanelController {
         let epoch = bumpConvEpoch()
         session.cancelStreaming()
 
-        state = .visible(PanelContext(action: action), .generating)
-        streamingText = ""
+        // Stream the answer straight into the conversation surface so there's no
+        // .generating → .conversing layout jump: the user's question shows as the
+        // seed bubble and the reply streams into a live assistant bubble in place.
+        // threadID 0 = not yet persisted; we persist on completion, so a mid-stream
+        // dismiss fails the epoch guard before createThreadForAsk and leaves nothing
+        // in Recent (see test_dismissDuringAskStream_doesNotPersistThread).
+        let liveConvo = Conversation(
+            threadID: 0,
+            originalSelection: Selection(text: question,
+                                         sourceBundleID: session.capture.sourceBundleID,
+                                         sourceAppName: session.capture.sourceAppName),
+            operationClass: action.operationClass,
+            turns: [ConversationTurn(role: .user, text: action.pillLabel, action: action)],
+            seedAskContext: context
+        )
+        liveConvo.isStreaming = true
+        conversation = liveConvo
+        state = .visible(PanelContext(), .conversing)
 
         let baseSystemPrompt = registry.systemPrompt(for: action)
         let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
@@ -745,7 +761,7 @@ final class PanelController {
                     if Task.isCancelled { return }
                     guard self.convEpoch == epoch, self.current === session else { return }
                     assembled += token
-                    self.streamingText = assembled
+                    liveConvo.streamingText = assembled
                     self.armWatchdog(action: action, selection: nil,
                                      timeout: PanelController.interTokenTimeout)
                 }
@@ -761,8 +777,11 @@ final class PanelController {
             guard self.convEpoch == epoch, self.current === session else { return }
 
             guard let store = self.conversationStore else {
-                self.state = .visible(PanelContext(action: action),
-                                      .result(finalResult: assembled, isEditing: false))
+                // No persistence available: finalize the answer in the conversation
+                // surface anyway (no Recent entry, but the answer + accept show).
+                liveConvo.turns.append(ConversationTurn(role: .assistant, text: assembled))
+                liveConvo.streamingText = ""
+                liveConvo.isStreaming = false
                 return
             }
             do {
@@ -790,6 +809,16 @@ final class PanelController {
                     try? await store.deleteThread(id: threadID)
                     return
                 }
+                // Reload must yield a usable thread (seed + assistant). If it
+                // didn't — load failed or returned no rows — don't install a
+                // blank conversation that drops the streamed answer; finalize the
+                // in-memory liveConvo (which holds the completed answer) instead.
+                guard turns.contains(where: { $0.role == .assistant }) else {
+                    liveConvo.turns.append(ConversationTurn(role: .assistant, text: assembled))
+                    liveConvo.streamingText = ""
+                    liveConvo.isStreaming = false
+                    return
+                }
                 let askCtx = try? await store.loadSeedAskContext(threadID: threadID)
                 guard self.convEpoch == epoch, self.current === session else {
                     try? await store.deleteThread(id: threadID)
@@ -807,8 +836,13 @@ final class PanelController {
                 self.state = .visible(PanelContext(), .conversing)
             } catch {
                 guard self.convEpoch == epoch, self.current === session else { return }
-                self.state = .visible(PanelContext(action: action),
-                                      .result(finalResult: assembled, isEditing: false))
+                // Persisted, but a reload step threw: finalize in the conversation
+                // surface rather than jumping to a one-shot result view.
+                if liveConvo.turns.last?.role != .assistant {
+                    liveConvo.turns.append(ConversationTurn(role: .assistant, text: assembled))
+                }
+                liveConvo.streamingText = ""
+                liveConvo.isStreaming = false
             }
         }
     }
@@ -1018,6 +1052,24 @@ final class PanelController {
         }
     }
 
+    /// Copy-only accept: write the reply to the clipboard and dismiss, never
+    /// pasting back over the source selection. Distinct from `acceptTurn` so an
+    /// ask-with-selection bubble can offer BOTH — Replace (acceptTurn) when you
+    /// want the answer to overwrite the selection, Copy (this) when you just
+    /// want to keep it. Mirrors acceptTurn's single-flight + terminal teardown.
+    func copyTurn(_ turn: ConversationTurn) {
+        guard !isAccepting,
+              turn.role == .assistant, conversation != nil, current != nil else { return }
+        isAccepting = true
+        bumpConvEpoch()
+        current?.cancelStreaming()
+        if let rowID = turn.interactionID {
+            Task { try? await conversationStore?.markAccepted(interactionID: rowID) }
+        }
+        writeToClipboard(turn.text)
+        state = .hidden; conversation = nil; current = nil; goIdle()
+    }
+
     func openHistory() {
         guard case .visible(let ctx, _) = state else { return }
         let epoch = bumpConvEpoch()
@@ -1042,6 +1094,13 @@ final class PanelController {
             guard let self else { return }
             let turns = (try? await store.loadTurns(threadID: id)) ?? []
             let sel = ((try? await store.loadThread(id: id)) ?? nil) ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
+            // For ask threads, the attached selection lives on the seed interaction,
+            // not in `originalSelection` (which holds the question). Without this,
+            // `Conversation.messages` rebuilds the seed prompt against `.empty` and
+            // the context block has nothing to show — a resumed ask-with-selection
+            // follow-up would lose the source text it's meant to reason over.
+            // Returns nil for non-ask threads, so non-ask resume is unaffected.
+            let askCtx = try? await store.loadSeedAskContext(threadID: id)
             // Dismiss, Back, or a second resume during the loads above must not be
             // overridden by this late completion installing a stale session/thread.
             guard self.convEpoch == epoch else { return }
@@ -1056,7 +1115,8 @@ final class PanelController {
                                        hotkeyTime: ContinuousClock.now, canPasteBack: false)
             self.current = session
             let convo = Conversation(threadID: id, originalSelection: sel,
-                                     operationClass: seed.operationClass, turns: turns)
+                                     operationClass: seed.operationClass, turns: turns,
+                                     seedAskContext: askCtx)
             self.conversation = convo
             self.state = .visible(PanelContext(selection: sel, action: seed), .conversing)
         }

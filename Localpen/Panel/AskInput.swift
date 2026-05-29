@@ -25,7 +25,7 @@ struct AskInput: View {
                     AskChip(text: appLabel, onRemove: { controller.removeAskAppChip() })
                 }
                 if let selection {
-                    AskChip(text: Self.selectionSummary(selection),
+                    AskChip(text: Self.selectionPreview(selection),
                             onRemove: { controller.removeAskSelectionChip() })
                 }
                 Spacer()
@@ -68,9 +68,16 @@ struct AskInput: View {
         }
     }
 
-    private static func selectionSummary(_ s: String) -> String {
-        let words = s.split { $0.isWhitespace }.count
-        return "\(words) words selected"
+    /// A one-line preview of the attached selection: collapse runs of
+    /// whitespace/newlines to single spaces, then truncate to a readable
+    /// length with an ellipsis. Shows the actual text (like an editor's
+    /// attachment chip) instead of an opaque "N words selected" count.
+    private static func selectionPreview(_ s: String) -> String {
+        let collapsed = s.split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        let limit = 40
+        if collapsed.count <= limit { return collapsed }
+        return collapsed.prefix(limit).trimmingCharacters(in: .whitespaces) + "…"
     }
 }
 
@@ -83,6 +90,8 @@ private struct AskChip: View {
                 .font(Typography.subhead)
                 .foregroundStyle(Tokens.textSoft)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 190, alignment: .leading)
             Button(action: onRemove) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .medium))

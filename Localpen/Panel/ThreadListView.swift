@@ -19,7 +19,7 @@ struct ThreadListView: View {
                         EmptyStateView(
                             icon: "bubble.left.and.text.bubble.right",
                             title: "No conversations yet",
-                            caption: "Refine a result to start one."
+                            caption: "Ask a question or refine a result to start one."
                         )
                     } else {
                         Hairline().padding(.vertical, Spacing.s3)

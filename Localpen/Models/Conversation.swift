@@ -60,6 +60,18 @@ final class Conversation {
         )
     }
 
+    /// True when this thread was started by a free-form Ask (its seed action is
+    /// `.ask`). The conversation surface reads this to suppress the writing-only
+    /// refinement chips (Soften/Tighten/More formal/More casual), which are
+    /// follow-ups for a writing transform and meaningless for a Q&A answer.
+    /// Reliable on resume too: `loadTurns` reconstructs the seed action from the
+    /// persisted `action='ask'` row.
+    var isAsk: Bool {
+        guard let seedAction = turns.first?.action else { return false }
+        if case .ask = seedAction { return true }
+        return false
+    }
+
     /// The OpenAI-style message array (excluding the system message, which the
     /// controller prepends). The first user turn embeds the original selection
     /// via the seed action's user message; later user turns are raw follow-ups.
