@@ -551,7 +551,10 @@ final class PanelController {
         // invariant: this same Capture is later handed to ContextProbe
         // via reusingCapture so the probe does NOT re-call TextIO.
         let capture = await captureSelection()
-        guard sessionCounter == myID else { return }   // superseded during capture
+        // Superseded during the ⌘C settle: no session will own this capture, so
+        // restore the clipboard it overwrote before bailing (else the selection
+        // leaks onto the user's clipboard).
+        guard sessionCounter == myID else { textIO.restoreClipboard(capture); return }
 
         let session = PanelSession(id: myID, capture: capture, hotkeyTime: hotkeyTime)
         current = session
@@ -571,8 +574,11 @@ final class PanelController {
             let snap = await contextProbe.capture(reusingCapture: capture)
             // Post-probe supersession guard: a second hotkey landing during
             // the AX probe could bump sessionCounter and current. The stale
-            // task must not stamp old state over new.
-            guard sessionCounter == myID, current === session else { return }
+            // task must not stamp old state over new — and must restore the
+            // clipboard it captured, since no surviving session owns it.
+            guard sessionCounter == myID, current === session else {
+                textIO.restoreClipboard(capture); return
+            }
             askContext = AskContext.from(snap)
             state = .visible(PanelContext(), .ask)
         }
@@ -588,6 +594,10 @@ final class PanelController {
     func showFromHover() {
         // Already up (or mid-flight): ignore — don't stomp an active session.
         if state.isVisible { return }
+        // A hotkey capture is mid-settle (state not yet visible): don't supersede
+        // it. Opening a hover session here would orphan the in-flight capture's
+        // clipboard snapshot (no session left to restore it).
+        if captureInFlight { return }
         // Tear down any lingering session exactly like dismiss (cancel stream, flush
         // pending as rejected, restore the outgoing capture's clipboard).
         bumpConvEpoch()

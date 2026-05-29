@@ -12,6 +12,26 @@ final class TextIO {
         let sourceAppName: String?
         let savedFrontmostApp: NSRunningApplication?
         let savedItems: [[NSPasteboard.PasteboardType: Data]]
+        /// True when this came from a real hotkey capture — synthetic ⌘C ran and
+        /// may have overwritten the clipboard, so it must be restored on teardown
+        /// (even back to EMPTY when the user's clipboard was empty: `savedItems`
+        /// is then `[]` but the selection is still sitting on the pasteboard).
+        /// False for synthesized no-capture sessions (hover/click, resumed
+        /// threads), which never touched the clipboard, so restore is a no-op.
+        /// This flag — not `savedItems.isEmpty` — is the correct discriminator:
+        /// an empty saved clipboard is a real, restorable state.
+        let didCapture: Bool
+
+        init(selection: String?, sourceBundleID: String?, sourceAppName: String?,
+             savedFrontmostApp: NSRunningApplication?,
+             savedItems: [[NSPasteboard.PasteboardType: Data]], didCapture: Bool = true) {
+            self.selection = selection
+            self.sourceBundleID = sourceBundleID
+            self.sourceAppName = sourceAppName
+            self.savedFrontmostApp = savedFrontmostApp
+            self.savedItems = savedItems
+            self.didCapture = didCapture
+        }
 
         /// A capture with no selection, no source app, and no saved clipboard —
         /// used when synthesizing a session that didn't originate from a hotkey
@@ -20,7 +40,7 @@ final class TextIO {
         /// clipboard, which is correct: there is no original field to paste into.
         static let empty = Capture(
             selection: nil, sourceBundleID: nil, sourceAppName: nil,
-            savedFrontmostApp: nil, savedItems: []
+            savedFrontmostApp: nil, savedItems: [], didCapture: false
         )
     }
 
@@ -115,15 +135,17 @@ final class TextIO {
     /// followed by Escape). Without this, every cancel leaks the user's
     /// pasteboard with the captured selection.
     func restoreClipboard(_ capture: Capture) {
+        // Only a real capture may have overwritten the clipboard (synthetic ⌘C);
+        // a no-capture session (hover/click, resumed thread) never touched it, so
+        // restoring would wipe whatever the user copied elsewhere. Gate on the
+        // capture flag, NOT savedItems.isEmpty — an empty saved clipboard is a
+        // real state that must be restored back to empty (else the captured
+        // selection leaks onto the clipboard).
+        guard capture.didCapture else { return }
         restorePasteboard(capture.savedItems)
     }
 
     private func restorePasteboard(_ items: [[NSPasteboard.PasteboardType: Data]]) {
-        // Nothing was captured (hover/click open and resumed-thread teardown use
-        // an empty capture): the user's real OS clipboard was never touched, so
-        // leave it alone. Without this guard, clearContents() below wipes whatever
-        // the user had copied elsewhere and writes nothing back — silent data loss.
-        guard !items.isEmpty else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let restored: [NSPasteboardItem] = items.map { dataMap in
