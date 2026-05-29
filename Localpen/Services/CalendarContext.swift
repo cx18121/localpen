@@ -75,16 +75,23 @@ enum CalendarFormatter {
     }
 
     private static func eventString(_ e: CalendarEvent, timeFmt: DateFormatter) -> String {
-        let title = e.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "(untitled)" : e.title
+        // Collapse ALL internal whitespace (incl. newlines) to single spaces:
+        // event titles/locations are free text and a embedded newline would split
+        // the single `calendar:` line into extra unprefixed <context> lines,
+        // breaking the prompt-shape invariant (Codex review MED).
+        let collapsedTitle = collapseWhitespace(e.title)
+        let title = collapsedTitle.isEmpty ? "(untitled)" : collapsedTitle
         let timePart = e.isAllDay
             ? "(all day)"
             : "\(timeFmt.string(from: e.start))–\(timeFmt.string(from: e.end))"
         var s = "\(title) \(timePart)"
-        if let loc = e.location?.trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty {
-            s += " @ \(loc)"
-        }
+        let loc = collapseWhitespace(e.location ?? "")
+        if !loc.isEmpty { s += " @ \(loc)" }
         return s
+    }
+
+    private static func collapseWhitespace(_ s: String) -> String {
+        s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 }
 

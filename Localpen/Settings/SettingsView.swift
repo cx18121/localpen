@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The General settings pane. The Settings window itself is an AppKit
 /// `NSTabViewController(.toolbar)` built in `AppDelegate.openSettings` — that
@@ -63,6 +64,12 @@ struct GeneralSettingsView: View {
         }
         .onAppear {
             launchAtLogin = LaunchAtLogin.isEnabled
+            refreshCalendarStatus()
+        }
+        // Returning from System Settings (where the user may have just granted or
+        // revoked calendar access) reactivates the app — re-read the live status so
+        // the footer guidance can't go stale while this window stays open.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshCalendarStatus()
         }
     }

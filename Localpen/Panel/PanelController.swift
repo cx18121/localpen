@@ -108,6 +108,14 @@ final class PanelController {
     /// which would rebuild the prompt via `userMessage(for:.ask)` and lose it.
     @ObservationIgnored private var pendingAskContext: AskContext = .empty
 
+    /// The in-flight off-main calendar read for a hover/menu ask entry (ADR 0012),
+    /// plus the session it belongs to. `askSubmitted` awaits this before snapshotting
+    /// so a fast submit can't race past the read and stream an ask without the
+    /// calendar context the user expects. The session tag keeps the hotkey path
+    /// (which gets calendar synchronously via the probe) on the synchronous submit.
+    @ObservationIgnored private var calendarAttachTask: Task<Void, Never>?
+    @ObservationIgnored private var calendarAttachSession: UInt64 = 0   // 0 = none; real sessions are ≥ 1
+
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
     /// everything scoped to one summon (capture, tasks, pending result) so a
     /// "did the world move on?" check is `current === session`, not a token.
@@ -870,7 +878,8 @@ final class PanelController {
     /// ask. A nil result (disabled/unauthorized/empty) leaves the field nil.
     private func attachCalendarContext() {
         let myCounter = sessionCounter
-        Task { @MainActor [weak self] in
+        calendarAttachSession = myCounter
+        calendarAttachTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let cal = await self.contextProbe.readCalendarOffMain()
             guard self.sessionCounter == myCounter, let cal else { return }
@@ -886,9 +895,32 @@ final class PanelController {
     func askSubmitted(_ question: String) {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // A hover/menu ask entry may still be reading calendar off-main
+        // (attachCalendarContext). If so — and it's THIS session's read — await it
+        // before snapshotting, so a fast submit doesn't race past and stream/persist
+        // the ask without the calendar context the user expects (ADR 0012 always-on).
+        // The hotkey .ask path tags no current-session read (calendar arrives
+        // synchronously via ContextProbe.capture), so submit stays synchronous there.
+        if let pending = calendarAttachTask, calendarAttachSession == sessionCounter {
+            let submitSession = sessionCounter
+            Task { @MainActor [weak self] in
+                await pending.value
+                // Re-check after the await: if the user dismissed and opened a new
+                // panel while the calendar read was finishing, sessionCounter has
+                // moved on — drop this stale submit so the old question can't stream
+                // into the new session (Codex review HIGH).
+                guard let self, self.sessionCounter == submitSession else { return }
+                self.finishAskSubmit(trimmed)
+            }
+        } else {
+            finishAskSubmit(trimmed)
+        }
+    }
+
+    private func finishAskSubmit(_ question: String) {
         let withSel = (askContext.selection?.isEmpty == false)
-        let action = Action.ask(question: trimmed, withSelection: withSel)
-        let context = askContext   // snapshot at submit time
+        let action = Action.ask(question: question, withSelection: withSel)
+        let context = askContext   // snapshot after any pending calendar read landed
         startAskStream(action: action, context: context)
     }
 
