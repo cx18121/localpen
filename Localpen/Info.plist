@@ -24,8 +24,6 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Localpen reads your calendar on-device to give your writing assistant schedule context. It never edits your calendar, and your data never leaves this Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Localpen.</string>
 	<key>NSQuitAlwaysKeepsWindows</key>

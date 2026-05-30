@@ -12,12 +12,11 @@ struct GeneralSettingsView: View {
     // out-of-app change (System Settings > Login Items) reflects when reopened.
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
-    // Calendar context (ADR 0012). `calendarEnabled` is the user's intent;
-    // `calendarAuthorized` mirrors the OS grant so the footer can guide the user
-    // to System Settings when they enabled it but the grant is missing.
+    // Calendar context (ADR 0013): an opt-in toggle + the user's secret iCal feed
+    // URL(s). No system permission — Localpen reads the read-only feed directly,
+    // because macOS won't grant EventKit/TCC to this non-notarized app.
     @State private var calendarEnabled = CalendarAccess.isEnabled
-    @State private var calendarAuthorized = CalendarAccess.isAuthorized
-    @State private var calendarDenied = CalendarAccess.isDeniedOrRestricted
+    @State private var calendarURLs = CalendarAccess.icsURLsText
 
     var body: some View {
         Form {
@@ -31,6 +30,22 @@ struct GeneralSettingsView: View {
 
             Section {
                 Toggle("Use calendar context", isOn: $calendarEnabled)
+                if calendarEnabled {
+                    VStack(alignment: .leading, spacing: Spacing.s2) {
+                        Text("Secret iCal feed URL — one per line for multiple calendars")
+                            .font(Typography.subhead)
+                            .foregroundStyle(Tokens.textMute)
+                        TextEditor(text: $calendarURLs)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(height: 58)
+                            .scrollContentBackground(.hidden)
+                            .padding(4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
+                                    .stroke(Tokens.textFaint.opacity(0.4), lineWidth: 1)
+                            )
+                    }
+                }
             } header: {
                 Text("Calendar")
             } footer: {
@@ -51,42 +66,26 @@ struct GeneralSettingsView: View {
         }
         .onChange(of: calendarEnabled) { _, newValue in
             CalendarAccess.isEnabled = newValue
-            // Request the OS grant the first time it's switched on. macOS can only
-            // prompt from .notDetermined; if already .denied the user must fix it in
-            // System Settings (the footer says so). The completion is on an arbitrary
-            // queue — hop to the main actor before touching view state.
-            if newValue, !CalendarAccess.isAuthorized, !CalendarAccess.isDeniedOrRestricted {
-                CalendarAccess.requestAccess { _ in
-                    Task { @MainActor in refreshCalendarStatus() }
-                }
-            }
-            refreshCalendarStatus()
+            if newValue { CalendarAccess.refreshNow() }
+        }
+        .onChange(of: calendarURLs) { _, newValue in
+            CalendarAccess.icsURLsText = newValue
+            if calendarEnabled { CalendarAccess.refreshNow() }
         }
         .onAppear {
             launchAtLogin = LaunchAtLogin.isEnabled
-            refreshCalendarStatus()
+            calendarEnabled = CalendarAccess.isEnabled
+            calendarURLs = CalendarAccess.icsURLsText
         }
-        // Returning from System Settings (where the user may have just granted or
-        // revoked calendar access) reactivates the app — re-read the live status so
-        // the footer guidance can't go stale while this window stays open.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshCalendarStatus()
-        }
-    }
-
-    private func refreshCalendarStatus() {
-        calendarEnabled = CalendarAccess.isEnabled
-        calendarAuthorized = CalendarAccess.isAuthorized
-        calendarDenied = CalendarAccess.isDeniedOrRestricted
     }
 
     private var calendarFooter: String {
-        if calendarEnabled && calendarDenied {
-            return "Calendar access is turned off in macOS. Open System Settings → Privacy & Security → Calendars and allow Localpen, then toggle this off and on."
+        if calendarEnabled && CalendarAccess.icsURLs.isEmpty {
+            return "Paste your calendar's read-only iCal URL above. In Google Calendar: Settings → your calendar → Integrate calendar → “Secret address in iCal format”. Localpen fetches it directly (read-only); it goes to your calendar provider, not anywhere else."
         }
-        if calendarEnabled && calendarAuthorized {
-            return "On. Your next 7 days (titles, times, locations — never edited) ride along as a removable context chip on each ask. Read-only; nothing leaves this Mac."
+        if calendarEnabled {
+            return "On. Your next 7 days (titles, times, locations) ride along as a removable context chip on each ask. Read-only; refreshed every few minutes. Keep these URLs private — they grant read access to your calendar."
         }
-        return "Let the assistant see your upcoming schedule as context on asks. Read-only — Localpen never edits your calendar, and nothing leaves this Mac."
+        return "Let the assistant see your upcoming schedule as context on asks. Uses a read-only iCal feed URL (no macOS calendar permission needed)."
     }
 }

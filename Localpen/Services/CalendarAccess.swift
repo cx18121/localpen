@@ -1,56 +1,53 @@
-import EventKit
 import Foundation
-import os
 
-/// Calendar-context permission + enable gate (ADR 0012). Two independent facts
-/// combine into `isActive`, the single synchronous gate the hotkey hot path
-/// consults via `ContextProbe`:
-///
-/// 1. `isEnabled` — the user's Settings toggle (off by default), backed by
-///    UserDefaults. Flipping it off stops calendar injection immediately, even
-///    if the system grant is still in place.
-/// 2. the EventKit authorization status — must be `.fullAccess` (macOS 14 ships
-///    no read-only grant; full access is required just to *read* events).
-///
-/// Read-only is an app-layer guarantee: nothing here (or in `SystemCalendarReader`)
-/// ever calls a write API.
+/// Calendar-context configuration (ADR 0013): the user's opt-in toggle plus their
+/// secret iCal feed URL(s). There is NO system (EventKit/TCC) permission — macOS
+/// won't grant Calendar to this locally-built, non-notarized app, so Localpen
+/// reads the user's own read-only iCal feed directly over HTTPS. This relaxes the
+/// local-only principle for the calendar source (the fetch goes to the user's
+/// calendar provider); see ADR 0013. `isActive` is the hot-path gate the probe
+/// consults via `ContextProbe.isCalendarAuthorized`.
 enum CalendarAccess {
-    private static let log = Logger(subsystem: "app.localpen.Localpen", category: "CalendarAccess")
     private static let enabledKey = "calendarContextEnabled"
+    private static let urlsKey = "calendarICSURLs"
 
-    /// The user's Settings toggle. Default false — the feature does nothing until
-    /// turned on once (which is also where the system prompt is triggered).
+    /// The user's Settings toggle. Default false — off until configured.
     static var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: enabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
     }
 
-    static var authorizationStatus: EKAuthorizationStatus {
-        EKEventStore.authorizationStatus(for: .event)
+    /// Raw text the user pasted into Settings — one secret iCal feed URL per line.
+    static var icsURLsText: String {
+        get { UserDefaults.standard.string(forKey: urlsKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: urlsKey) }
     }
 
-    /// OS grant is in place (read via full access — macOS 14 has no read-only).
-    static var isAuthorized: Bool { authorizationStatus == .fullAccess }
-
-    /// The user must fix this in System Settings; macOS won't let us re-prompt.
-    static var isDeniedOrRestricted: Bool {
-        authorizationStatus == .denied || authorizationStatus == .restricted
+    /// Parsed, valid feed URLs. `webcal://` is normalized to `https://` (Google
+    /// hands out either). Only http(s) feeds are accepted.
+    static var icsURLs: [URL] {
+        icsURLsText
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .compactMap { raw -> URL? in
+                let normalized = raw.hasPrefix("webcal://")
+                    ? "https://" + raw.dropFirst("webcal://".count)
+                    : raw
+                return URL(string: normalized)
+            }
+            .filter { $0.scheme == "https" || $0.scheme == "http" }
     }
 
-    /// The hot-path gate: calendar context is read ONLY when the user enabled it
-    /// AND the OS granted access. Cheap + synchronous (no store I/O).
-    static var isActive: Bool {
-        isEnabled && isAuthorized
-    }
+    /// Hot-path gate: read calendar context only when enabled AND at least one
+    /// feed URL is configured. Cheap + synchronous (no network).
+    static var isActive: Bool { isEnabled && !icsURLs.isEmpty }
 
-    /// Lazily request read access (macOS 14 has no read-only grant, so this asks
-    /// for full access — we only ever read). Triggered once from the Settings
-    /// toggle, never on launch or in the ask path. The completion fires on an
-    /// arbitrary queue, so callers must hop to the main actor before touching UI.
-    static func requestAccess(_ completion: @escaping @Sendable (Bool) -> Void) {
-        EKEventStore().requestFullAccessToEvents { granted, error in
-            if let error { log.error("calendar access request failed: \(error.localizedDescription)") }
-            completion(granted)
-        }
+    /// Kick a background cache refresh (called on launch and when the config
+    /// changes) so the chip is warm before the next ask. No-op when not configured.
+    static func refreshNow() {
+        let urls = icsURLs
+        guard !urls.isEmpty else { return }
+        Task { await ICSCalendarCache.shared.refresh(urls: urls) }
     }
 }

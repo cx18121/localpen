@@ -1,10 +1,9 @@
 import Foundation
-import EventKit
 
 /// A calendar event reduced to exactly the fields Localpen injects as context.
-/// Pure value type with no EventKit dependency so the formatter is unit-testable
-/// without a real `EKEventStore` (ADR 0012). `SystemCalendarReader` maps `EKEvent`
-/// into this; everything downstream sees only this shape.
+/// Source-agnostic value type (ADR 0013): `ICSParser` maps iCal VEVENTs into this,
+/// and everything downstream (the formatter, chip, prompt line) sees only this
+/// shape — so the source can change without touching the renderer.
 struct CalendarEvent: Equatable {
     let title: String
     let start: Date
@@ -15,8 +14,8 @@ struct CalendarEvent: Equatable {
 
 /// Formats upcoming events into the single `calendar:` context line (ADR 0012):
 /// rolling window, grouped by day, titles + times + locations, capped with a
-/// `(+N more)` suffix. Pure and deterministic given `now` + `calendar`, so the
-/// EventKit boundary never enters a test.
+/// `(+N more)` suffix. Pure and deterministic given `now` + `calendar`, so it's
+/// fully unit-testable independent of where the events came from.
 enum CalendarFormatter {
     /// Cap on events rendered into the prompt. The 7-day window can surface many
     /// events; past this the line is noise on a 7B local model, so the rest fold
@@ -95,29 +94,7 @@ enum CalendarFormatter {
     }
 }
 
-/// Production `CalendarReading`: fetches events in a rolling 7-day window through
-/// a fresh `EKEventStore` and formats them. READ-ONLY by construction — only
-/// `predicateForEvents` + `events(matching:)` are ever called; there is no path
-/// to `save`/`remove` (ADR 0012). `Sendable` so it can run in the probe's
-/// off-main detached step; it holds no mutable state and builds its store per call.
-struct SystemCalendarReader: ContextProbe.CalendarReading {
-    /// Rolling window length. 7 days per ADR 0012's user-chosen scope.
-    static let windowDays = 7
-
-    func upcomingContext() -> String? {
-        let now = Date()
-        let store = EKEventStore()
-        guard let end = Calendar.current.date(byAdding: .day, value: Self.windowDays, to: now) else {
-            return nil
-        }
-        let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
-        let events = store.events(matching: predicate).map {
-            CalendarEvent(title: $0.title ?? "",
-                          start: $0.startDate,
-                          end: $0.endDate,
-                          isAllDay: $0.isAllDay,
-                          location: $0.location)
-        }
-        return CalendarFormatter.format(events, now: now)
-    }
-}
+// The production CalendarReading is `ICSCalendarReader` (ICSCalendarReader.swift):
+// EventKit can't get a TCC grant for this non-notarized app on macOS 26, so the
+// calendar source reads the user's iCal feed directly (ADR 0013). CalendarEvent +
+// CalendarFormatter above are the shared, source-agnostic value type + renderer.
