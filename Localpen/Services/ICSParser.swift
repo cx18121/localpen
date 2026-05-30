@@ -198,7 +198,14 @@ enum ICSParser {
             return weekdaySlots(inWeekOf: cursor, weekdays: rule.byDays.map(\.weekday),
                                 time: time, calendar: calendar)
         case .monthly:
-            return monthlyOccurrences(inMonthOf: cursor, rule: rule, time: time, calendar: calendar) ?? [cursor]
+            if let occ = monthlyOccurrences(inMonthOf: cursor, rule: rule, time: time, calendar: calendar) {
+                return occ
+            }
+            // No BY-rule: DTSTART's day-of-month in the cursor's month, skipping
+            // months that lack that day — NEVER the clamped/compounded cursor day
+            // (`byAdding:.month` drifts Jan 31 → Feb 28 → Mar 28…) (Codex review).
+            let monthDay = calendar.component(.day, from: anchor)
+            return monthDaySlot(inMonthOf: cursor, day: monthDay, time: time, calendar: calendar).map { [$0] } ?? []
         case .yearly:
             // Restrict to BYMONTH (or DTSTART's month), then apply the month
             // BY-rules — covers holiday-style "BYMONTH=11;BYDAY=4TH".
@@ -214,8 +221,9 @@ enum ICSParser {
                 }
             }
             if hadByRule { return out.sorted() }
-            // No day/monthday BY-rule → DTSTART's day in each target month.
-            if rule.byMonths.isEmpty { return [cursor] }
+            // No day/monthday BY-rule → DTSTART's day in each target month (its own
+            // month when no BYMONTH), skipping invalid days (e.g. Feb 29 in a
+            // non-leap year) rather than drifting via the clamped cursor (Codex review).
             let day = calendar.component(.day, from: anchor)
             return months.compactMap { m -> Date? in
                 guard let ref = calendar.date(from: DateComponents(year: year, month: m, day: 1)) else { return nil }
