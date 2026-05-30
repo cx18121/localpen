@@ -34,8 +34,12 @@ final class ICSCalendarCache: @unchecked Sendable {
     /// are dropped so an ask can't show the previous calendar (Codex review MED).
     func refresh(urls: [URL], calendar: Calendar = .current) async {
         let proceed: Bool = lock.withLock {
-            if fetching { pending = urls; return false }
-            if urls != currentURLs { events = []; lastFetch = nil }   // drop stale on URL change
+            if fetching {
+                pending = urls
+                if urls != currentURLs { events = []; lastFetch = nil }   // hide stale until the rerun
+                return false
+            }
+            if urls != currentURLs { events = []; lastFetch = nil }       // drop stale on URL change
             fetching = true
             return true
         }
@@ -45,16 +49,22 @@ final class ICSCalendarCache: @unchecked Sendable {
         while true {
             let fetched = await fetchAndParse(toFetch, calendar: calendar)
             let rerun: [URL]? = lock.withLock {
+                if let p = pending, p != toFetch {
+                    // URLs changed mid-fetch: these results are stale — discard them
+                    // (do NOT publish) and go fetch the latest set instead.
+                    pending = nil
+                    events = []
+                    lastFetch = nil
+                    return p
+                }
                 events = fetched
                 lastFetch = Date()
                 currentURLs = toFetch
-                if let p = pending, p != toFetch { pending = nil; return p }
                 pending = nil
                 fetching = false
                 return nil
             }
             guard let next = rerun else { break }
-            lock.withLock { events = []; lastFetch = nil }   // drop stale before re-fetch
             toFetch = next
         }
     }

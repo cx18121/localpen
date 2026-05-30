@@ -31,6 +31,7 @@ struct RRule: Equatable {
     var until: Date? = nil
     var byDays: [ByDay] = []
     var byMonthDays: [Int] = []
+    var byMonths: [Int] = []
 }
 
 enum ICSParser {
@@ -141,14 +142,19 @@ enum ICSParser {
                                     calendar: Calendar) -> [Date] {
         var result: [Date] = []
         var produced = 0
+        let duration = max(0, e.end.timeIntervalSince(e.start))
+        // One occurrence per period ⇒ skipped-period count == skipped-occurrence
+        // count, so fast-forward is exact even with COUNT.
+        let singlePerPeriod = rule.byDays.isEmpty && rule.byMonthDays.isEmpty && rule.byMonths.count <= 1
 
-        // Without COUNT we can jump the cursor close to `from` so an ancient
-        // weekly/daily series still reaches the window within the cap (Codex
-        // review MED). With COUNT, occurrence ordinality matters, so we must count
-        // from DTSTART.
+        // Jump the cursor near `from` so an ancient series still reaches the window
+        // within the cap (Codex review MED). Safe with COUNT only when single per
+        // period — then the skipped occurrences are accounted into `produced`.
         var cursor = e.start
-        if rule.count == nil {
-            cursor = fastForward(from: e.start, toward: from, rule: rule, calendar: calendar)
+        if rule.count == nil || singlePerPeriod {
+            let (jumped, skipped) = fastForward(from: e.start, toward: from, rule: rule, calendar: calendar)
+            cursor = jumped
+            if rule.count != nil { produced = skipped }
         }
 
         var iterations = 0
@@ -160,7 +166,10 @@ enum ICSParser {
                 if let until = rule.until, occ > until { return result }
                 if let count = rule.count, produced >= count { return result }
                 produced += 1
-                if occ >= from && occ < to { result.append(occ) }
+                // Interval intersection (not just start ≥ from), so an all-day or
+                // long occurrence that began before `from` but still covers it is
+                // included — e.g. a birthday at midnight is shown all day (Codex MED).
+                if occ.addingTimeInterval(duration) > from && occ < to { result.append(occ) }
             }
 
             if cursor >= to { break }
@@ -184,29 +193,57 @@ enum ICSParser {
             return weekdaySlots(inWeekOf: cursor, weekdays: rule.byDays.map(\.weekday),
                                 time: time, calendar: calendar)
         case .monthly:
-            if !rule.byMonthDays.isEmpty {
-                return rule.byMonthDays.compactMap {
-                    monthDaySlot(inMonthOf: cursor, day: $0, time: time, calendar: calendar)
-                }.sorted()
-            }
-            if !rule.byDays.isEmpty {
-                return rule.byDays.flatMap {
-                    monthWeekdaySlots(inMonthOf: cursor, byDay: $0, time: time, calendar: calendar)
-                }.sorted()
-            }
-            return [cursor]
+            return monthlyOccurrences(inMonthOf: cursor, rule: rule, time: time, calendar: calendar) ?? [cursor]
         case .yearly:
-            // BY-rules on YEARLY are vanishingly rare; the plain "same date each
-            // year" case (advance-by-year on DTSTART) is what we support.
-            return [cursor]
+            // Restrict to BYMONTH (or DTSTART's month), then apply the month
+            // BY-rules — covers holiday-style "BYMONTH=11;BYDAY=4TH".
+            let year = calendar.component(.year, from: cursor)
+            let months = rule.byMonths.isEmpty ? [calendar.component(.month, from: anchor)] : rule.byMonths
+            var out: [Date] = []
+            var hadByRule = false
+            for m in months {
+                guard let ref = calendar.date(from: DateComponents(year: year, month: m, day: 1)) else { continue }
+                if let occ = monthlyOccurrences(inMonthOf: ref, rule: rule, time: time, calendar: calendar) {
+                    hadByRule = true
+                    out.append(contentsOf: occ)
+                }
+            }
+            if hadByRule { return out.sorted() }
+            // No day/monthday BY-rule → DTSTART's day in each target month.
+            if rule.byMonths.isEmpty { return [cursor] }
+            let day = calendar.component(.day, from: anchor)
+            return months.compactMap { m -> Date? in
+                guard let ref = calendar.date(from: DateComponents(year: year, month: m, day: 1)) else { return nil }
+                return monthDaySlot(inMonthOf: ref, day: day, time: time, calendar: calendar)
+            }.sorted()
         }
     }
 
+    /// Occurrences within the month containing `ref`, driven by BYMONTHDAY or
+    /// ordinal BYDAY. Returns nil when neither is set (caller picks the plain
+    /// behavior). Shared by MONTHLY and YEARLY.
+    private static func monthlyOccurrences(inMonthOf ref: Date, rule: RRule,
+                                           time: DateComponents, calendar: Calendar) -> [Date]? {
+        if !rule.byMonthDays.isEmpty {
+            return rule.byMonthDays.compactMap {
+                monthDaySlot(inMonthOf: ref, day: $0, time: time, calendar: calendar)
+            }.sorted()
+        }
+        if !rule.byDays.isEmpty {
+            return rule.byDays.flatMap {
+                monthWeekdaySlots(inMonthOf: ref, byDay: $0, time: time, calendar: calendar)
+            }.sorted()
+        }
+        return nil
+    }
+
     /// Jump from `start` to one period before `from`, so iteration reaches the
-    /// window quickly. Returns `start` when it's already at/after `from`.
+    /// window quickly. Returns `(start, 0)` when already at/after `from`; the Int
+    /// is the number of whole periods skipped (== occurrences skipped when the
+    /// rule yields one occurrence per period).
     private static func fastForward(from start: Date, toward target: Date,
-                                    rule: RRule, calendar: Calendar) -> Date {
-        guard target > start else { return start }
+                                    rule: RRule, calendar: Calendar) -> (cursor: Date, skipped: Int) {
+        guard target > start else { return (start, 0) }
         let unit: Calendar.Component
         let perStepDays: Int?
         switch rule.freq {
@@ -215,17 +252,16 @@ enum ICSParser {
         case .monthly: unit = .month; perStepDays = nil
         case .yearly:  unit = .year;  perStepDays = nil
         }
-        let steps: Int
         if let perStepDays, perStepDays > 0 {
             let days = calendar.dateComponents([.day], from: start, to: target).day ?? 0
-            steps = max(0, days / perStepDays - 1)
+            let steps = max(0, days / perStepDays - 1)
             var comp = DateComponents(); comp.day = steps * perStepDays
-            return calendar.date(byAdding: comp, to: start) ?? start
+            return (calendar.date(byAdding: comp, to: start) ?? start, steps)
         } else {
             let units = calendar.dateComponents([unit], from: start, to: target).value(for: unit) ?? 0
-            steps = max(0, units / rule.interval - 1)
+            let steps = max(0, units / rule.interval - 1)
             var comp = DateComponents(); comp.setValue(steps * rule.interval, for: unit)
-            return calendar.date(byAdding: comp, to: start) ?? start
+            return (calendar.date(byAdding: comp, to: start) ?? start, steps)
         }
     }
 
@@ -394,6 +430,9 @@ enum ICSParser {
         }
         if let bymd = parts["BYMONTHDAY"] {
             rule.byMonthDays = bymd.split(separator: ",").compactMap { Int($0) }
+        }
+        if let bymo = parts["BYMONTH"] {
+            rule.byMonths = bymo.split(separator: ",").compactMap { Int($0) }
         }
         return rule
     }
