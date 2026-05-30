@@ -45,10 +45,11 @@ enum CalendarAccess {
     static var isActive: Bool { isEnabled && !icsURLs.isEmpty }
 
     /// Kick a background cache refresh (called on launch and when the config
-    /// changes) so the chip is warm before the next ask. No-op when not configured.
+    /// changes) so the chip is warm before the next ask. Gated on `isActive`
+    /// (enabled AND has a URL): with the toggle OFF we must NOT fetch the feed,
+    /// even if a URL is still saved (Codex review HIGH — opt-in/privacy gate).
     static func refreshNow() {
-        let urls = icsURLs
-        guard !urls.isEmpty else { return }
-        Task { await ICSCalendarCache.shared.refresh(urls: urls) }
+        guard isActive else { return }
+        Task { await ICSCalendarCache.shared.refresh(urls: icsURLs) }
     }
 }
