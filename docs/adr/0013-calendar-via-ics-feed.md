@@ -43,3 +43,7 @@ The alternative that preserves strict local-only (EventKit) is unavailable here 
 - **Staleness window.** Up to a 10-minute TTL plus the user's provider sync lag; the chip is a point-in-time snapshot (consistent with ADR 0012's single-capture note).
 - **Multiple calendars** are supported (one feed URL per line; events merged), serving the user's several Google accounts.
 - **No EventKit dependency** — smaller TCC surface (Localpen now only ever prompts for Accessibility).
+
+## Known limitations (accepted)
+
+The parser targets a personal calendar's 7-day context, not full RFC 5545. Supported: DTSTART/DTEND (TZID/UTC/floating/all-day), SUMMARY/LOCATION, EXDATE, STATUS:CANCELLED, and RRULE FREQ DAILY/WEEKLY/MONTHLY/YEARLY with INTERVAL, COUNT, UNTIL, BYDAY (incl. ordinals), BYMONTHDAY, BYMONTH. Deliberately **not** modeled (rare in personal feeds; would show a slightly-off or missing occurrence, never a crash): `RECURRENCE-ID` single-instance overrides, `RDATE`, `BYSETPOS`, non-default `WKST`, and DST-shift handling within an expanded series. Each is a low-frequency fidelity gap on a context hint, revisitable if it bites. Transient feed failures keep the last-good per-feed cache rather than blanking the calendar.

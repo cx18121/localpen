@@ -52,16 +52,19 @@ enum ICSParser {
         var isAllDay = false
         var rrule: RRule?
         var exdates: [Date] = []
+        var status: String?
 
         func reset() {
             summary = nil; location = nil; start = nil; end = nil
-            isAllDay = false; rrule = nil; exdates = []
+            isAllDay = false; rrule = nil; exdates = []; status = nil
         }
 
         for line in lines {
             if line == "BEGIN:VEVENT" { inEvent = true; reset(); continue }
             if line == "END:VEVENT" {
-                if let s = start {
+                // Skip canceled events (STATUS:CANCELLED) — a canceled meeting must
+                // not show in the context as if active (Codex review MED).
+                if let s = start, status != "CANCELLED" {
                     // RFC 5545: a DATE DTSTART with no DTEND defaults to a 1-day
                     // duration; a DATE-TIME with no DTEND is a zero-length (point)
                     // event. Without the all-day default, a today all-day event
@@ -95,6 +98,8 @@ enum ICSParser {
                 if let parsed = parseDate(value, params: params, calendar: calendar) {
                     end = parsed.date
                 }
+            case "STATUS":
+                status = value.uppercased()
             case "RRULE":
                 rrule = parseRRule(value, calendar: calendar)
             case "EXDATE":

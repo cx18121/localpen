@@ -1,45 +1,56 @@
 import Foundation
 import os
 
-/// Thread-safe cache of parsed VEVENTs from the user's ICS feed(s). The network
-/// GET is the slow part, so it's cached + refreshed on a TTL; expansion to the
-/// next-7-days window happens fresh at read time (relative to `now`), so a
-/// long-lived cache still produces correct day labels. `@unchecked Sendable`:
-/// all mutable state is guarded by `lock`.
+/// Thread-safe, per-feed cache of parsed VEVENTs from the user's ICS feed(s).
+/// The network GET is the slow part, so it's cached + refreshed on a TTL;
+/// expansion to the next-7-days window happens fresh at read time (relative to
+/// `now`). `@unchecked Sendable`: all mutable state is guarded by `lock`.
+///
+/// Per-feed last-good (Codex review): a transient HTTP failure on one feed must
+/// NOT erase that feed's events (we keep the last good parse), and a failure on
+/// one feed must not affect another feed's events.
 final class ICSCalendarCache: @unchecked Sendable {
+    /// Returns parsed events for a feed, or nil on failure (network error / non-2xx).
+    typealias Fetcher = @Sendable (URL) async -> [ICSEvent]?
+
     static let shared = ICSCalendarCache()
 
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "ICSCalendar")
     private let lock = NSLock()
-    private var events: [ICSEvent] = []
-    private var lastFetch: Date?
+    private let fetch: Fetcher
+    private var eventsByURL: [URL: [ICSEvent]] = [:]   // last-good parse per feed
+    private var lastSuccess: Date?
     private var currentURLs: [URL] = []
     private var fetching = false
     private var pending: [URL]?
 
-    func snapshot() -> [ICSEvent] { lock.withLock { events } }
+    init(fetch: @escaping Fetcher = ICSCalendarCache.defaultFetch) {
+        self.fetch = fetch
+    }
 
+    /// Events for exactly the currently-configured feeds (removed feeds drop out
+    /// immediately, even mid-refresh, because we filter by `currentURLs`).
+    func snapshot() -> [ICSEvent] {
+        lock.withLock { currentURLs.flatMap { eventsByURL[$0] ?? [] } }
+    }
+
+    /// Stale when no successful fetch yet, or the last success is older than TTL.
+    /// Keys on success — a run that failed every feed stays stale so we retry.
     func isStale(ttlSeconds: TimeInterval, now: Date) -> Bool {
         lock.withLock {
-            guard let last = lastFetch else { return true }
+            guard let last = lastSuccess else { return true }
             return now.timeIntervalSince(last) > ttlSeconds
         }
     }
 
-    /// GET every configured feed, parse, and replace the cache. READ-ONLY: only
-    /// URLSession GETs happen — no write path to any calendar.
-    ///
-    /// Single-flight, but NOT lossy: if the feed URLs change while a fetch is in
-    /// flight, the new set is queued and re-fetched after, and the stale events
-    /// are dropped so an ask can't show the previous calendar (Codex review MED).
-    func refresh(urls: [URL], calendar: Calendar = .current) async {
+    /// GET every configured feed, parse, and update per-feed caches. READ-ONLY:
+    /// only GETs happen. Single-flight; a feed-URL change mid-fetch is queued and
+    /// re-run, and `snapshot()` filtering by `currentURLs` means stale/removed
+    /// feeds never surface during the change.
+    func refresh(urls: [URL]) async {
         let proceed: Bool = lock.withLock {
-            if fetching {
-                pending = urls
-                if urls != currentURLs { events = []; lastFetch = nil }   // hide stale until the rerun
-                return false
-            }
-            if urls != currentURLs { events = []; lastFetch = nil }       // drop stale on URL change
+            currentURLs = urls
+            if fetching { pending = urls; return false }
             fetching = true
             return true
         }
@@ -47,43 +58,46 @@ final class ICSCalendarCache: @unchecked Sendable {
 
         var toFetch = urls
         while true {
-            let fetched = await fetchAndParse(toFetch, calendar: calendar)
-            let rerun: [URL]? = lock.withLock {
-                if let p = pending, p != toFetch {
-                    // URLs changed mid-fetch: these results are stale — discard them
-                    // (do NOT publish) and go fetch the latest set instead.
-                    pending = nil
-                    events = []
-                    lastFetch = nil
-                    return p
+            var anySuccess = false
+            for url in toFetch {
+                if let parsed = await fetch(url) {
+                    lock.withLock { eventsByURL[url] = parsed }
+                    anySuccess = true
                 }
-                events = fetched
-                lastFetch = Date()
-                currentURLs = toFetch
+                // On failure: keep this feed's last-good events (do nothing).
+            }
+            let next: [URL]? = lock.withLock {
+                if anySuccess { lastSuccess = Date() }
+                eventsByURL = eventsByURL.filter { currentURLs.contains($0.key) }   // drop removed feeds
+                if let p = pending, p != toFetch { pending = nil; return p }
                 pending = nil
                 fetching = false
                 return nil
             }
-            guard let next = rerun else { break }
-            toFetch = next
+            guard let n = next else { break }
+            toFetch = n
         }
     }
 
-    private func fetchAndParse(_ urls: [URL], calendar: Calendar) async -> [ICSEvent] {
-        var merged: [ICSEvent] = []
-        for url in urls {
-            do {
-                var req = URLRequest(url: url)
-                req.timeoutInterval = 12
-                req.httpMethod = "GET"
-                let (data, _) = try await URLSession.shared.data(for: req)
-                merged.append(contentsOf: ICSParser.parse(String(decoding: data, as: UTF8.self),
-                                                          calendar: calendar))
-            } catch {
-                log.error("ICS feed fetch failed: \(error.localizedDescription, privacy: .public)")
+    /// Default production fetcher: HTTPS GET, require a 2xx status, parse with the
+    /// current calendar. Returns nil on any error / non-2xx so the cache keeps the
+    /// feed's last good events instead of blanking it.
+    static let defaultFetch: Fetcher = { url in
+        let log = Logger(subsystem: "app.localpen.Localpen", category: "ICSCalendar")
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 12
+            req.httpMethod = "GET"
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                log.error("ICS feed non-2xx: \((response as? HTTPURLResponse)?.statusCode ?? -1, privacy: .public)")
+                return nil
             }
+            return ICSParser.parse(String(decoding: data, as: UTF8.self), calendar: .current)
+        } catch {
+            log.error("ICS feed fetch failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
-        return merged
     }
 }
 
