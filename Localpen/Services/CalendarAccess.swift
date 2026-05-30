@@ -24,7 +24,8 @@ enum CalendarAccess {
     }
 
     /// Parsed, valid feed URLs. `webcal://` is normalized to `https://` (Google
-    /// hands out either). Only http(s) feeds are accepted.
+    /// hands out either). HTTPS-only: the feed URL is a read credential, so we
+    /// never fetch it over plaintext http (Codex review HIGH).
     static var icsURLs: [URL] {
         icsURLsText
             .split(whereSeparator: \.isNewline)
@@ -36,7 +37,7 @@ enum CalendarAccess {
                     : raw
                 return URL(string: normalized)
             }
-            .filter { $0.scheme == "https" || $0.scheme == "http" }
+            .filter { $0.scheme?.lowercased() == "https" }
     }
 
     /// Hot-path gate: read calendar context only when enabled AND at least one

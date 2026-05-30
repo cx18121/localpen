@@ -13,7 +13,9 @@ final class ICSCalendarCache: @unchecked Sendable {
     private let lock = NSLock()
     private var events: [ICSEvent] = []
     private var lastFetch: Date?
+    private var currentURLs: [URL] = []
     private var fetching = false
+    private var pending: [URL]?
 
     func snapshot() -> [ICSEvent] { lock.withLock { events } }
 
@@ -24,18 +26,40 @@ final class ICSCalendarCache: @unchecked Sendable {
         }
     }
 
-    /// GET every configured feed, parse, and replace the cache. Coalesces
-    /// concurrent calls so a burst of asks triggers only one fetch. READ-ONLY:
-    /// only URLSession GETs happen here — there is no write path to any calendar.
+    /// GET every configured feed, parse, and replace the cache. READ-ONLY: only
+    /// URLSession GETs happen — no write path to any calendar.
+    ///
+    /// Single-flight, but NOT lossy: if the feed URLs change while a fetch is in
+    /// flight, the new set is queued and re-fetched after, and the stale events
+    /// are dropped so an ask can't show the previous calendar (Codex review MED).
     func refresh(urls: [URL], calendar: Calendar = .current) async {
-        let alreadyFetching = lock.withLock { () -> Bool in
-            if fetching { return true }
+        let proceed: Bool = lock.withLock {
+            if fetching { pending = urls; return false }
+            if urls != currentURLs { events = []; lastFetch = nil }   // drop stale on URL change
             fetching = true
-            return false
+            return true
         }
-        if alreadyFetching { return }
-        defer { lock.withLock { fetching = false } }
+        guard proceed else { return }
 
+        var toFetch = urls
+        while true {
+            let fetched = await fetchAndParse(toFetch, calendar: calendar)
+            let rerun: [URL]? = lock.withLock {
+                events = fetched
+                lastFetch = Date()
+                currentURLs = toFetch
+                if let p = pending, p != toFetch { pending = nil; return p }
+                pending = nil
+                fetching = false
+                return nil
+            }
+            guard let next = rerun else { break }
+            lock.withLock { events = []; lastFetch = nil }   // drop stale before re-fetch
+            toFetch = next
+        }
+    }
+
+    private func fetchAndParse(_ urls: [URL], calendar: Calendar) async -> [ICSEvent] {
         var merged: [ICSEvent] = []
         for url in urls {
             do {
@@ -44,12 +68,12 @@ final class ICSCalendarCache: @unchecked Sendable {
                 req.httpMethod = "GET"
                 let (data, _) = try await URLSession.shared.data(for: req)
                 merged.append(contentsOf: ICSParser.parse(String(decoding: data, as: UTF8.self),
-                                                           calendar: calendar))
+                                                          calendar: calendar))
             } catch {
                 log.error("ICS feed fetch failed: \(error.localizedDescription, privacy: .public)")
             }
         }
-        lock.withLock { events = merged; lastFetch = Date() }
+        return merged
     }
 }
 
@@ -66,9 +90,8 @@ struct ICSCalendarReader: ContextProbe.CalendarReading {
         let now = Date()
         let cache = ICSCalendarCache.shared
         let urls = CalendarAccess.icsURLs
-        // Warm the cache for next time if it's stale; never block this read on it.
         if !urls.isEmpty, cache.isStale(ttlSeconds: Self.ttlSeconds, now: now) {
-            Task { await cache.refresh(urls: urls) }
+            Task { await cache.refresh(urls: urls) }   // warm for next time; don't block this read
         }
         guard let end = Calendar.current.date(byAdding: .day, value: Self.windowDays, to: now) else {
             return nil
