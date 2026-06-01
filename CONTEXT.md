@@ -8,7 +8,9 @@ See also: [PRD.md](./PRD.md), [docs/adr/](./docs/adr/).
 
 ## Surfaces
 
-The user-facing UI is a single `NSPanel`. It hosts two distinct **surfaces**, shipped in stages. "Surface" is the canonical term — not "mode", "view", or "screen".
+The user-facing UI is a single `NSPanel`. It hosts two **surfaces**: the **quick-action surface** (the selection fast-path) and the **hub surface** (the no-selection home, added in the 2026-06-01 brain redesign). "Surface" is the canonical term for these two top-level interaction contexts.
+
+The hub surface is internally divided into **modes** — Ask / KB / People / Capture / Now. "Mode" is the canonical term for a hub area as of 2026-06-01. (This supersedes the earlier rule that banned "mode"; the rename was a deliberate call when the hub was introduced.) The former standalone **conversational surface** is now the **Ask mode** of the hub — same persistent multi-turn behavior, now hosted inside the hub rather than as a separate top-level surface.
 
 ### Quick-action surface
 The Phase 1 surface. Transient. Triggered by global hotkey while text is selected in any app. The panel appears with the captured selection and an action menu. The user picks an action; the model streams a result into the panel; the result pastes back into the source app; the panel dismisses.
