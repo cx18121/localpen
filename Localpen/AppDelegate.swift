@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var hotkey: HotkeyService?
     private var panelController: PanelController?
     private var llamaServer: LlamaServerController?
+    private var brainWatcher: KBWatcher?
     private var firstRunWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var serverStartedForModel: String?
@@ -60,6 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         let contextProbe = ContextProbe()
 
+        // Brain index (ADR 0014): a derived FTS5 index over the Obsidian vault. Optional —
+        // nil if brain.sqlite can't open. ContextEngine self-gates on BrainAccess.isActive,
+        // so injecting it always is safe (off ⇒ byte-identical ask prompt).
+        let brainIndex = try? BrainIndex()
+        let contextEngine = brainIndex.map { ContextEngine(search: KBSearch(dbQueue: $0.dbQueue), index: $0) }
+
         // Build the controller first: the presenter's DynamicNotch eagerly builds
         // its content (PanelView(controller:)) during the presenter's init, so the
         // controller must already exist. Then attach the presenter to the controller.
@@ -71,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             llamaServer: server,
             memory: memory,
             contextProbe: contextProbe,
+            contextEngine: contextEngine,
             openSettings: { [weak self] in self?.openSettings() }
         )
         let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })
@@ -96,6 +104,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // Warm the calendar-context cache at launch so the first ask's chip is
         // populated (ADR 0013). No-op unless the user enabled it + set a feed URL.
         CalendarAccess.refreshNow()
+
+        // Build/refresh the brain index + watch the vault — but only when the user has
+        // opted in (ADR 0014/0015 opt-in gate). Off ⇒ we never read the vault filesystem,
+        // mirroring CalendarAccess.refreshNow's isActive guard.
+        if let brainIndex, BrainAccess.isActive {
+            let root = BrainAccess.vaultRoot
+            Task.detached { await brainIndex.reindexAll(root: root) }
+            let watcher = KBWatcher(index: brainIndex)
+            watcher.start()
+            brainWatcher = watcher
+        }
 
         let coordinator = FirstRunCoordinator(registry: registry)
         firstRunCoordinator = coordinator

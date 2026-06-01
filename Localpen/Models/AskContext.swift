@@ -8,6 +8,8 @@ struct AskContext: Equatable {
     var appLabel: String?    // "Mail · Re: budget Q3" — formatted from probe snapshot
     var selection: String?   // raw text; the chip shows a "N words selected" summary
     var calendar: String?    // formatted upcoming-events line (ADR 0012); chip + `calendar:` prompt line
+    var knowledge: String?   // assembled KB context (ADR 0014); pre-prefixed `kb [Title]: …` lines.
+                             // Built at stream time (query-dependent), not from the probe snapshot.
 
     static let empty = AskContext()
 

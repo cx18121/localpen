@@ -40,3 +40,23 @@ struct BrainConfig: Sendable {
 
     static var `default`: BrainConfig { BrainConfig(vaultRoot: BrainAccess.vaultRoot) }
 }
+
+/// Assembled knowledge context for one ask (ADR 0014). `.text` is the multi-line block
+/// injected into the ask prompt — each line pre-prefixed `kb [Title]: …`. Knowledge-only:
+/// the `calendar:` line is assembled separately by the existing ask path, so the two stay
+/// orthogonal. `.empty` (brain off or nothing relevant) ⇒ no `knowledge` line ⇒ the prompt
+/// is byte-identical to a brain-never-existed ask.
+struct ContextBundle: Sendable, Equatable {
+    let text: String
+    let sources: [Provenance]
+    let approxTokens: Int
+
+    struct Provenance: Sendable, Equatable {
+        let title: String
+        let path: String
+        let reason: Reason
+        enum Reason: String, Sendable { case always, query }
+    }
+
+    static let empty = ContextBundle(text: "", sources: [], approxTokens: 0)
+}

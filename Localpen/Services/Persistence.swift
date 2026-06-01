@@ -211,6 +211,16 @@ final class Persistence {
                 t.add(column: "context_calendar", .text)
             }
         }
+
+        // v6: Knowledge context (ADR 0014). Stored on the THREAD, exactly like
+        // context_calendar — so the assembled KB text replays on resume but stays out
+        // of the interactions export + MemoryAttribution voice/facts inference.
+        // Nullable: writing threads and pre-v6 ask threads leave it NULL.
+        migrator.registerMigration("v6.thread_context_knowledge") { db in
+            try db.alter(table: "threads") { t in
+                t.add(column: "context_knowledge", .text)
+            }
+        }
         try migrator.migrate(queue)
     }
 }

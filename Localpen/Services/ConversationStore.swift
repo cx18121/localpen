@@ -77,18 +77,19 @@ final class ConversationStore {
                             contextSelection: String?,
                             sourceApp: String?,
                             contextCalendar: String? = nil,
+                            contextKnowledge: String? = nil,
                             modelID: String,
                             assistantText: String) async throws -> (threadID: Int64, seedInteractionID: Int64) {
         let now = self.now()
         let title = Self.title(from: question)
         let result: (threadID: Int64, seedInteractionID: Int64) = try await dbQueue.write { db in
-            // `context_calendar` is stored on the THREAD (not the seed Interaction),
-            // so calendar text never enters the interactions export or
-            // MemoryAttribution voice/facts inference (ADR 0012 privacy note).
+            // `context_calendar` / `context_knowledge` are stored on the THREAD (not the
+            // seed Interaction), so that context text never enters the interactions export
+            // or MemoryAttribution voice/facts inference (ADR 0012 / ADR 0014 privacy note).
             try db.execute(sql: """
-                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title, context_calendar)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """, arguments: [now, now, sourceApp, question, title, contextCalendar])
+                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title, context_calendar, context_knowledge)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [now, now, sourceApp, question, title, contextCalendar, contextKnowledge])
             let threadID = db.lastInsertedRowID
             // `selection` carries the chip-attached selection (or nil) so
             // the withSelection flag rehydrates on resume.
@@ -197,7 +198,7 @@ final class ConversationStore {
     func loadSeedAskContext(threadID: Int64) async throws -> AskContext? {
         try await dbQueue.read { db in
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT i.selection AS sel, t.source_app AS app, t.context_calendar AS cal
+                SELECT i.selection AS sel, t.source_app AS app, t.context_calendar AS cal, t.context_knowledge AS kb
                 FROM interactions i
                 JOIN threads t ON t.id = i.thread_id
                 WHERE i.thread_id = ? AND i.action = 'ask'
@@ -206,7 +207,8 @@ final class ConversationStore {
             let sel: String? = row["sel"]
             let app: String? = row["app"]
             let cal: String? = row["cal"]
-            return AskContext(appLabel: app, selection: sel, calendar: cal)
+            let kb: String? = row["kb"]
+            return AskContext(appLabel: app, selection: sel, calendar: cal, knowledge: kb)
         }
     }
 

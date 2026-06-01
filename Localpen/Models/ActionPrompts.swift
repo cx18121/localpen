@@ -116,6 +116,10 @@ enum ActionPrompts {
         var lines: [String] = []
         if let app = context.appLabel { lines.append("app: \(app)") }
         if let sel = context.selection { lines.append("selection: \(sel)") }
+        // Knowledge (ADR 0014) is the richest context and reads naturally before the
+        // calendar/question. Its lines are pre-prefixed "kb [Title]: …" by ContextEngine.
+        // Nil (brain off / nothing relevant) ⇒ no line ⇒ byte-identical prompt.
+        if let kb = context.knowledge { lines.append(kb) }
         if let cal = context.calendar { lines.append("calendar: \(cal)") }
         if lines.isEmpty { return question }
         return "<context>\n" + lines.joined(separator: "\n") + "\n</context>\n\n" + question

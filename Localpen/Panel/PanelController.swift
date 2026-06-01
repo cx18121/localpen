@@ -82,6 +82,9 @@ final class PanelController {
     @ObservationIgnored private weak var llamaServer: LlamaServerController?
     @ObservationIgnored private let memory: MemoryService?
     @ObservationIgnored private let contextProbe: ContextProbe
+    /// Knowledge-context assembler (ADR 0014). nil ⇒ no brain wiring (tests, or the
+    /// brain index couldn't open); the ask prompt is then byte-identical to today's.
+    @ObservationIgnored private let contextEngine: ContextEngine?
     /// Injection seam for the hotkey path's selection capture. Defaults to
     /// the real TextIO; tests override to count calls + simulate timing.
     /// The single-capture invariant is enforced through this closure being
@@ -159,6 +162,7 @@ final class PanelController {
          llamaServer: LlamaServerController?,
          memory: MemoryService? = nil,
          contextProbe: ContextProbe = ContextProbe(),
+         contextEngine: ContextEngine? = nil,
          captureSelection: (@Sendable () async -> TextIO.Capture)? = nil,
          askStreamProvider: AskStreamProvider? = nil,
          isAccessibilityTrusted: (@Sendable () -> Bool)? = nil,
@@ -171,6 +175,7 @@ final class PanelController {
         self.llamaServer = llamaServer
         self.memory = memory
         self.contextProbe = contextProbe
+        self.contextEngine = contextEngine
         self.captureSelection = captureSelection ?? { [textIO] in
             await textIO.captureSelection()
         }
@@ -958,10 +963,20 @@ final class PanelController {
 
         let baseSystemPrompt = registry.systemPrompt(for: action)
         let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
-        let userMessage = ActionPrompts.askUserMessage(question: question, context: context)
 
         session.streamingTask = Task { @MainActor [weak self] in
             guard let self else { return }
+
+            // Assemble the knowledge bundle now — relevance is query-dependent, so it
+            // runs at stream time (the question exists here), not at capture like calendar.
+            // Off/empty ⇒ ctx.knowledge stays nil ⇒ byte-identical prompt + nothing persisted.
+            var ctx = context
+            if let engine = self.contextEngine {
+                let kb = await engine.bundle(for: question)
+                if !kb.text.isEmpty { ctx.knowledge = kb.text }
+            }
+            guard self.convEpoch == epoch, self.current === session else { return }
+            let userMessage = ActionPrompts.askUserMessage(question: question, context: ctx)
 
             self.armWatchdog(action: action, selection: nil,
                              timeout: PanelController.firstTokenTimeout)
@@ -1010,6 +1025,7 @@ final class PanelController {
                     contextSelection: context.selection,
                     sourceApp: context.appLabel,
                     contextCalendar: context.calendar,
+                    contextKnowledge: ctx.knowledge,
                     modelID: modelID,
                     assistantText: assembled
                 )
