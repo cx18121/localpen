@@ -50,9 +50,9 @@ final class ContextProbe {
         func captureSelectionForProbe() async -> String?
     }
 
-    /// Read-only calendar source (ADR 0012). Returns the formatted context line
-    /// or nil. Sendable so it can run in the off-main detached step; the
-    /// production impl (`SystemCalendarReader`) holds no state.
+    /// Read-only calendar source (ADR 0012/0013). Returns the formatted context
+    /// line or nil. Sendable so it can run in the off-main detached step; the
+    /// production impl (`ICSCalendarReader`) is a stateless struct over a cache.
     protocol CalendarReading: Sendable {
         func upcomingContext() -> String?
     }
@@ -70,7 +70,7 @@ final class ContextProbe {
 
     init(axReader: any AXWindowTitleReader = SystemAXWindowTitleReader(),
          textIO: any SelectionCapturing = TextIOProbeAdapter(),
-         calendarReader: any CalendarReading = SystemCalendarReader(),
+         calendarReader: any CalendarReading = ICSCalendarReader(),
          appName: @escaping @Sendable () -> String? = {
              NSWorkspace.shared.frontmostApplication?.localizedName
          },

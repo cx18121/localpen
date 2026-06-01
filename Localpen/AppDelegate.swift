@@ -93,6 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         hk.install()
         hotkey = hk
 
+        // Warm the calendar-context cache at launch so the first ask's chip is
+        // populated (ADR 0013). No-op unless the user enabled it + set a feed URL.
+        CalendarAccess.refreshNow()
+
         let coordinator = FirstRunCoordinator(registry: registry)
         firstRunCoordinator = coordinator
 
