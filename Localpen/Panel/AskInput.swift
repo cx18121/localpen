@@ -21,19 +21,25 @@ struct AskInput: View {
         let selection = controller.askContext.selection
         let calendar = controller.askContext.calendar
         if appLabel != nil || selection != nil || calendar != nil {
-            HStack(spacing: Spacing.s2) {
-                if let appLabel {
-                    AskChip(text: appLabel, onRemove: { controller.removeAskAppChip() })
+            VStack(alignment: .leading, spacing: Spacing.s2) {
+                // Neutral app/selection chips share the top row.
+                if appLabel != nil || selection != nil {
+                    HStack(spacing: Spacing.s2) {
+                        if let appLabel {
+                            AskChip(text: appLabel, onRemove: { controller.removeAskAppChip() })
+                        }
+                        if let selection {
+                            AskChip(text: Self.selectionPreview(selection),
+                                    onRemove: { controller.removeAskSelectionChip() })
+                        }
+                        Spacer()
+                    }
                 }
-                if let selection {
-                    AskChip(text: Self.selectionPreview(selection),
-                            onRemove: { controller.removeAskSelectionChip() })
-                }
+                // Calendar gets its own full-width, accent-tinted row so it reads as
+                // live, distinct context — not another gray chip (ADR 0016 §3).
                 if let calendar {
-                    AskChip(text: "Calendar · " + Self.selectionPreview(calendar),
-                            onRemove: { controller.removeAskCalendarChip() })
+                    CalendarChip(text: calendar, onRemove: { controller.removeAskCalendarChip() })
                 }
-                Spacer()
             }
         }
     }
@@ -119,6 +125,48 @@ private struct AskChip: View {
         .background(
             RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
                 .fill(Tokens.rowHighlight)
+        )
+    }
+}
+
+/// The calendar context chip (ADR 0016 §3). Visually distinct from the neutral
+/// `AskChip`: a `calendar` glyph in `accent`, an `accentTint` fill + `accentMute`
+/// hairline, its own full-width row, and the full (untruncated, 2-line) schedule
+/// text instead of a 40-char crop — so "live schedule" reads at a glance. Reuses
+/// the existing accent tokens (no new hue), honoring single-accent discipline.
+private struct CalendarChip: View {
+    let text: String
+    let onRemove: () -> Void
+    var body: some View {
+        HStack(alignment: .top, spacing: Spacing.s2) {
+            Image(systemName: "calendar")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Tokens.accent)
+                .padding(.top, 1)
+            Text(text)
+                .font(Typography.subhead)
+                .foregroundStyle(Tokens.text)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Tokens.textFaint)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 1)
+        }
+        .padding(.horizontal, Spacing.s3)
+        .padding(.vertical, Spacing.s2)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
+                .fill(Tokens.accentTint)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
+                        .stroke(Tokens.accentMute, lineWidth: 0.75)
+                )
         )
     }
 }
