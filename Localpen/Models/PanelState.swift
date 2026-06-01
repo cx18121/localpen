@@ -31,6 +31,7 @@ enum PanelState: Equatable {
         case history
         case profile
         case ask                         // free-form ask input
+        case hub                         // the mode hub: mode strip + mode body (ADR 0016)
         case result(finalResult: String, isEditing: Bool)
         case error(PanelError)
     }
@@ -63,6 +64,7 @@ enum PanelState: Equatable {
         case .profile:      return 10
         case .ask:          return 11
         case .warming:      return 12
+        case .hub:          return 13
         }
     }
 }

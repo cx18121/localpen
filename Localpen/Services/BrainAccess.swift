@@ -1,5 +1,11 @@
 import Foundation
 
+extension Notification.Name {
+    /// Posted when the brain enable toggle or vault path changes (Settings). AppDelegate
+    /// observes it to (re)index + start/stop the watcher live, without a relaunch.
+    static let brainConfigChanged = Notification.Name("localpen.brainConfigChanged")
+}
+
 /// Brain enablement + vault location (ADR 0014). Mirrors `CalendarAccess`: a cheap,
 /// synchronous UserDefaults-backed gate the ask path consults. `isActive` off ⇒ the
 /// ask prompt is byte-identical to today's (`ContextEngine` returns calendar-only).

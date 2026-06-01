@@ -76,6 +76,9 @@ struct PanelView: View {
                 case .ask:
                     AskInput(controller: controller)
 
+                case .hub:
+                    HubShell(controller: controller)
+
                 case .error(let err):
                     ErrorBanner(error: err, onAction: { controller.retryFromError() })
                 }

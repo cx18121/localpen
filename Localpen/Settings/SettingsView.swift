@@ -18,6 +18,11 @@ struct GeneralSettingsView: View {
     @State private var calendarEnabled = CalendarAccess.isEnabled
     @State private var calendarURLs = CalendarAccess.icsURLsText
 
+    // Knowledge base (ADR 0014): opt-in toggle + the Obsidian vault folder. A local,
+    // rebuildable FTS5 index — nothing leaves the Mac.
+    @State private var brainEnabled = BrainAccess.isActive
+    @State private var brainVaultPath = BrainAccess.vaultRoot.path
+
     var body: some View {
         Form {
             Section {
@@ -53,6 +58,26 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle("Use knowledge base", isOn: $brainEnabled)
+                if brainEnabled {
+                    VStack(alignment: .leading, spacing: Spacing.s2) {
+                        Text("Vault folder")
+                            .font(Typography.subhead)
+                            .foregroundStyle(Tokens.textMute)
+                        TextField("~/Documents/cxkb", text: $brainVaultPath)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                }
+            } header: {
+                Text("Knowledge base")
+            } footer: {
+                Text(brainEnabled
+                     ? "On. Localpen indexes your Obsidian vault and adds the most relevant notes (plus self/ + now.md) as context on each ask. The index is local and rebuildable — nothing leaves your Mac."
+                     : "Let the assistant draw on your Obsidian knowledge base (cxkb) as context on asks. Local-only: a derived search index over your markdown.")
+            }
+
+            Section {
                 Toggle("Launch Localpen at login", isOn: $launchAtLogin)
             } header: {
                 Text("Startup")
@@ -72,10 +97,21 @@ struct GeneralSettingsView: View {
             CalendarAccess.icsURLsText = newValue
             if calendarEnabled { CalendarAccess.refreshNow() }
         }
+        .onChange(of: brainEnabled) { _, newValue in
+            BrainAccess.isActive = newValue
+            NotificationCenter.default.post(name: .brainConfigChanged, object: nil)
+        }
+        .onChange(of: brainVaultPath) { _, newValue in
+            let expanded = (newValue.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
+            BrainAccess.vaultRoot = URL(fileURLWithPath: expanded)
+            if brainEnabled { NotificationCenter.default.post(name: .brainConfigChanged, object: nil) }
+        }
         .onAppear {
             launchAtLogin = LaunchAtLogin.isEnabled
             calendarEnabled = CalendarAccess.isEnabled
             calendarURLs = CalendarAccess.icsURLsText
+            brainEnabled = BrainAccess.isActive
+            brainVaultPath = BrainAccess.vaultRoot.path
         }
     }
 

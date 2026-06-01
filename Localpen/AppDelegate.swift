@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var hotkey: HotkeyService?
     private var panelController: PanelController?
     private var llamaServer: LlamaServerController?
+    private var brainIndex: BrainIndex?
     private var brainWatcher: KBWatcher?
     private var firstRunWindow: NSWindow?
     private var settingsWindow: NSWindow?
@@ -65,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // nil if brain.sqlite can't open. ContextEngine self-gates on BrainAccess.isActive,
         // so injecting it always is safe (off ⇒ byte-identical ask prompt).
         let brainIndex = try? BrainIndex()
+        self.brainIndex = brainIndex
         let contextEngine = brainIndex.map { ContextEngine(search: KBSearch(dbQueue: $0.dbQueue), index: $0) }
 
         // Build the controller first: the presenter's DynamicNotch eagerly builds
@@ -79,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             memory: memory,
             contextProbe: contextProbe,
             contextEngine: contextEngine,
+            brainIndex: brainIndex,
             openSettings: { [weak self] in self?.openSettings() }
         )
         let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })
@@ -105,16 +108,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // populated (ADR 0013). No-op unless the user enabled it + set a feed URL.
         CalendarAccess.refreshNow()
 
-        // Build/refresh the brain index + watch the vault — but only when the user has
-        // opted in (ADR 0014/0015 opt-in gate). Off ⇒ we never read the vault filesystem,
-        // mirroring CalendarAccess.refreshNow's isActive guard.
-        if let brainIndex, BrainAccess.isActive {
-            let root = BrainAccess.vaultRoot
-            Task.detached { await brainIndex.reindexAll(root: root) }
-            let watcher = KBWatcher(index: brainIndex)
-            watcher.start()
-            brainWatcher = watcher
-        }
+        // Build/refresh the brain index + watch the vault — only when opted in (ADR
+        // 0014/0015 gate). Also re-run when the user flips the Settings toggle live.
+        refreshBrain()
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshBrain),
+                                               name: .brainConfigChanged, object: nil)
 
         let coordinator = FirstRunCoordinator(registry: registry)
         firstRunCoordinator = coordinator
@@ -133,6 +131,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func applicationWillTerminate(_ notification: Notification) {
         llamaServer?.stop()
+    }
+
+    /// (Re)index the vault + start the watcher when the brain is enabled; tear the
+    /// watcher down when disabled. Idempotent — safe to call at launch and on every
+    /// Settings change (ADR 0014/0015 opt-in gate). Off ⇒ we never read the vault.
+    @objc private func refreshBrain() {
+        guard let brainIndex, BrainAccess.isActive else {
+            brainWatcher?.stop(); brainWatcher = nil; return
+        }
+        let root = BrainAccess.vaultRoot
+        Task.detached { await brainIndex.reindexAll(root: root) }
+        if brainWatcher == nil {
+            let watcher = KBWatcher(index: brainIndex)
+            watcher.start()
+            brainWatcher = watcher
+        }
     }
 
     // MARK: - First-run window

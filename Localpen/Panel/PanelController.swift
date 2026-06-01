@@ -85,6 +85,9 @@ final class PanelController {
     /// Knowledge-context assembler (ADR 0014). nil ⇒ no brain wiring (tests, or the
     /// brain index couldn't open); the ask prompt is then byte-identical to today's.
     @ObservationIgnored private let contextEngine: ContextEngine?
+    /// The brain index, for the hub's KB/People modes (search, recents). nil ⇒ those
+    /// modes show empty states. Shared with the injected ContextEngine.
+    @ObservationIgnored private let brainIndex: BrainIndex?
     /// Injection seam for the hotkey path's selection capture. Defaults to
     /// the real TextIO; tests override to count calls + simulate timing.
     /// The single-capture invariant is enforced through this closure being
@@ -104,6 +107,21 @@ final class PanelController {
 
     /// Context attached to the current free-form ask session.
     var askContext: AskContext = .empty
+
+    // MARK: - Hub state (ADR 0016)
+    /// Which hub mode is showing. Restored from UserDefaults on open; persisted on change.
+    var hubMode: HubMode = .ask
+    /// The KB-mode search field text.
+    var hubQuery: String = ""
+    /// KB-mode results (recent pages when the query is empty, search hits otherwise).
+    var hubNotes: [KBPage] = []
+    /// People-mode list (pages of type `.person`).
+    var hubPeople: [KBPage] = []
+    /// Now-mode: the rendered text of `now.md` (empty if absent / brain off).
+    var hubNowText: String = ""
+    /// Transient confirmation after a Capture write ("Saved to inbox").
+    var hubCaptureStatus: String? = nil
+    private static let hubLastModeKey = "hub.lastMode"
 
     /// The AskContext snapshot of the most recent `startAskStream`, kept so a
     /// retry from the error banner can re-run the ask through `startAskStream`
@@ -163,6 +181,7 @@ final class PanelController {
          memory: MemoryService? = nil,
          contextProbe: ContextProbe = ContextProbe(),
          contextEngine: ContextEngine? = nil,
+         brainIndex: BrainIndex? = nil,
          captureSelection: (@Sendable () async -> TextIO.Capture)? = nil,
          askStreamProvider: AskStreamProvider? = nil,
          isAccessibilityTrusted: (@Sendable () -> Bool)? = nil,
@@ -176,6 +195,7 @@ final class PanelController {
         self.memory = memory
         self.contextProbe = contextProbe
         self.contextEngine = contextEngine
+        self.brainIndex = brainIndex
         self.captureSelection = captureSelection ?? { [textIO] in
             await textIO.captureSelection()
         }
@@ -351,6 +371,23 @@ final class PanelController {
             // Keyboard handling for .ask is provided by the AskInput view's
             // GrowingTextEditor, not the panel keyboard router.
             return false
+
+        case .hub:
+            switch code {
+            case kVK_Escape:
+                // Clear a non-empty KB query first; otherwise dismiss.
+                if !hubQuery.isEmpty { hubQuery = ""; searchHubNotes(); return true }
+                dismiss(); return true
+            case kVK_Tab:
+                let modes = HubMode.allCases
+                if let i = modes.firstIndex(of: hubMode) {
+                    let next = shift ? (i - 1 + modes.count) % modes.count : (i + 1) % modes.count
+                    setHubMode(modes[next])
+                }
+                return true
+            default:
+                return false
+            }
         }
     }
 
@@ -384,6 +421,11 @@ final class PanelController {
             if code == kVK_Escape || code == kVK_Return || code == kVK_ANSI_KeypadEnter {
                 return handleKeyDown(event)
             }
+            return false
+        case .hub:
+            // In an editor mode (Ask/Capture), forward Esc to the hub router
+            // (clear query / dismiss); let the editor keep all other keys.
+            if code == kVK_Escape { return handleKeyDown(event) }
             return false
         default:
             return false
@@ -634,7 +676,7 @@ final class PanelController {
                 textIO.restoreClipboard(capture); return
             }
             askContext = AskContext.from(snap)
-            state = .visible(PanelContext(), .ask)
+            enterHub()   // no-selection hotkey lands on the hub home (ADR 0016), opened on Ask
         }
         await notch?.expand()
         notch?.focus()
@@ -677,7 +719,7 @@ final class PanelController {
         // context chip. Submitting is Copy-only (non-pasteable session).
         askContext = AskContext(appLabel: frontmostName, selection: nil)
         attachCalendarContext()   // hover is a no-capture entry; calendar rides this side path
-        state = .visible(PanelContext(), .ask)
+        enterHub()                // hover lands on the hub home (ADR 0016), opened on Ask
         Task { @MainActor in
             await notch?.expand()
             notch?.focus()
@@ -858,6 +900,91 @@ final class PanelController {
             if Task.isCancelled { return }
             state = .visible(PanelContext(selection: selection, action: action), .error(PanelError(streamingError: error)))
         }
+    }
+
+    // MARK: - Hub (ADR 0016)
+
+    /// Enter the hub as the no-selection home. Restores the last-used mode, resets the
+    /// query, loads that mode's data, and shows it. Callers set `askContext` (for the
+    /// Ask mode's chips) before calling.
+    func enterHub() {
+        let stored = UserDefaults.standard.string(forKey: Self.hubLastModeKey)
+        hubMode = stored.flatMap(HubMode.init(rawValue:)) ?? .ask
+        hubQuery = ""
+        hubCaptureStatus = nil
+        state = .visible(PanelContext(), .hub)
+        loadHubMode()
+    }
+
+    func setHubMode(_ mode: HubMode) {
+        hubMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.hubLastModeKey)
+        hubQuery = ""
+        hubCaptureStatus = nil
+        loadHubMode()
+    }
+
+    /// Load the active mode's data. No-op for Ask/Capture (they're editors).
+    private func loadHubMode() {
+        switch hubMode {
+        case .kb:     searchHubNotes()
+        case .people: loadPeople()
+        case .now:    loadNow()
+        case .ask, .capture: break
+        }
+    }
+
+    /// KB results: recent notes when the query is empty, search hits otherwise.
+    func searchHubNotes() {
+        guard let index = brainIndex else { hubNotes = []; return }
+        let q = hubQuery.trimmingCharacters(in: .whitespaces)
+        Task { @MainActor in
+            if q.isEmpty {
+                self.hubNotes = (await index.recentPages(limit: 40)).filter { $0.type != .person }
+            } else {
+                self.hubNotes = (await KBSearch(dbQueue: index.dbQueue).search(q, limit: 30)).map(\.page)
+            }
+        }
+    }
+
+    private func loadPeople() {
+        guard let index = brainIndex else { hubPeople = []; return }
+        Task { @MainActor in
+            self.hubPeople = (await index.recentPages(limit: 200)).filter { $0.type == .person }
+        }
+    }
+
+    private func loadNow() {
+        let url = BrainAccess.vaultRoot.appendingPathComponent("now.md")
+        let raw = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        hubNowText = MarkdownParser.splitFrontmatter(raw).body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Open a KB page in its default app — Obsidian registers as the `.md` handler.
+    func openNote(_ page: KBPage) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: page.path))
+    }
+
+    /// Capture free text into the vault's `raw/inbox/` (ADR 0015 additive write).
+    func commitCapture(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let inbox = BrainAccess.vaultRoot.appendingPathComponent("raw/inbox", isDirectory: true)
+        let url = inbox.appendingPathComponent("\(Self.captureStamp()).md")
+        do {
+            try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+            try trimmed.write(to: url, atomically: true, encoding: .utf8)
+            hubCaptureStatus = "Saved to inbox"
+        } catch {
+            hubCaptureStatus = "Couldn't save: \(error.localizedDescription)"
+        }
+    }
+
+    private static func captureStamp() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        return f.string(from: Date())
     }
 
     // MARK: - Ask flow
