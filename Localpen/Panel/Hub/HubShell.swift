@@ -61,7 +61,9 @@ private struct HubModeStrip: View {
             Image(systemName: controller.panelExpanded
                   ? "arrow.down.right.and.arrow.up.left"
                   : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 12, weight: .medium))
+                // Match the mode tiles' icon spec (13pt, weight tracks active state) so
+                // the strip's icons read as one row of controls.
+                .font(.system(size: 13, weight: controller.panelExpanded ? .medium : .regular))
                 .foregroundStyle(controller.panelExpanded ? Tokens.accent : Tokens.textSoft)
                 .padding(Spacing.s2)
                 .contentShape(Rectangle())

@@ -42,7 +42,7 @@ struct GeneralSettingsView: View {
                 Toggle("Use calendar context", isOn: $calendarEnabled)
                 if calendarEnabled {
                     VStack(alignment: .leading, spacing: Spacing.s2) {
-                        Text("Secret iCal feed URL — one per line for multiple calendars")
+                        Text("Secret iCal feed URL, one per line for multiple calendars")
                             .font(Typography.subhead)
                             .foregroundStyle(Tokens.textMute)
                         TextEditor(text: $calendarURLs)
@@ -89,7 +89,7 @@ struct GeneralSettingsView: View {
                             .font(Typography.subhead)
                             .foregroundStyle(Tokens.textMute)
                     } else if curationRunning {
-                        Text("Synthesizing with the local model — this can take a minute.")
+                        Text("Synthesizing with the local model; this can take a minute.")
                             .font(Typography.subhead)
                             .foregroundStyle(Tokens.textMute)
                     }
@@ -98,7 +98,7 @@ struct GeneralSettingsView: View {
                 Text("Knowledge base")
             } footer: {
                 Text(brainEnabled
-                     ? "On. Localpen indexes your Obsidian vault and adds the most relevant notes (plus self/ + now.md) as context on each ask. The index is local and rebuildable — nothing leaves your Mac."
+                     ? "On. Localpen indexes your Obsidian vault and adds the most relevant notes (plus self/ + now.md) as context on each ask. The index is local and rebuildable; nothing leaves your Mac."
                      : "Let the assistant draw on your Obsidian knowledge base (cxkb) as context on asks. Local-only: a derived search index over your markdown.")
             }
 
@@ -153,7 +153,7 @@ struct GeneralSettingsView: View {
             return "Paste your calendar's read-only iCal URL above. In Google Calendar: Settings → your calendar → Integrate calendar → “Secret address in iCal format”. Localpen fetches it directly (read-only); it goes to your calendar provider, not anywhere else."
         }
         if calendarEnabled {
-            return "On. Your next 7 days (titles, times, locations) ride along as a removable context chip on each ask. Read-only; refreshed every few minutes. Keep these URLs private — they grant read access to your calendar."
+            return "On. Your next 7 days (titles, times, locations) ride along as a removable context chip on each ask. Read-only; refreshed every few minutes. Keep these URLs private; they grant read access to your calendar."
         }
         return "Let the assistant see your upcoming schedule as context on asks. Uses a read-only iCal feed URL (no macOS calendar permission needed)."
     }
