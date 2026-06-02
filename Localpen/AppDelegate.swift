@@ -77,7 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // Both are Localpen-private dirs; harmless if they fail to open (nil ⇒ no curation).
         let conversationStash = try? ConversationStash()
         self.conversationStash = conversationStash
-        self.suggestionStore = try? SuggestionStore()
+        let suggestionStore = try? SuggestionStore()
+        self.suggestionStore = suggestionStore
 
         // Build the controller first: the presenter's DynamicNotch eagerly builds
         // its content (PanelView(controller:)) during the presenter's init, so the
@@ -93,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             contextEngine: contextEngine,
             brainIndex: brainIndex,
             conversationStash: conversationStash,
+            suggestionStore: suggestionStore,
             openSettings: { [weak self] in self?.openSettings() }
         )
         let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })

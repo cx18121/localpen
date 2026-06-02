@@ -91,6 +91,9 @@ final class PanelController {
     /// The curation stash (ADR 0015): eligible Ask conversations are captured here on the
     /// hot path for the nightly dream cycle. nil / brain-off ⇒ nothing is stashed.
     @ObservationIgnored private let conversationStash: ConversationStash?
+    /// The high-judgment suggestion queue (ADR 0015), surfaced in the hub's Suggestions
+    /// mode for one-click apply/dismiss. nil ⇒ that mode shows an empty state.
+    @ObservationIgnored private let suggestionStore: SuggestionStore?
     /// Injection seam for the hotkey path's selection capture. Defaults to
     /// the real TextIO; tests override to count calls + simulate timing.
     /// The single-capture invariant is enforced through this closure being
@@ -124,6 +127,10 @@ final class PanelController {
     var hubNowText: String = ""
     /// Transient confirmation after a Capture write ("Saved to inbox").
     var hubCaptureStatus: String? = nil
+    /// Suggestions-mode: the queued high-judgment proposals (ADR 0015).
+    var hubSuggestions: [Suggestion] = []
+    /// Transient status after an apply/dismiss in Suggestions mode.
+    var hubSuggestionStatus: String? = nil
     private static let hubLastModeKey = "hub.lastMode"
 
     /// The AskContext snapshot of the most recent `startAskStream`, kept so a
@@ -186,6 +193,7 @@ final class PanelController {
          contextEngine: ContextEngine? = nil,
          brainIndex: BrainIndex? = nil,
          conversationStash: ConversationStash? = nil,
+         suggestionStore: SuggestionStore? = nil,
          captureSelection: (@Sendable () async -> TextIO.Capture)? = nil,
          askStreamProvider: AskStreamProvider? = nil,
          isAccessibilityTrusted: (@Sendable () -> Bool)? = nil,
@@ -201,6 +209,7 @@ final class PanelController {
         self.contextEngine = contextEngine
         self.brainIndex = brainIndex
         self.conversationStash = conversationStash
+        self.suggestionStore = suggestionStore
         self.captureSelection = captureSelection ?? { [textIO] in
             await textIO.captureSelection()
         }
@@ -917,6 +926,7 @@ final class PanelController {
         hubMode = stored.flatMap(HubMode.init(rawValue:)) ?? .ask
         hubQuery = ""
         hubCaptureStatus = nil
+        hubSuggestionStatus = nil
         state = .visible(PanelContext(), .hub)
         loadHubMode()
     }
@@ -926,15 +936,17 @@ final class PanelController {
         UserDefaults.standard.set(mode.rawValue, forKey: Self.hubLastModeKey)
         hubQuery = ""
         hubCaptureStatus = nil
+        hubSuggestionStatus = nil
         loadHubMode()
     }
 
     /// Load the active mode's data. No-op for Ask/Capture (they're editors).
     private func loadHubMode() {
         switch hubMode {
-        case .kb:     searchHubNotes()
-        case .people: loadPeople()
-        case .now:    loadNow()
+        case .kb:          searchHubNotes()
+        case .people:      loadPeople()
+        case .now:         loadNow()
+        case .suggestions: loadSuggestions()
         case .ask, .capture: break
         }
     }
@@ -983,6 +995,44 @@ final class PanelController {
         } catch {
             hubCaptureStatus = "Couldn't save: \(error.localizedDescription)"
         }
+    }
+
+    /// Load the high-judgment suggestion queue (ADR 0015) for the hub's Suggestions mode.
+    func loadSuggestions() {
+        hubSuggestions = suggestionStore?.all() ?? []
+    }
+
+    /// Apply a user-approved suggestion: the one click is the human judgment the classifier
+    /// required, so this writes via `VaultWriter.applyApproved`. On success the suggestion
+    /// leaves the queue and the index re-reads the new page. Errors surface inline.
+    func applySuggestion(_ suggestion: Suggestion) {
+        guard let store = suggestionStore else { return }
+        guard let write = suggestion.payload.curationWrite() else {
+            hubSuggestionStatus = "Couldn't reconstruct that proposal."
+            return
+        }
+        let writer = VaultWriter(vaultRoot: BrainAccess.vaultRoot)
+        do {
+            _ = try writer.applyApproved(write, nowMillis: Int64(Date().timeIntervalSince1970 * 1000))
+            store.remove(id: suggestion.id)
+            hubSuggestionStatus = "Applied: \(suggestion.summary)"
+            loadSuggestions()
+            if let index = brainIndex {
+                let root = BrainAccess.vaultRoot
+                Task.detached { await index.reindexAll(root: root) }
+            }
+        } catch let VaultWriter.WriteError.notApplicable(msg) {
+            hubSuggestionStatus = msg
+        } catch {
+            hubSuggestionStatus = "Couldn't apply: \(error.localizedDescription)"
+        }
+    }
+
+    /// Drop a suggestion without applying it.
+    func dismissSuggestion(_ suggestion: Suggestion) {
+        suggestionStore?.remove(id: suggestion.id)
+        hubSuggestionStatus = "Dismissed."
+        loadSuggestions()
     }
 
     private static func captureStamp() -> String {

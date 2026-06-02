@@ -12,6 +12,12 @@ struct Suggestion: Codable, Equatable, Sendable {
 
     /// The proposed write, re-encoded so a future "apply" can replay it.
     let payload: SuggestionPayload
+
+    /// Whether one-click Apply reduces to a clean file create/overwrite (so the UI offers
+    /// an Apply button). Contradictions + identity merges need manual editing instead.
+    var isOneClickApplicable: Bool {
+        ["createPerson", "promoteTopic", "rewriteCuratedPage"].contains(kind)
+    }
 }
 
 /// Flat, Codable mirror of a high-judgment `CurationWrite` (the enum isn't Codable; this
@@ -19,6 +25,25 @@ struct Suggestion: Codable, Equatable, Sendable {
 struct SuggestionPayload: Codable, Equatable, Sendable {
     let kind: String
     var title, body, page, detail, name, into, from: String?
+
+    /// Reconstruct the high-judgment write this payload represents, for one-click apply.
+    /// Returns nil if a required field is missing (a corrupt/old suggestion).
+    func curationWrite() -> CurationWrite? {
+        switch kind {
+        case "createPerson":  return name.map(CurationWrite.createPerson)
+        case "promoteTopic":  return title.map(CurationWrite.promoteTopic)
+        case "rewriteCuratedPage":
+            guard let title, let body else { return nil }
+            return .rewriteCuratedPage(title: title, body: body)
+        case "resolveContradiction":
+            guard let page, let detail else { return nil }
+            return .resolveContradiction(page: page, detail: detail)
+        case "mergeIdentities":
+            guard let into, let from else { return nil }
+            return .mergeIdentities(into: into, from: from)
+        default: return nil
+        }
+    }
 }
 
 extension Suggestion {

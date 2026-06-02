@@ -23,6 +23,7 @@ struct HubShell: View {
         case .people:  PeopleModeView(controller: controller)
         case .capture: CaptureModeView(controller: controller)
         case .now:     NowModeView(controller: controller)
+        case .suggestions: SuggestionsModeView(controller: controller)
         }
     }
 
@@ -37,8 +38,8 @@ struct HubShell: View {
     }
 }
 
-/// The 5 mode tiles. Active tile = `accentTint` fill + `accent` icon + label; the rest
-/// are icon-only in `textSoft` (icon-only keeps all five within the fixed 400pt width;
+/// The mode tiles. Active tile = `accentTint` fill + `accent` icon + label; the rest
+/// are icon-only in `textSoft` (icon-only keeps them all within the fixed 400pt width;
 /// the active label is the "where am I" cue). The single place the hub body shows accent.
 private struct HubModeStrip: View {
     @Bindable var controller: PanelController

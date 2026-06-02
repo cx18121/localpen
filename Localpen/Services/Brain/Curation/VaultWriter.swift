@@ -23,6 +23,7 @@ struct VaultWriter {
         case targetMissing(String)     // append/nominate target page doesn't exist
         case targetExists(String)      // createSource would overwrite a curated page
         case immutable(String)         // a write under raw/ outside raw/inbox/
+        case notApplicable(String)     // an approved write that needs human/Claude Code editing
         case io(String)
         case git(String)
     }
@@ -85,6 +86,101 @@ struct VaultWriter {
             // Unreachable (guarded above), but keep the switch total + explicit.
             throw WriteError.notAdditive
         }
+    }
+
+    /// Apply a write the USER explicitly approved from the suggestion queue. The one click
+    /// is the human judgment the classifier required, so this bypasses the additive-only
+    /// guard — but only for writes that reduce to a clean file create/overwrite. The two
+    /// that need genuine multi-page editing (contradiction, identity merge) are refused with
+    /// `.notApplicable`; the UI hands those to Obsidian / a Claude Code session instead.
+    /// Additive kinds fall through to the normal `apply`.
+    @discardableResult
+    func applyApproved(_ write: CurationWrite, nowMillis: Int64) throws -> String {
+        switch write {
+        case .createPerson(let name):
+            let safe = try safeName(name)
+            let rel = "people/\(safe).md"
+            guard !exists(rel) else { throw WriteError.targetExists(rel) }
+            try writeFile(rel, contents: personTemplate(name: safe, today: ymd(nowMillis)))
+            try commit([rel], "people: create \(safe)")
+            return rel
+        case .promoteTopic(let title):
+            let safe = try safeName(title)
+            let rel = "topics/\(safe).md"
+            guard !exists(rel) else { throw WriteError.targetExists(rel) }
+            try writeFile(rel, contents: topicTemplate(title: safe, today: ymd(nowMillis)))
+            try commit([rel], "topic: promote \(safe)")
+            return rel
+        case .rewriteCuratedPage(let title, let body):
+            let safe = try safeName(title)
+            guard let rel = resolvePage(titled: safe) else { throw WriteError.targetMissing("\(safe).md") }
+            try writeFile(rel, contents: body)
+            try commit([rel], "rewrite: \(safe)")
+            return rel
+        case .resolveContradiction, .mergeIdentities:
+            throw WriteError.notApplicable("this proposal needs manual editing — open the page in Obsidian or hand it to a Claude Code session")
+        case .captureToInbox, .appendTimeline, .createSource, .nominateLink, .updateNow:
+            return try apply(write, nowMillis: nowMillis)
+        }
+    }
+
+    /// A new person page seeded from the vault's schema template (cxkb/CLAUDE.md). Stub —
+    /// Charlie fills the Compiled Truth; the frontmatter + Timeline scaffold are correct.
+    private func personTemplate(name: String, today: String) -> String {
+        """
+        ---
+        type: person
+        created: \(today)
+        updated: \(today)
+        aliases: []
+        tags: [person]
+        met_date: \(today)
+        met_context: ""
+        last_contact: \(today)
+        follow_up: ""
+        relationship_tier: casual
+        ---
+
+        # \(name)
+
+        > One-line who-they-are.
+
+        ## Compiled Truth
+
+        _(to fill in)_
+
+        ---
+
+        ## Timeline
+
+        - \(today) | localpen — page created from a curation suggestion
+
+        ## Connections
+        """
+    }
+
+    private func topicTemplate(title: String, today: String) -> String {
+        """
+        ---
+        type: topic
+        created: \(today)
+        updated: \(today)
+        tags: [topic]
+        ---
+
+        # \(title)
+
+        _(promoted from a curation suggestion — synthesis to fill in)_
+
+        ## Connections
+        """
+    }
+
+    private func ymd(_ millis: Int64) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        return f.string(from: Date(timeIntervalSince1970: TimeInterval(millis) / 1000))
     }
 
     // MARK: - Filesystem
