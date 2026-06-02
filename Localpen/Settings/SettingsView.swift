@@ -19,6 +19,10 @@ struct GeneralSettingsView: View {
     @State private var calendarEnabled = CalendarAccess.isEnabled
     @State private var calendarURLs = CalendarAccess.icsURLsText
 
+    // Files context (ADR 0019): read the document open in the frontmost app as ask
+    // context, via the AX permission Localpen already holds. No feed, no new prompt.
+    @State private var filesEnabled = FilesAccess.isEnabled
+
     // Knowledge base (ADR 0014): opt-in toggle + the Obsidian vault folder. A local,
     // rebuildable FTS5 index — nothing leaves the Mac.
     @State private var brainEnabled = BrainAccess.isActive
@@ -60,6 +64,16 @@ struct GeneralSettingsView: View {
                 Text("Calendar")
             } footer: {
                 Text(calendarFooter)
+            }
+
+            Section {
+                Toggle("Use open file as context", isOn: $filesEnabled)
+            } header: {
+                Text("Files")
+            } footer: {
+                Text(filesEnabled
+                     ? "On. The file open in the frontmost app rides along as a removable context chip on each ask (text + PDF, capped). Read locally via Accessibility; drop the chip per-ask to leave it out."
+                     : "Let the assistant see the document you have open as context on asks. Local-only, read through the Accessibility permission.")
             }
 
             Section {
@@ -121,6 +135,9 @@ struct GeneralSettingsView: View {
         .onChange(of: calendarURLs) { _, newValue in
             CalendarAccess.icsURLsText = newValue
             if calendarEnabled { CalendarAccess.refreshNow() }
+        }
+        .onChange(of: filesEnabled) { _, newValue in
+            FilesAccess.isEnabled = newValue
         }
         .onChange(of: brainEnabled) { _, newValue in
             BrainAccess.isActive = newValue

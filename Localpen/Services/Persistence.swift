@@ -226,6 +226,16 @@ final class Persistence {
                 t.add(column: "context_provenance", .text)
             }
         }
+
+        // v8: Generalized capture-time context sources (ADR 0019) — a JSON array of
+        // ContextItem on the THREAD (like context_calendar, which it folds forward), so a
+        // resumed ask replays its file/calendar/… chips. Nullable: pre-v8 ask threads leave
+        // it NULL and fall back to the legacy `context_calendar` column on load.
+        migrator.registerMigration("v8.thread_context_sources") { db in
+            try db.alter(table: "threads") { t in
+                t.add(column: "context_sources", .text)
+            }
+        }
         try migrator.migrate(queue)
     }
 }

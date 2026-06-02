@@ -1001,16 +1001,13 @@ final class PanelController {
 
     // MARK: - Ask flow
 
-    func removeAskAppChip() {
-        askContext.appLabel = nil
+    /// Remove one ambient context source's chip (ADR 0019) — app, calendar, files, …
+    func removeAskSource(_ kind: ContextKind) {
+        askContext.removeSource(kind)
     }
 
     func removeAskSelectionChip() {
         askContext.selection = nil
-    }
-
-    func removeAskCalendarChip() {
-        askContext.calendar = nil
     }
 
     /// Attach calendar context (ADR 0012) to the current `askContext` via an
@@ -1165,7 +1162,9 @@ final class PanelController {
                     question: question,
                     contextSelection: context.selection,
                     sourceApp: context.appLabel,
-                    contextCalendar: context.calendar,
+                    // App replays from source_app above; persist the remaining ambient
+                    // sources (calendar, files, …) as the v8 context_sources JSON (ADR 0019).
+                    contextSources: context.sources.filter { $0.kind != .app },
                     contextKnowledge: ctx.knowledge,
                     contextProvenance: ContextBundle.Provenance.encode(provenance),
                     modelID: modelID,

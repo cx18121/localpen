@@ -69,6 +69,7 @@ final class ConversationStore {
     func createThreadForAsk(question: String,
                             contextSelection: String?,
                             sourceApp: String?,
+                            contextSources: [ContextItem]? = nil,
                             contextCalendar: String? = nil,
                             contextKnowledge: String? = nil,
                             contextProvenance: String? = nil,
@@ -78,6 +79,7 @@ final class ConversationStore {
             sourceApp: sourceApp,
             originalSelection: question,
             title: Self.title(from: question),
+            contextSources: contextSources,
             contextCalendar: contextCalendar,
             contextKnowledge: contextKnowledge,
             contextProvenance: contextProvenance
@@ -97,15 +99,21 @@ final class ConversationStore {
     /// is built per-caller from the new thread id + the shared timestamp.
     private func insertThreadWithSeed(
         sourceApp: String?, originalSelection: String, title: String,
+        contextSources: [ContextItem]? = nil,
         contextCalendar: String? = nil, contextKnowledge: String? = nil, contextProvenance: String? = nil,
         seed: @escaping (_ threadID: Int64, _ now: Int64) -> Interaction
     ) async throws -> (threadID: Int64, seedInteractionID: Int64) {
         let now = self.now()
+        // ADR 0019: persist the ambient sources as one JSON column. `contextCalendar` is the
+        // legacy single-source param — fold it forward into the list when no explicit sources
+        // are given, so existing callers (and pre-v8 round-trips) keep working.
+        let sources = contextSources ?? contextCalendar.map { [ContextItem.calendar($0)] } ?? []
+        let contextSourcesJSON = ContextItem.encode(sources)
         let result: (threadID: Int64, seedInteractionID: Int64) = try await dbQueue.write { db in
             try db.execute(sql: """
-                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title, context_calendar, context_knowledge, context_provenance)
+                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title, context_sources, context_knowledge, context_provenance)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [now, now, sourceApp, originalSelection, title, contextCalendar, contextKnowledge, contextProvenance])
+                """, arguments: [now, now, sourceApp, originalSelection, title, contextSourcesJSON, contextKnowledge, contextProvenance])
             let threadID = db.lastInsertedRowID
             var s = seed(threadID, now)
             try s.insert(db)
@@ -205,7 +213,8 @@ final class ConversationStore {
     func loadSeedAskContext(threadID: Int64) async throws -> AskContext? {
         try await dbQueue.read { db in
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT i.selection AS sel, t.source_app AS app, t.context_calendar AS cal, t.context_knowledge AS kb
+                SELECT i.selection AS sel, t.source_app AS app, t.context_sources AS srcs,
+                       t.context_calendar AS cal, t.context_knowledge AS kb
                 FROM interactions i
                 JOIN threads t ON t.id = i.thread_id
                 WHERE i.thread_id = ? AND i.action = 'ask'
@@ -213,9 +222,17 @@ final class ConversationStore {
                 """, arguments: [threadID]) else { return nil }
             let sel: String? = row["sel"]
             let app: String? = row["app"]
+            let srcs: String? = row["srcs"]
             let cal: String? = row["cal"]
             let kb: String? = row["kb"]
-            return AskContext(appLabel: app, selection: sel, calendar: cal, knowledge: kb)
+            // App is rebuilt from source_app (not persisted as a source); selection + knowledge
+            // ride their own fields. The ambient sources (calendar, files, …) come from the v8
+            // context_sources JSON, falling back to the legacy context_calendar for pre-v8 rows.
+            var ctx = AskContext(appLabel: app, selection: sel, knowledge: kb)
+            let decoded = ContextItem.decode(srcs)
+            let sources = decoded.isEmpty ? (cal.map { [ContextItem.calendar($0)] } ?? []) : decoded
+            for item in sources { ctx.setSource(item.kind, item) }
+            return ctx
         }
     }
 

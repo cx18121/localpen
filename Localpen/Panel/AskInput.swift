@@ -16,16 +16,19 @@ struct AskInput: View {
 
     @ViewBuilder
     private var chipRail: some View {
-        let appLabel = controller.askContext.appLabel
+        let sources = controller.askContext.sources
         let selection = controller.askContext.selection
-        let calendar = controller.askContext.calendar
-        if appLabel != nil || selection != nil || calendar != nil {
+        // Neutral sources (app, files, …) share the top row as gray chips; calendar gets
+        // its own full-width accent row (ADR 0016 §3); the selection operand is its own chip.
+        let neutral = sources.filter { $0.kind != .calendar }
+        let calendar = sources.first { $0.kind == .calendar }
+        if !sources.isEmpty || selection != nil {
             VStack(alignment: .leading, spacing: Spacing.s2) {
-                // Neutral app/selection chips share the top row.
-                if appLabel != nil || selection != nil {
+                if !neutral.isEmpty || selection != nil {
                     HStack(spacing: Spacing.s2) {
-                        if let appLabel {
-                            AskChip(text: appLabel, onRemove: { controller.removeAskAppChip() })
+                        ForEach(neutral, id: \.kind) { item in
+                            AskChip(text: item.chipText,
+                                    onRemove: { controller.removeAskSource(item.kind) })
                         }
                         if let selection {
                             AskChip(text: Self.selectionPreview(selection),
@@ -34,10 +37,9 @@ struct AskInput: View {
                         Spacer()
                     }
                 }
-                // Calendar gets its own full-width, accent-tinted row so it reads as
-                // live, distinct context — not another gray chip (ADR 0016 §3).
                 if let calendar {
-                    CalendarChip(text: calendar, onRemove: { controller.removeAskCalendarChip() })
+                    CalendarChip(text: calendar.label,
+                                 onRemove: { controller.removeAskSource(.calendar) })
                 }
             }
         }
