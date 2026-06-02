@@ -25,4 +25,6 @@ enum Typography {
     static let headline = Font.system(size: 17, weight: .semibold)
     static let body = Font.system(size: 13, weight: .regular)
     static let subhead = Font.system(size: 11, weight: .regular)
+    /// Monospaced face for technical config fields (iCal URLs, vault path) in Settings.
+    static let mono = Font.system(size: 11, design: .monospaced)
 }

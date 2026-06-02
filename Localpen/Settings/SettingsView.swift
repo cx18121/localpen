@@ -46,13 +46,13 @@ struct GeneralSettingsView: View {
                             .font(Typography.subhead)
                             .foregroundStyle(Tokens.textMute)
                         TextEditor(text: $calendarURLs)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(Typography.mono)
                             .frame(height: 58)
                             .scrollContentBackground(.hidden)
-                            .padding(4)
+                            .padding(Spacing.s1)
                             .overlay(
                                 RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
-                                    .stroke(Tokens.textFaint.opacity(0.4), lineWidth: 1)
+                                    .stroke(Tokens.panelBorder, lineWidth: 1)
                             )
                     }
                 }
@@ -71,7 +71,7 @@ struct GeneralSettingsView: View {
                             .foregroundStyle(Tokens.textMute)
                         TextField("~/Documents/cxkb", text: $brainVaultPath)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(Typography.mono)
                     }
                     // Manual trigger for the nightly curation pass (ADR 0015) — runs the
                     // dream cycle now instead of waiting for the off-peak schedule.
