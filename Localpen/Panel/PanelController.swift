@@ -43,6 +43,15 @@ final class PanelController {
         return convEpoch
     }
 
+    /// "Did the world move on while we awaited?" — the single guard every streaming and
+    /// persistence continuation re-checks before touching shared surface state. `current ===
+    /// session` proves the summon is unchanged; `convEpoch == epoch` proves no newer
+    /// turn/thread superseded this one. Hand-copying this conjunction is how a stale stream
+    /// ends up stamping over a fresh surface, so it lives in exactly one place.
+    private func stillCurrent(_ epoch: UInt64, _ session: PanelSession) -> Bool {
+        convEpoch == epoch && current === session
+    }
+
     /// Claimed synchronously by `acceptTurn` so a second `Use` tap (on another
     /// bubble) during an in-flight paste-back can't launch an overlapping,
     /// irreversible second paste. Reset on the next summon / dismiss.
@@ -852,35 +861,36 @@ final class PanelController {
     private static let firstTokenTimeout: Duration = .seconds(90)
     private static let interTokenTimeout: Duration = .seconds(30)
 
-    private func armWatchdog(action: Action, selection: Selection?, timeout: Duration) {
-        guard let session = current else { return }
-        let armedEpoch = convEpoch
+    /// Arm a stall watchdog on `session`: after `timeout` with no disarm, cancel the stream
+    /// and run `onTimeout` — but only if we still own the exact session+epoch we armed for (a
+    /// navigation, dismiss, or new turn during the wait must not let a stale watchdog cancel a
+    /// live stream or stamp an error over a fresh surface). How the timeout *surfaces* is the
+    /// only thing that varies between callers, so it's the one injected parameter.
+    private func armWatchdog(session: PanelSession, epoch: UInt64, timeout: Duration,
+                             onTimeout: @escaping () -> Void) {
         session.watchdogTask?.cancel()
         session.watchdogTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: timeout)
-            // Only fire if we still own the exact session+intent we armed for — a
-            // navigation, dismiss, or new turn during the wait must not let a stale
-            // watchdog cancel a live stream or stamp .error over a fresh surface.
-            guard !Task.isCancelled, let self,
-                  self.current === session, self.convEpoch == armedEpoch else { return }
+            guard !Task.isCancelled, let self, self.stillCurrent(epoch, session) else { return }
             self.current?.streamingTask?.cancel()
-            self.state = .visible(PanelContext(selection: selection, action: action), .error(.timeout))
+            onTimeout()
         }
     }
 
-    /// Stall watchdog for conversation/ask follow-up turns. Unlike `armWatchdog`
-    /// (one-shot path → global `.error(.timeout)` banner), a stalled turn surfaces
-    /// INLINE via `convo.turnError`, so ConversationView's existing TurnErrorRow +
-    /// retry re-runs the turn rather than routing through `startGeneration`. Closes
-    /// the ADR 0010 deferral (no watchdog on conversation turns).
+    /// One-shot path: a stall surfaces as the global `.error(.timeout)` banner.
+    private func armWatchdog(action: Action, selection: Selection?, timeout: Duration) {
+        guard let session = current else { return }
+        armWatchdog(session: session, epoch: convEpoch, timeout: timeout) { [weak self] in
+            self?.state = .visible(PanelContext(selection: selection, action: action), .error(.timeout))
+        }
+    }
+
+    /// Conversation/ask follow-up turns: a stall surfaces INLINE via `convo.turnError`, so
+    /// ConversationView's TurnErrorRow + retry re-runs the turn rather than routing through
+    /// `startGeneration`. Closes the ADR 0010 deferral (no watchdog on conversation turns).
     private func armConversationWatchdog(_ convo: Conversation, session: PanelSession,
                                          epoch: UInt64, timeout: Duration) {
-        session.watchdogTask?.cancel()
-        session.watchdogTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: timeout)
-            guard !Task.isCancelled, let self,
-                  self.current === session, self.convEpoch == epoch else { return }
-            self.current?.streamingTask?.cancel()
+        armWatchdog(session: session, epoch: epoch, timeout: timeout) {
             convo.streamingText = ""
             convo.isStreaming = false
             convo.turnError = .timeout
@@ -1156,8 +1166,7 @@ final class PanelController {
     }
 
     private func finishAskSubmit(_ question: String) {
-        let withSel = (askContext.selection?.isEmpty == false)
-        let action = Action.ask(question: question, withSelection: withSel)
+        let action = Action.ask(question: question, withSelection: askContext.hasSelection)
         let context = askContext   // snapshot after any pending calendar read landed
         startAskStream(action: action, context: context)
     }
@@ -1209,7 +1218,7 @@ final class PanelController {
                 provenance = kb.sources
             }
             liveConvo.provenance = provenance   // show source chips while the answer streams
-            guard self.convEpoch == epoch, self.current === session else { return }
+            guard self.stillCurrent(epoch, session) else { return }
             let userMessage = ActionPrompts.askUserMessage(question: question, context: ctx)
 
             self.armWatchdog(action: action, selection: nil,
@@ -1223,7 +1232,7 @@ final class PanelController {
                                                               userMessage,
                                                               sampling) {
                     if Task.isCancelled { return }
-                    guard self.convEpoch == epoch, self.current === session else { return }
+                    guard self.stillCurrent(epoch, session) else { return }
                     assembled += token
                     liveConvo.streamingText = assembled
                     self.armWatchdog(action: action, selection: nil,
@@ -1232,13 +1241,13 @@ final class PanelController {
                 if Task.isCancelled { return }
             } catch {
                 if Task.isCancelled { return }
-                guard self.convEpoch == epoch, self.current === session else { return }
+                guard self.stillCurrent(epoch, session) else { return }
                 self.state = .visible(PanelContext(action: action),
                                       .error(PanelError(streamingError: error)))
                 return
             }
 
-            guard self.convEpoch == epoch, self.current === session else { return }
+            guard self.stillCurrent(epoch, session) else { return }
             // No more tokens are coming — disarm the inter-token watchdog before the
             // DB awaits below, so a slow disk can't let it fire and stamp
             // .error(.timeout) over a completed answer mid-persist.
@@ -1264,19 +1273,19 @@ final class PanelController {
                     modelID: modelID,
                     assistantText: assembled
                 )
-                guard self.convEpoch == epoch, self.current === session else {
+                guard self.stillCurrent(epoch, session) else {
                     try? await store.deleteThread(id: threadID)
                     return
                 }
                 // Load the persisted thread and transition to .conversing.
                 let sel = ((try? await store.loadThread(id: threadID)) ?? nil)
                     ?? Selection(text: "", sourceBundleID: nil, sourceAppName: nil)
-                guard self.convEpoch == epoch, self.current === session else {
+                guard self.stillCurrent(epoch, session) else {
                     try? await store.deleteThread(id: threadID)
                     return
                 }
                 let turns = (try? await store.loadTurns(threadID: threadID)) ?? []
-                guard self.convEpoch == epoch, self.current === session else {
+                guard self.stillCurrent(epoch, session) else {
                     try? await store.deleteThread(id: threadID)
                     return
                 }
@@ -1291,11 +1300,11 @@ final class PanelController {
                     return
                 }
                 let askCtx = try? await store.loadSeedAskContext(threadID: threadID)
-                guard self.convEpoch == epoch, self.current === session else {
+                guard self.stillCurrent(epoch, session) else {
                     try? await store.deleteThread(id: threadID)
                     return
                 }
-                let seedAction = turns.first?.action ?? Action.ask(question: question, withSelection: withSel(context: context))
+                let seedAction = turns.first?.action ?? Action.ask(question: question, withSelection: context.hasSelection)
                 let convo = Conversation(
                     threadID: threadID,
                     originalSelection: sel,
@@ -1308,7 +1317,7 @@ final class PanelController {
                 self.state = .visible(PanelContext(), .conversing)
                 self.stashConversation(convo)
             } catch {
-                guard self.convEpoch == epoch, self.current === session else { return }
+                guard self.stillCurrent(epoch, session) else { return }
                 // Persisted, but a reload step threw: finalize in the conversation
                 // surface rather than jumping to a one-shot result view.
                 if liveConvo.turns.last?.role != .assistant {
@@ -1318,10 +1327,6 @@ final class PanelController {
                 liveConvo.isStreaming = false
             }
         }
-    }
-
-    private func withSel(context: AskContext) -> Bool {
-        context.selection?.isEmpty == false
     }
 
     /// Capture an eligible Ask conversation to the curation stash (ADR 0015) for the nightly
@@ -1410,7 +1415,7 @@ final class PanelController {
             // alone can't see those — the session object survives them). If we already
             // committed a seed, compensate by deleting it so no abandoned resumable
             // thread is left behind for a result the user terminally acted on.
-            guard self.convEpoch == epoch, self.current === session else {
+            guard self.stillCurrent(epoch, session) else {
                 if let seed { try? await self.conversationStore?.deleteThread(id: seed.threadID) }
                 return
             }
@@ -1482,7 +1487,7 @@ final class PanelController {
             if Task.isCancelled { return }
             // The user may have accepted/navigated away as the last token arrived;
             // never append or persist a reply they no longer have open.
-            guard convEpoch == epoch, current === session else { return }
+            guard stillCurrent(epoch, session) else { return }
             session.watchdogTask?.cancel()   // no more tokens; don't let it fire during persist
             convo.turns.append(ConversationTurn(role: .assistant, text: partial))
             convo.streamingText = ""
@@ -1502,7 +1507,7 @@ final class PanelController {
             }
         } catch {
             if Task.isCancelled { return }
-            guard convEpoch == epoch, current === session else { return }
+            guard stillCurrent(epoch, session) else { return }
             // Keep the thread; surface the error inline (ConversationView renders it
             // with Retry). The failed user turn stays last in `turns`, so retry re-streams.
             convo.streamingText = ""

@@ -13,6 +13,10 @@ struct AskContext: Equatable {
 
     static let empty = AskContext()
 
+    /// True when a non-empty selection chip survived to submit time — the single source for
+    /// the `Action.ask(withSelection:)` flag (the prompt branches on whether a selection rode along).
+    var hasSelection: Bool { selection?.isEmpty == false }
+
     /// Builds an AskContext from a ContextProbe snapshot. Formats the
     /// appLabel as "<app> · <window>" when both are present, falls back
     /// gracefully to whichever single field is non-nil. Calendar is already
