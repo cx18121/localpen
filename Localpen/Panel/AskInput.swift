@@ -4,7 +4,6 @@ struct AskInput: View {
     @Bindable var controller: PanelController
 
     @State private var question: String = ""
-    @State private var isFocused: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s3) {
@@ -44,29 +43,16 @@ struct AskInput: View {
         }
     }
 
-    /// ZStack-overlaid placeholder, matching the existing CustomPromptView /
-    /// InputEditor pattern — GrowingTextEditor has no placeholder parameter.
     private var editorWithPlaceholder: some View {
-        ZStack(alignment: .topLeading) {
-            if question.isEmpty {
-                Text("Ask anything")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Tokens.textFaint)
-                    .padding(.top, GrowingTextEditor.topInset)
-                    .allowsHitTesting(false)
+        GrowingField(
+            text: $question,
+            placeholder: "Ask anything",
+            autoFocus: true,
+            onSubmit: { raw in
+                controller.askSubmitted(raw)
+                question = ""
             }
-            GrowingTextEditor(
-                text: $question,
-                isFocused: $isFocused,
-                autoFocus: true,
-                focusTick: 0,
-                fontSize: 14,
-                onSubmit: { raw in
-                    controller.askSubmitted(raw)
-                    question = ""
-                }
-            )
-        }
+        )
         .frame(minHeight: 60, maxHeight: 240)
     }
 
@@ -81,7 +67,7 @@ struct AskInput: View {
             // first routing through the transform menu.
             Button { controller.openHistory() } label: {
                 Image(systemName: "clock")
-                    .font(.system(size: 12))
+                    .font(Typography.chromeIcon)
                     .foregroundStyle(Tokens.textFaint)
             }
             .buttonStyle(.plain)
@@ -106,8 +92,8 @@ private struct AskChip: View {
     let text: String
     let onRemove: () -> Void
     var body: some View {
-        HStack(spacing: 4) {
-            Text("◦ " + text)
+        HStack(spacing: Spacing.s1) {
+            Text(text)
                 .font(Typography.subhead)
                 .foregroundStyle(Tokens.textSoft)
                 .lineLimit(1)
@@ -115,13 +101,13 @@ private struct AskChip: View {
                 .frame(maxWidth: 190, alignment: .leading)
             Button(action: onRemove) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(Typography.microGlyph)
                     .foregroundStyle(Tokens.textFaint)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.s3)
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.s1)
         .background(
             RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
                 .fill(Tokens.rowHighlight)
@@ -151,7 +137,7 @@ private struct CalendarChip: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button(action: onRemove) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(Typography.microGlyph)
                     .foregroundStyle(Tokens.textFaint)
             }
             .buttonStyle(.plain)

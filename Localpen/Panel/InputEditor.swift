@@ -17,31 +17,14 @@ struct InputEditor: View {
     /// Bumped by the controller (Tab from the menu) to pull focus here.
     var focusTick: Int = 0
 
-    @State private var isFocused = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s2) {
             // Clean borderless field — no rail or box, just the text and a
             // placeholder, like a native search field. Focus reads from the caret.
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text("Type or paste text to transform…")
-                        .font(Typography.selection)
-                        .foregroundStyle(Tokens.textFaint)
-                        .padding(.top, GrowingTextEditor.topInset)
-                        .allowsHitTesting(false)
-                }
-                GrowingTextEditor(
-                    text: $text,
-                    isFocused: $isFocused,
-                    autoFocus: autoFocus,
-                    focusTick: focusTick,
-                    fontSize: 14
-                )
-                .frame(minHeight: 20)
-            }
-            .padding(.vertical, Spacing.s3)
-            .frame(minHeight: 40, alignment: .topLeading)
+            GrowingField(text: $text, placeholder: "Type or paste text to transform…",
+                         autoFocus: autoFocus, focusTick: focusTick)
+                .padding(.vertical, Spacing.s3)
+                .frame(minHeight: 40, alignment: .topLeading)
 
             if let app = sourceAppName {
                 Text("from \(app)")

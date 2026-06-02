@@ -1,9 +1,8 @@
 import SwiftUI
 
 /// A reply field shared by the conversation surface and the one-shot result view.
-/// Mirrors CustomPromptView's rail-field treatment: a borderless GrowingTextEditor
-/// with a left rail (hairline at rest, accent when focused), Return submits /
-/// ⇧Return newline, and a keyboard-hint footer.
+/// A borderless `GrowingField` (no rail — the de-blue pass removed it): Return submits /
+/// ⇧Return newline, with a keyboard-hint footer.
 ///
 /// `autoFocus` is the load-bearing parameter: ConversationView passes `true`
 /// (focus immediately so the user can type a follow-up), while the result view
@@ -17,30 +16,14 @@ struct ReplyBox: View {
     var showHints: Bool = true
     let onSubmit: (String) -> Void
 
-    @State private var isFocused = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text(placeholder)
-                        .foregroundStyle(Tokens.textFaint)
-                        .font(Typography.menuRow)
-                        .padding(.top, GrowingTextEditor.topInset)
-                        .allowsHitTesting(false)
-                }
-                GrowingTextEditor(
-                    text: $text,
-                    isFocused: $isFocused,
-                    autoFocus: autoFocus,
-                    fontSize: 14,
-                    onSubmit: { raw in onSubmit(raw) }
-                )
+            GrowingField(text: $text, placeholder: placeholder, autoFocus: autoFocus,
+                         onSubmit: onSubmit)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: 22)
-            }
-            .padding(.vertical, Spacing.s4)
-            .padding(.horizontal, Spacing.s7)
+                .padding(.vertical, Spacing.s4)
+                .padding(.horizontal, Spacing.s7)
 
             if showHints {
                 Hairline()

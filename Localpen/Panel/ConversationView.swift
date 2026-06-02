@@ -82,7 +82,7 @@ struct ConversationView: View {
                 Spacer()
                 Button { controller.openHistory() } label: {
                     Image(systemName: "clock")
-                        .font(.system(size: 12))
+                        .font(Typography.chromeIcon)
                         .foregroundStyle(Tokens.textFaint)
                 }
                 .buttonStyle(.plain)
@@ -190,7 +190,7 @@ private struct SourceChips: View {
                         Button { onOpen(src) } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "book.closed")
-                                    .font(.system(size: 9, weight: .medium))
+                                    .font(Typography.microGlyph)
                                 Text(src.title)
                                     .font(Typography.subhead)
                                     .lineLimit(1)
@@ -327,7 +327,7 @@ private struct AcceptAffordanceButton: View {
         Button(action: onTap) {
             HStack(spacing: 4) {
                 Image(systemName: "return")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(Typography.microGlyph)
                 Text(label)
                     .font(Typography.footerHint)
             }
