@@ -31,11 +31,26 @@ enum CurationSynthesis {
         """
     }
 
+    /// Roughly the input budget that fits the curation model's 8k context with room left
+    /// for the system prompt + the JSON output (~4 chars/token ⇒ ~5k tokens of input).
+    static let maxInputChars = 20_000
+
     /// Build the user message from a batch of source texts (stashed conversations + inbox).
-    static func userPrompt(items: [String]) -> String {
-        items.enumerated()
-            .map { "## Item \($0.offset + 1)\n\($0.element)" }
-            .joined(separator: "\n\n")
+    /// Each item is capped, and the batch is truncated to `maxInputChars`, so a few long
+    /// meetings can't blow past the context window (which the server would silently truncate
+    /// — losing the system prompt's output instructions and timing out on prompt-eval).
+    static func userPrompt(items: [String], maxChars: Int = maxInputChars) -> String {
+        let perItemCap = max(1_000, maxChars / max(items.count, 1))
+        var out = ""
+        for (i, item) in items.enumerated() {
+            let capped = item.count > perItemCap
+                ? String(item.prefix(perItemCap)).trimmingCharacters(in: .whitespaces) + "\n…(truncated)"
+                : item
+            let block = "## Item \(i + 1)\n\(capped)"
+            if out.count + block.count + 2 > maxChars { break }
+            out += (out.isEmpty ? "" : "\n\n") + block
+        }
+        return out
     }
 
     /// Parse the model's reply into proposed writes. Tolerant of prose or ```json fences

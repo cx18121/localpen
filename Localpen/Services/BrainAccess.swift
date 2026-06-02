@@ -8,6 +8,11 @@ extension Notification.Name {
     /// Posted by the Settings "Run curation now" button to trigger the dream cycle
     /// on demand (ADR 0015), instead of waiting for the nightly schedule.
     static let runDreamCycleNow = Notification.Name("localpen.runDreamCycleNow")
+
+    /// Dream-cycle progress for the Settings UI: started ⇒ show "curating…"; finished
+    /// carries a `message` in userInfo (summary, or why nothing ran — always fail-loud).
+    static let dreamCycleStarted = Notification.Name("localpen.dreamCycleStarted")
+    static let dreamCycleFinished = Notification.Name("localpen.dreamCycleFinished")
 }
 
 /// Brain enablement + vault location (ADR 0014). Mirrors `CalendarAccess`: a cheap,

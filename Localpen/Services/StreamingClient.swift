@@ -22,13 +22,18 @@ final class StreamingClient {
     func complete(
         systemPrompt: String,
         userText: String,
-        sampling: ModelDescriptor.Sampling? = nil
+        sampling: ModelDescriptor.Sampling? = nil,
+        timeout: TimeInterval = 60
     ) -> AsyncThrowingStream<String, Error> {
-        complete(messages: [("system", systemPrompt), ("user", userText)], sampling: sampling)
+        complete(messages: [("system", systemPrompt), ("user", userText)],
+                 sampling: sampling, timeout: timeout)
     }
 
+    /// `timeout` is the time-to-first-byte budget. Default 60s suits interactive transforms;
+    /// the curation 14B doing heavy prompt-eval needs much longer (the dream cycle passes 600).
     func complete(messages: [(role: String, content: String)],
-                  sampling: ModelDescriptor.Sampling? = nil) -> AsyncThrowingStream<String, Error> {
+                  sampling: ModelDescriptor.Sampling? = nil,
+                  timeout: TimeInterval = 60) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             // Capture producer task so consumer cancellation tears down the
             // underlying URLSession request (otherwise llama-server keeps
@@ -38,7 +43,7 @@ final class StreamingClient {
                     var request = URLRequest(url: URL(string: "http://127.0.0.1:\(self.port)/v1/chat/completions")!)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    request.timeoutInterval = 60
+                    request.timeoutInterval = timeout
                     request.httpBody = try JSONSerialization.data(
                         withJSONObject: Self.requestBody(messages: messages, sampling: sampling))
 

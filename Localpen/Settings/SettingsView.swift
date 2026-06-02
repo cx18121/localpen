@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// The General settings pane. The Settings window itself is an AppKit
 /// `NSTabViewController(.toolbar)` built in `AppDelegate.openSettings` — that
@@ -22,6 +23,10 @@ struct GeneralSettingsView: View {
     // rebuildable FTS5 index — nothing leaves the Mac.
     @State private var brainEnabled = BrainAccess.isActive
     @State private var brainVaultPath = BrainAccess.vaultRoot.path
+    // Dream-cycle run feedback (ADR 0015): driven by AppDelegate's started/finished
+    // notifications so "Run curation now" shows progress + always reports an outcome.
+    @State private var curationRunning = false
+    @State private var curationStatus: String?
 
     var body: some View {
         Form {
@@ -70,10 +75,24 @@ struct GeneralSettingsView: View {
                     }
                     // Manual trigger for the nightly curation pass (ADR 0015) — runs the
                     // dream cycle now instead of waiting for the off-peak schedule.
-                    Button("Run curation now") {
-                        NotificationCenter.default.post(name: .runDreamCycleNow, object: nil)
+                    HStack(spacing: Spacing.s3) {
+                        Button(curationRunning ? "Curating…" : "Run curation now") {
+                            curationStatus = nil
+                            NotificationCenter.default.post(name: .runDreamCycleNow, object: nil)
+                        }
+                        .disabled(curationRunning)
+                        if curationRunning { ProgressView().controlSize(.small) }
                     }
                     .help("Synthesize recent conversations + inbox into the vault using the curation model (must be downloaded).")
+                    if let curationStatus {
+                        Text(curationStatus)
+                            .font(Typography.subhead)
+                            .foregroundStyle(Tokens.textMute)
+                    } else if curationRunning {
+                        Text("Synthesizing with the 14B — this can take a minute.")
+                            .font(Typography.subhead)
+                            .foregroundStyle(Tokens.textMute)
+                    }
                 }
             } header: {
                 Text("Knowledge base")
@@ -111,6 +130,14 @@ struct GeneralSettingsView: View {
             let expanded = (newValue.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
             BrainAccess.vaultRoot = URL(fileURLWithPath: expanded)
             if brainEnabled { NotificationCenter.default.post(name: .brainConfigChanged, object: nil) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dreamCycleStarted)) { _ in
+            curationRunning = true
+            curationStatus = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dreamCycleFinished)) { note in
+            curationRunning = false
+            curationStatus = note.userInfo?["message"] as? String
         }
         .onAppear {
             launchAtLogin = LaunchAtLogin.isEnabled

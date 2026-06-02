@@ -348,22 +348,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     /// Build + run one dream cycle. `force` (the manual Settings trigger) bypasses the
     /// schedule gate but still respects the brain toggle and the model being present.
     private func runDreamCycle(force: Bool) {
-        guard BrainAccess.isActive, !dreamCycleRunning,
-              let server = llamaServer,
+        // Fail loud: every reason a manual run can't proceed is reported back to Settings,
+        // so the button never just does nothing.
+        guard !dreamCycleRunning else { dreamFinished(force, "Curation is already running.") ; return }
+        guard BrainAccess.isActive else { dreamFinished(force, "Turn on the knowledge base in Settings first.") ; return }
+        guard let server = llamaServer,
               let curation = registry.curationModel,
               let transform = registry.activeModel,
               let stash = conversationStash,
-              let suggestions = suggestionStore else { return }
+              let suggestions = suggestionStore else {
+            dreamFinished(force, "Curation isn't ready (model registry didn't load)."); return
+        }
 
         let curationPath = registry.modelPath(for: curation).path
         guard FileManager.default.fileExists(atPath: curationPath) else {
             log.info("dream cycle: curation model not downloaded — skipping")
-            if force { presentSimpleAlert("Curation model not downloaded",
-                "Run scripts/download-curation-model.sh first, then try again.") }
+            dreamFinished(force, "Curation model not downloaded — run scripts/download-curation-model.sh.")
             return
         }
 
         dreamCycleRunning = true
+        if force { NotificationCenter.default.post(name: .dreamCycleStarted, object: nil) }
         let port = server.port
         let curationStage = CurationModel.Stage(path: curationPath,
                                                 contextSize: curation.contextSize, sampling: curation.sampling)
@@ -374,9 +379,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             stop: { server.stop() },
             complete: { sys, user, sampling in
                 // Collect the full synthesis (no UI streaming) from the borrowed server.
+                // 10-minute timeout: the 14B's prompt-eval on a big batch far exceeds the
+                // 60s interactive default, which is what was timing the run out.
                 let client = StreamingClient(port: port)
                 var acc = ""
-                for try await tok in client.complete(systemPrompt: sys, userText: user, sampling: sampling) {
+                for try await tok in client.complete(systemPrompt: sys, userText: user,
+                                                     sampling: sampling, timeout: 600) {
                     acc += tok
                 }
                 return acc
@@ -406,7 +414,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 let root = BrainAccess.vaultRoot
                 Task.detached { await brainIndex.reindexAll(root: root) }
             }
-            if force { self.presentDreamCycleReport(report) }
+            let summary = report.ranSynthesis
+                ? "Applied \(report.applied), queued \(report.queued)"
+                    + (report.failed > 0 ? ", \(report.failed) failed." : ".")
+                : "Nothing ran: \(report.note)."
+            self.dreamFinished(force, summary)
+        }
+    }
+
+    /// Report a dream-cycle outcome to the Settings UI (clears its "curating…" state). Only
+    /// for manual (`force`) runs — the nightly run has no open UI. Does NOT touch
+    /// `dreamCycleRunning` (the run that owns it resets it), so the "already running" guard
+    /// can call this without clobbering the in-flight run's state.
+    private func dreamFinished(_ force: Bool, _ message: String) {
+        log.info("dream cycle: \(message, privacy: .public)")
+        if force {
+            NotificationCenter.default.post(name: .dreamCycleFinished, object: nil,
+                                            userInfo: ["message": message])
         }
     }
 
@@ -416,21 +440,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let urls = (try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? []
         return urls.filter { $0.pathExtension == "md" }
             .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
-    }
-
-    private func presentDreamCycleReport(_ report: DreamCycle.Report) {
-        let body = report.ranSynthesis
-            ? "Applied \(report.applied) update(s) to your vault, queued \(report.queued) suggestion(s), \(report.failed) failed."
-            : "Nothing ran: \(report.note)."
-        presentSimpleAlert("Curation run complete", body)
-    }
-
-    private func presentSimpleAlert(_ title: String, _ body: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = body
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 
     // MARK: - Hotkey
