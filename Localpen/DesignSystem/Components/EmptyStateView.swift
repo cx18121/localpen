@@ -25,6 +25,6 @@ struct EmptyStateView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.s8 + Spacing.s6)
+        .padding(.vertical, Spacing.emptyStateInsetV)
     }
 }

@@ -5,7 +5,7 @@ struct ProfileView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BackBar(title: "Recent") { controller.dismissProfile() }
+            backBar
             if controller.profileEligibleCount < MemoryService.coldStartGate
                && controller.profileDraft.voiceCard == nil {
                 coldStart
@@ -14,6 +14,25 @@ struct ProfileView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Back-navigation to the recents list. Inlined here (the only caller) rather than a
+    /// shared component — there's no second back-nav surface to share with yet.
+    private var backBar: some View {
+        Button { controller.dismissProfile() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Recent")
+                    .font(Typography.menuRow)
+            }
+            .foregroundStyle(Tokens.textSoft)
+            .padding(.horizontal, Spacing.s6)
+            .padding(.top, Spacing.s5)
+            .padding(.bottom, Spacing.s3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var content: some View {

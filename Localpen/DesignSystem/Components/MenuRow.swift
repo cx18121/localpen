@@ -13,8 +13,6 @@ struct MenuRow: View {
     var trailing: Trailing = .none
     let action: () -> Void
 
-    @State private var hover = false
-
     enum Trailing: Equatable {
         case none
         case text(String)              // e.g. "2h", "learned from 142"
@@ -38,15 +36,10 @@ struct MenuRow: View {
             .padding(.horizontal, Spacing.s5)
             .padding(.vertical, Spacing.s4)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
-                    .fill(Tokens.rowHighlight)
-                    .opacity(hover ? 0.7 : 0)
-            )
+            .hoverFill(radius: Spacing.innerRadius)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hover = $0 }
     }
 
     @ViewBuilder

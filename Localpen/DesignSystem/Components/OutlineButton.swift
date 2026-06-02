@@ -11,8 +11,6 @@ struct OutlineButton: View {
     var role: Role = .normal
     let action: () -> Void
 
-    @State private var hover = false
-
     enum Role { case normal, destructive }
 
     var body: some View {
@@ -22,11 +20,7 @@ struct OutlineButton: View {
                 .foregroundStyle(role == .destructive ? Tokens.accentError : Tokens.textSoft)
                 .padding(.horizontal, Spacing.s5)
                 .padding(.vertical, Spacing.s3)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Tokens.rowHighlight)
-                        .opacity(hover ? 0.7 : 0)
-                )
+                .hoverFill(radius: 8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(Tokens.hairline, lineWidth: 0.75)
@@ -34,6 +28,5 @@ struct OutlineButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hover = $0 }
     }
 }

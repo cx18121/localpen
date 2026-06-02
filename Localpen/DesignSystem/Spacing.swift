@@ -16,6 +16,10 @@ enum Spacing {
     static let bubbleInsetV: CGFloat = 9
     static let bubbleInsetH: CGFloat = 13
 
+    /// Vertical breathing room around an empty-state panel — deliberately generous (past s8)
+    /// so "nothing here yet" surfaces feel centered rather than cramped at the top.
+    static let emptyStateInsetV: CGFloat = 34
+
     static let panelRadius: CGFloat = 14
     static let innerRadius: CGFloat = 7
 }
