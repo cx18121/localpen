@@ -5,12 +5,13 @@ import Foundation
 /// is the feature. Owns identity + presentation metadata only — no view-building,
 /// no behavior (those live in the per-mode views + PanelController).
 enum HubMode: String, CaseIterable, Identifiable {
-    case ask, kb, people, capture, now, suggestions
+    case today, ask, kb, people, capture, now, suggestions
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .today:       return "Today"
         case .ask:         return "Ask"
         case .kb:          return "Knowledge"
         case .people:      return "People"
@@ -22,6 +23,7 @@ enum HubMode: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .today:       return "sun.max"
         case .ask:         return "sparkle"
         case .kb:          return "book.closed"
         case .people:      return "person.2"

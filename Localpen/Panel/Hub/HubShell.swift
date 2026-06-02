@@ -18,6 +18,7 @@ struct HubShell: View {
 
     @ViewBuilder private var modeBody: some View {
         switch controller.hubMode {
+        case .today:   TodayModeView(controller: controller)
         case .ask:     AskInput(controller: controller)        // existing view, reused verbatim
         case .kb:      KBModeView(controller: controller)
         case .people:  PeopleModeView(controller: controller)

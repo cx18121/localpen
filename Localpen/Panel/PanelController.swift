@@ -127,6 +127,10 @@ final class PanelController {
     var hubPeopleInsights = PeopleInsights.Result()
     /// Now-mode: the rendered text of `now.md` (empty if absent / brain off).
     var hubNowText: String = ""
+    /// Today-mode (daily briefing): the cached upcoming schedule + recent inbox items.
+    /// Follow-ups reuse `hubPeopleInsights`; the now excerpt reuses `hubNowText`.
+    var hubTodaySchedule: String? = nil
+    var hubTodayInbox: [String] = []   // titles of recent raw/inbox/ items awaiting triage
     /// Transient confirmation after a Capture write ("Saved to inbox").
     var hubCaptureStatus: String? = nil
     /// Suggestions-mode: the queued high-judgment proposals (ADR 0015).
@@ -945,12 +949,48 @@ final class PanelController {
     /// Load the active mode's data. No-op for Ask/Capture (they're editors).
     private func loadHubMode() {
         switch hubMode {
+        case .today:       loadToday()
         case .kb:          searchHubNotes()
         case .people:      loadPeople()
         case .now:         loadNow()
         case .suggestions: loadSuggestions()
         case .ask, .capture: break
         }
+    }
+
+    /// Daily briefing (ADR 0016): compose the cached schedule, due follow-ups, the now.md
+    /// excerpt, and recent inbox items — a morning glance over already-assembled signals.
+    func loadToday() {
+        // Schedule: the same cached 7-day window the ask chip uses (warms in background).
+        let schedule = ICSCalendarReader().upcomingContext()
+        hubTodaySchedule = (schedule?.isEmpty == false) ? schedule : nil
+        loadNow()        // populates hubNowText
+        loadPeople()     // populates hubPeopleInsights (follow-ups)
+        loadTodayInbox()
+    }
+
+    /// Titles of the most recent raw/inbox/ items awaiting triage (the briefing's "fresh"
+    /// section — captures + Granola meetings the dream cycle / `/cxkb-inbox` will file).
+    private func loadTodayInbox() {
+        let inbox = BrainAccess.vaultRoot.appendingPathComponent("raw/inbox", isDirectory: true)
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: inbox, includingPropertiesForKeys: [.contentModificationDateKey]))?
+            .filter { $0.pathExtension == "md" } ?? []
+        let recent = urls.sorted {
+            let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return a > b
+        }.prefix(6)
+        hubTodayInbox = recent.map { Self.inboxTitle($0) }
+    }
+
+    /// The first `# heading` of an inbox file, else its filename — a readable label.
+    private static func inboxTitle(_ url: URL) -> String {
+        if let text = try? String(contentsOf: url, encoding: .utf8),
+           let heading = text.split(separator: "\n").first(where: { $0.hasPrefix("# ") }) {
+            return String(heading.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        }
+        return url.deletingPathExtension().lastPathComponent
     }
 
     /// KB results: recent notes when the query is empty, search hits otherwise.
