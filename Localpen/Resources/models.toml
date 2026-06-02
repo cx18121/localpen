@@ -15,3 +15,21 @@ context_size = 4096
 default = true
 prompts = { proofread = "Fix only grammar, spelling, and punctuation in the user's text. Preserve voice and length exactly. Keep the original line breaks, blank lines, and indentation. Output only the corrected text.", polish = "Polish the user's text: fix grammar, smooth awkward phrasing, minor rephrasing only. Preserve meaning, tone, and approximate length. Keep the original line breaks, blank lines, and paragraph structure. Output only the polished text.", more_formal = "Rewrite the user's text in a more formal, professional tone. Preserve meaning. Length may shift slightly. Keep the original line breaks and paragraph structure. Output only the rewritten text.", more_casual = "Rewrite the user's text in a more casual, friendly tone. Preserve meaning. Length may shift slightly. Keep the original line breaks and paragraph structure. Output only the rewritten text.", shorter = "Shorten the user's text. Preserve meaning. Cut words. Keep distinct paragraphs on separate lines. Output only the shortened text." }
 sampling = { temperature = 0.4, top_p = 0.9, repeat_penalty = 1.05 }
+
+# Curation model (ADR 0015): the heavier ~14B the nightly dream cycle brings up
+# transiently to synthesize the day's conversations + inbox into the vault. NOT a
+# transform model — `role = "curation"` keeps it out of the model picker, and it is
+# never made the active model. Download is opt-in (scripts/download-curation-model.sh);
+# absence just means the dream cycle has nothing to run. Lower temperature than the
+# transform model for faithful, less-inventive synthesis. context_size is larger to fit
+# a batch of conversations; 14B Q4 (~8.4 GB) + 8k ctx + mlock fits 24 GB comfortably.
+[[models]]
+id = "qwen-2.5-14b-instruct-q4-km"
+name = "Qwen 2.5 14B Instruct (curation)"
+download_url = "https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf"
+download_size_bytes = 8988110976
+sha256 = ""
+context_size = 8192
+role = "curation"
+prompts = { proofread = "Fix only grammar, spelling, and punctuation. Output only the corrected text.", polish = "Polish the text; preserve meaning and length. Output only the polished text.", more_formal = "Rewrite more formally; preserve meaning. Output only the rewritten text.", more_casual = "Rewrite more casually; preserve meaning. Output only the rewritten text.", shorter = "Shorten the text; preserve meaning. Output only the shortened text." }
+sampling = { temperature = 0.3, top_p = 0.9, repeat_penalty = 1.05 }

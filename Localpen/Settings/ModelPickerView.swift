@@ -7,7 +7,9 @@ struct ModelPickerView: View {
     var body: some View {
         Form {
             Section {
-                ForEach(registry.models, id: \.id) { model in
+                // Curation models (ADR 0015) are excluded: they're the heavy nightly
+                // synthesis model, never a choice for the latency-critical transforms.
+                ForEach(registry.models.filter { !$0.isCuration }, id: \.id) { model in
                     row(for: model)
                 }
             } header: {

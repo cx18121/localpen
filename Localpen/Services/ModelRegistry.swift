@@ -25,6 +25,13 @@ final class ModelRegistry {
         models.first { $0.id == activeModelID } ?? models.first
     }
 
+    /// The dedicated curation model (ADR 0015), if one is registered. The dream cycle
+    /// brings this up transiently for nightly synthesis; it is never the active
+    /// transform model. Resolved by role, not a hardcoded id.
+    var curationModel: ModelDescriptor? {
+        models.first { $0.isCuration }
+    }
+
     func systemPrompt(for action: Action) -> String {
         guard let model = activeModel else {
             return ActionPrompts.systemPrompt(for: action)
