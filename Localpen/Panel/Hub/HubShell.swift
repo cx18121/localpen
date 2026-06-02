@@ -34,8 +34,7 @@ struct HubShell: View {
             KbdHint("esc", "close")
             Spacer()
         }
-        .padding(.horizontal, Spacing.s7)
-        .padding(.vertical, Spacing.s3)
+        .panelFooterChrome()
     }
 }
 

@@ -87,7 +87,7 @@ private struct GeneratingIndicator: View {
         }
         .opacity(opacity)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.8).repeatForever()) {
+            withAnimation(Motion.warmupPulse.repeatForever()) {
                 opacity = 1.0
             }
         }

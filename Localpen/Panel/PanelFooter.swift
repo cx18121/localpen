@@ -18,9 +18,6 @@ struct PanelFooter: View {
             .buttonStyle(.plain)
             .help("Recent conversations")
         }
-        .padding(.horizontal, Spacing.s6)
-        .padding(.vertical, Spacing.s3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.chromeTint)
+        .panelFooterChrome()
     }
 }

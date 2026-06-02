@@ -18,7 +18,7 @@ struct SectionHeader: View {
     var body: some View {
         HStack(spacing: Spacing.s3) {
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
+                .font(Typography.sectionHeader)
                 .tracking(0.9)
                 .foregroundStyle(Tokens.textFaint)
             if let trailing {

@@ -37,10 +37,7 @@ struct CustomPromptView: View {
                 KbdHint("⇧↩", "newline")
                 KbdHint("esc", "back")
             }
-            .padding(.horizontal, Spacing.s6)
-            .padding(.vertical, Spacing.s3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Tokens.chromeTint)
+            .panelFooterChrome()
         }
     }
 }

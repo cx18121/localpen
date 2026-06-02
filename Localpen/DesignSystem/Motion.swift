@@ -14,4 +14,7 @@ enum Motion {
     static let acceptFlash  = Animation.linear(duration: 0.10)
     static let errorAppear  = Animation.linear(duration: 0.15)
     static let caretBlink   = Animation.easeInOut(duration: 0.425)
+    /// "Warming up" pulse on the pre-first-token Generating indicator (paired with
+    /// `.repeatForever()`). Lives here so the warm-up tempo isn't a stray literal.
+    static let warmupPulse  = Animation.easeInOut(duration: 0.8)
 }

@@ -57,10 +57,9 @@ struct AskInput: View {
     }
 
     private var footer: some View {
-        HStack {
-            Text("⏎ to ask · ⇧⏎ newline")
-                .font(Typography.subhead)
-                .foregroundStyle(Tokens.textFaint)
+        HStack(spacing: Spacing.s5) {
+            KbdHint("↩", "ask")
+            KbdHint("⇧↩", "newline")
             Spacer()
             // Recents access from the Ask surface — the ambient entry point
             // (hover/click) lands here, so history must be reachable without

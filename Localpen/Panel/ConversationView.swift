@@ -301,7 +301,7 @@ private struct TurnBubble: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, Spacing.bubbleInsetV)
                 .padding(.horizontal, Spacing.bubbleInsetH)
-                .background(Tokens.text.opacity(0.10))
+                .background(Tokens.rowHighlight)
                 .clipShape(
                     UnevenRoundedRectangle(
                         topLeadingRadius: 14, bottomLeadingRadius: 14,

@@ -41,10 +41,7 @@ struct ResultToolbar: View {
                 KbdHint("esc", "cancel")
             }
         }
-        .padding(.horizontal, Spacing.s6)
-        .padding(.vertical, Spacing.s3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.chromeTint)
+        .panelFooterChrome()
     }
 
     /// Transient copy confirmation. No glyph/emoji in chrome (PRODUCT voice); the accent

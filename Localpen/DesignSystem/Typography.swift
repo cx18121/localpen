@@ -14,6 +14,10 @@ enum Typography {
     /// "legible kbd hints" polish found mono 11 too thin inside the keycap chip. KbdHint
     /// is the single component that renders these, so this token is its one source.
     static let kbdGlyph = Font.system(size: 11, weight: .semibold, design: .rounded)
+    /// Small-caps group-label face (with `.tracking(0.9)` applied at the call site).
+    /// Shared by `SectionHeader` and `ActionMenuView`'s fixed-height group headers so
+    /// the two never drift — the menu's headers can't use SectionHeader (highlight math).
+    static let sectionHeader = Font.system(size: 10, weight: .semibold)
 
     // SF Symbol glyph sizes (applied via `.font` on Image). Two sizes only, so chrome
     // icons don't drift: `chromeIcon` for tappable chrome glyphs (matches MenuRow's leading

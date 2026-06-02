@@ -99,8 +99,7 @@ struct ProfileView: View {
                 controller.profile.forgetEverything()
             }
         }
-        .padding(Spacing.s5)
-        .background(Tokens.chromeTint)
+        .panelFooterChrome()
     }
 
     private var coldStart: some View {
@@ -156,7 +155,7 @@ private struct FactRow: View {
         .background(
             RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
                 .fill(Tokens.rowHighlight)
-                .opacity(hover ? 0.5 : 0)
+                .opacity(hover ? 0.7 : 0)
         )
         .contentShape(Rectangle())
         .onHover { hover = $0 }
