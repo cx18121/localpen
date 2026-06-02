@@ -18,7 +18,7 @@ final class BrainIndex {
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "BrainIndex")
 
     init(config: BrainConfig = .default, parser: MarkdownParsing = MarkdownParser()) throws {
-        let dbPath = try Self.databasePath()
+        let dbPath = Self.databasePath()
         let queue = try DatabaseQueue(path: dbPath.path)
         try Self.migrate(queue)
         self.dbQueue = queue
@@ -214,12 +214,8 @@ final class BrainIndex {
         return out
     }
 
-    static func databasePath() throws -> URL {
-        let dir = try FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("Localpen", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("brain.sqlite")
+    static func databasePath() -> URL {
+        AppSupport.root().appendingPathComponent("brain.sqlite")
     }
 
     static func migrate(_ queue: DatabaseQueue) throws {

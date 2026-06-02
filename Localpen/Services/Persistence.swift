@@ -15,7 +15,7 @@ final class Persistence {
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "Persistence")
 
     init() throws {
-        let dbPath = try Self.databasePath()
+        let dbPath = Self.databasePath()
         let queue = try DatabaseQueue(path: dbPath.path)
         try Self.migrate(queue)
         self.dbQueue = queue
@@ -131,12 +131,8 @@ final class Persistence {
         }) ?? 0
     }
 
-    private static func databasePath() throws -> URL {
-        let dir = try FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("Localpen", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("history.sqlite")
+    private static func databasePath() -> URL {
+        AppSupport.root().appendingPathComponent("history.sqlite")
     }
 
     static func migrate(_ queue: DatabaseQueue) throws {

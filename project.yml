@@ -85,6 +85,7 @@ targets:
       - path: Localpen/Services/Brain/MCPServer.swift
       - path: Localpen/Services/Brain/ProjectMatcher.swift
       - path: Localpen/Services/BrainAccess.swift
+      - path: Localpen/Services/AppSupport.swift
     settings:
       base:
         PRODUCT_NAME: localpen

@@ -45,25 +45,16 @@ final class ConversationStore {
     func createThreadWithSeed(originalSelection: Selection, seedUserText: String,
                               seedAction: Action, modelID: String,
                               assistantText: String) async throws -> (threadID: Int64, seedInteractionID: Int64) {
-        let now = self.now()
-        let title = Self.title(from: originalSelection.text)
-        let result: (threadID: Int64, seedInteractionID: Int64) = try await dbQueue.write { db in
-            try db.execute(sql: """
-                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title)
-                VALUES (?, ?, ?, ?, ?)
-                """, arguments: [now, now, originalSelection.sourceBundleID, originalSelection.text, title])
-            let threadID = db.lastInsertedRowID
-            var seed = Interaction(
-                id: nil, timestamp: now, sourceApp: nil, selection: nil,
-                action: seedAction.rawValue, customPrompt: seedUserText,
-                modelID: modelID, modelOutput: assistantText,
-                accepted: false, editedOutput: nil, threadID: threadID
-            )
-            try seed.insert(db)
-            return (threadID, seed.id ?? db.lastInsertedRowID)
+        try await insertThreadWithSeed(
+            sourceApp: originalSelection.sourceBundleID,
+            originalSelection: originalSelection.text,
+            title: Self.title(from: originalSelection.text)
+        ) { threadID, now in
+            Interaction(id: nil, timestamp: now, sourceApp: nil, selection: nil,
+                        action: seedAction.rawValue, customPrompt: seedUserText,
+                        modelID: modelID, modelOutput: assistantText,
+                        accepted: false, editedOutput: nil, threadID: threadID)
         }
-        NotificationCenter.default.post(name: .interactionPersisted, object: nil)
-        return result
     }
 
     /// Creates an ask-seeded thread. Unlike `createThreadWithSeed`, the
@@ -72,7 +63,9 @@ final class ConversationStore {
     /// all. Persists the optional `contextSelection` on the seed Interaction
     /// row so `loadTurns` → `Action.reconstruct` can rehydrate the
     /// `withSelection` flag, and `loadSeedAskContext` can rebuild the chip
-    /// state for `Conversation.messages` on resume.
+    /// state for `Conversation.messages` on resume. The `context_*` are stored on
+    /// the THREAD (not the seed Interaction), so that context text never enters the
+    /// interactions export or MemoryAttribution inference (ADR 0012 / ADR 0014 privacy).
     func createThreadForAsk(question: String,
                             contextSelection: String?,
                             sourceApp: String?,
@@ -81,29 +74,42 @@ final class ConversationStore {
                             contextProvenance: String? = nil,
                             modelID: String,
                             assistantText: String) async throws -> (threadID: Int64, seedInteractionID: Int64) {
+        try await insertThreadWithSeed(
+            sourceApp: sourceApp,
+            originalSelection: question,
+            title: Self.title(from: question),
+            contextCalendar: contextCalendar,
+            contextKnowledge: contextKnowledge,
+            contextProvenance: contextProvenance
+        ) { threadID, now in
+            // `selection` carries the chip-attached selection (or nil) so the
+            // withSelection flag rehydrates on resume.
+            Interaction(id: nil, timestamp: now, sourceApp: sourceApp, selection: contextSelection,
+                        action: "ask", customPrompt: question,
+                        modelID: modelID, modelOutput: assistantText,
+                        accepted: false, editedOutput: nil, threadID: threadID)
+        }
+    }
+
+    /// Atomically insert a thread row and its seed Interaction in one transaction (a partial
+    /// write must never leave a seedless thread, which would make `loadTurns` reconstruct the
+    /// wrong seed action on resume), then post `.interactionPersisted` exactly once. The seed
+    /// is built per-caller from the new thread id + the shared timestamp.
+    private func insertThreadWithSeed(
+        sourceApp: String?, originalSelection: String, title: String,
+        contextCalendar: String? = nil, contextKnowledge: String? = nil, contextProvenance: String? = nil,
+        seed: @escaping (_ threadID: Int64, _ now: Int64) -> Interaction
+    ) async throws -> (threadID: Int64, seedInteractionID: Int64) {
         let now = self.now()
-        let title = Self.title(from: question)
         let result: (threadID: Int64, seedInteractionID: Int64) = try await dbQueue.write { db in
-            // `context_calendar` / `context_knowledge` / `context_provenance` are stored on
-            // the THREAD (not the seed Interaction), so that context text never enters the
-            // interactions export or MemoryAttribution inference (ADR 0012 / ADR 0014 privacy).
             try db.execute(sql: """
                 INSERT INTO threads (created_at, updated_at, source_app, original_selection, title, context_calendar, context_knowledge, context_provenance)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [now, now, sourceApp, question, title, contextCalendar, contextKnowledge, contextProvenance])
+                """, arguments: [now, now, sourceApp, originalSelection, title, contextCalendar, contextKnowledge, contextProvenance])
             let threadID = db.lastInsertedRowID
-            // `selection` carries the chip-attached selection (or nil) so
-            // the withSelection flag rehydrates on resume.
-            var seed = Interaction(
-                id: nil, timestamp: now, sourceApp: sourceApp,
-                selection: contextSelection,
-                action: "ask",
-                customPrompt: question,
-                modelID: modelID, modelOutput: assistantText,
-                accepted: false, editedOutput: nil, threadID: threadID
-            )
-            try seed.insert(db)
-            return (threadID, seed.id ?? db.lastInsertedRowID)
+            var s = seed(threadID, now)
+            try s.insert(db)
+            return (threadID, s.id ?? db.lastInsertedRowID)
         }
         NotificationCenter.default.post(name: .interactionPersisted, object: nil)
         return result

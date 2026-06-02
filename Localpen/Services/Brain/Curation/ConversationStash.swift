@@ -28,14 +28,7 @@ struct ConversationStash {
     let directory: URL
 
     init(directory: URL? = nil) throws {
-        if let directory {
-            self.directory = directory
-        } else {
-            self.directory = try FileManager.default
-                .url(for: .applicationSupportDirectory, in: .userDomainMask,
-                     appropriateFor: nil, create: true)
-                .appendingPathComponent("Localpen/stash", isDirectory: true)
-        }
+        self.directory = directory ?? AppSupport.subdirectory("stash")
         try FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }
 

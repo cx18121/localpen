@@ -46,15 +46,7 @@ final class ModelRegistry {
     }
 
     static func modelsDirectory() -> URL {
-        let dir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ).appendingPathComponent("Localpen/models", isDirectory: true))
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/Localpen/models")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        AppSupport.subdirectory("models")
     }
 
     /// Switch the active model and persist the choice so it survives relaunch.
@@ -127,12 +119,6 @@ final class ModelRegistry {
     }
 
     private static func defaultSupportDirectory() -> URL {
-        (try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ).appendingPathComponent("Localpen", isDirectory: true))
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/Localpen")
+        AppSupport.root()
     }
 }

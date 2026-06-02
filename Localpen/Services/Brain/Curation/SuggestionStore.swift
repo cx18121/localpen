@@ -83,14 +83,7 @@ struct SuggestionStore {
     let directory: URL
 
     init(directory: URL? = nil) throws {
-        if let directory {
-            self.directory = directory
-        } else {
-            self.directory = try FileManager.default
-                .url(for: .applicationSupportDirectory, in: .userDomainMask,
-                     appropriateFor: nil, create: true)
-                .appendingPathComponent("Localpen/suggestions", isDirectory: true)
-        }
+        self.directory = directory ?? AppSupport.subdirectory("suggestions")
         try FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }
 
