@@ -10,7 +10,6 @@ struct DreamCycleRunner {
     let server: LlamaServerController
     let stash: ConversationStash
     let suggestions: SuggestionStore
-    let loadInboxTexts: () -> [String]
     let nowMillis: () -> Int64
 
     /// Faithful, less-inventive synthesis: lower temperature than the interactive transform.
@@ -37,7 +36,7 @@ struct DreamCycleRunner {
             stash: stash,
             writer: VaultWriter(vaultRoot: BrainAccess.vaultRoot),
             suggestions: suggestions,
-            loadInboxTexts: loadInboxTexts,
+            loadInboxTexts: { InboxStore(vaultRoot: BrainAccess.vaultRoot).bodies() },
             nowMillis: nowMillis
         )
         return await cycle.run()

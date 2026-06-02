@@ -325,7 +325,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // reindex, and reporting back to Settings.
         let runner = DreamCycleRunner(
             server: server, stash: stash, suggestions: suggestions,
-            loadInboxTexts: { [weak self] in self?.loadInboxTexts() ?? [] },
             nowMillis: { Int64(Date().timeIntervalSince1970 * 1000) }
         )
 
@@ -353,14 +352,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             NotificationCenter.default.post(name: .dreamCycleFinished, object: nil,
                                             userInfo: ["message": message])
         }
-    }
-
-    /// raw/inbox/ markdown texts — the other dream-cycle input alongside stashed asks.
-    private func loadInboxTexts() -> [String] {
-        let inbox = BrainAccess.vaultRoot.appendingPathComponent("raw/inbox", isDirectory: true)
-        let urls = (try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? []
-        return urls.filter { $0.pathExtension == "md" }
-            .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
     }
 
     // MARK: - Hotkey

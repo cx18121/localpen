@@ -48,6 +48,14 @@ struct InboxStore {
         return candidate
     }
 
+    /// The full text of every inbox item — the dream cycle's raw input alongside the stash.
+    func bodies() -> [String] {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil)) ?? []
+        return urls.filter { $0.pathExtension == "md" }
+            .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
+    }
+
     /// The first `# heading` of an inbox file, else its filename — a readable label.
     static func title(_ url: URL) -> String {
         if let text = try? String(contentsOf: url, encoding: .utf8),
