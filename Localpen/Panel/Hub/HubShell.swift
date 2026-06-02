@@ -83,6 +83,10 @@ private struct HubModeStrip: View {
                     Text(mode.title)
                         .font(Typography.menuRowFocused)
                         .foregroundStyle(Tokens.text)
+                        // Keep the active label on one line; the tile sizes to fit it
+                        // (otherwise the longest title, "Suggestions", wraps at 400pt).
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .padding(.horizontal, active ? Spacing.s4 : Spacing.s3)
