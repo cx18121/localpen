@@ -25,14 +25,6 @@ final class ModelRegistry {
         models.first { $0.id == activeModelID } ?? models.first
     }
 
-    /// A dedicated curation model, if one is registered (`role = "curation"`). None is
-    /// bundled by default (ADR 0017): the dream cycle curates with the active transform
-    /// model, so this is nil and the caller falls back. A user can still register one to
-    /// override that — it's brought up transiently and never becomes the active model.
-    var curationModel: ModelDescriptor? {
-        models.first { $0.isCuration }
-    }
-
     func systemPrompt(for action: Action) -> String {
         guard let model = activeModel else {
             return ActionPrompts.systemPrompt(for: action)

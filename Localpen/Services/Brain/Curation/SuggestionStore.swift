@@ -27,22 +27,11 @@ struct SuggestionPayload: Codable, Equatable, Sendable {
     var title, body, page, detail, name, into, from: String?
 
     /// Reconstruct the high-judgment write this payload represents, for one-click apply.
-    /// Returns nil if a required field is missing (a corrupt/old suggestion).
+    /// Returns nil if a required field is missing (a corrupt/old suggestion). Shares the
+    /// single flat-fields→enum factory with the synthesis parser.
     func curationWrite() -> CurationWrite? {
-        switch kind {
-        case "createPerson":  return name.map(CurationWrite.createPerson)
-        case "promoteTopic":  return title.map(CurationWrite.promoteTopic)
-        case "rewriteCuratedPage":
-            guard let title, let body else { return nil }
-            return .rewriteCuratedPage(title: title, body: body)
-        case "resolveContradiction":
-            guard let page, let detail else { return nil }
-            return .resolveContradiction(page: page, detail: detail)
-        case "mergeIdentities":
-            guard let into, let from else { return nil }
-            return .mergeIdentities(into: into, from: from)
-        default: return nil
-        }
+        CurationWrite.make(kind: kind, title: title, body: body, name: name,
+                           page: page, detail: detail, into: into, from: from)
     }
 }
 

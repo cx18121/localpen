@@ -32,6 +32,45 @@ enum CurationWrite: Equatable, Sendable {
     case mergeIdentities(into: String, from: String)
 }
 
+extension CurationWrite {
+    /// Reconstruct a write from its kind + the flat field bag that both the synthesis JSON
+    /// (`CurationSynthesis.ProposedWrite`) and persisted suggestions (`SuggestionPayload`)
+    /// carry. The single source of truth for "flat fields → enum"; returns nil when a field
+    /// the kind requires is absent, so a garbled/old entry drops rather than reaching the vault.
+    static func make(kind: String,
+                     text: String? = nil, person: String? = nil, entry: String? = nil,
+                     title: String? = nil, body: String? = nil,
+                     fromPage: String? = nil, toTitle: String? = nil, name: String? = nil,
+                     page: String? = nil, detail: String? = nil,
+                     into: String? = nil, from: String? = nil) -> CurationWrite? {
+        switch kind {
+        case "captureToInbox":      return text.map(Self.captureToInbox)
+        case "updateNow":           return text.map(Self.updateNow)
+        case "createPerson":        return name.map(Self.createPerson)
+        case "promoteTopic":        return title.map(Self.promoteTopic)
+        case "appendTimeline":
+            guard let person, let entry else { return nil }
+            return .appendTimeline(person: person, entry: entry)
+        case "createSource":
+            guard let title, let body else { return nil }
+            return .createSource(title: title, body: body)
+        case "nominateLink":
+            guard let fromPage, let toTitle else { return nil }
+            return .nominateLink(fromPage: fromPage, toTitle: toTitle)
+        case "rewriteCuratedPage":
+            guard let title, let body else { return nil }
+            return .rewriteCuratedPage(title: title, body: body)
+        case "resolveContradiction":
+            guard let page, let detail else { return nil }
+            return .resolveContradiction(page: page, detail: detail)
+        case "mergeIdentities":
+            guard let into, let from else { return nil }
+            return .mergeIdentities(into: into, from: from)
+        default:                    return nil
+        }
+    }
+}
+
 /// What the curator is allowed to do with a `CurationWrite` (ADR 0015).
 enum WriteDisposition: Equatable, Sendable {
     /// Mechanical/additive: apply directly to the vault. Git is the safety net.

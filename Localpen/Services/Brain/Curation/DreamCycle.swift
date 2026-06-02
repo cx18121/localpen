@@ -1,6 +1,14 @@
 import Foundation
 import os
 
+/// The result of one synthesis pass (ADR 0017): the model's raw reply, or why it failed.
+/// Production drives this from the live llama-server (`DreamCycleRunner`); tests return a
+/// canned value.
+enum CurationOutcome: Equatable {
+    case completed(String)
+    case failed(String)
+}
+
 /// The nightly dream cycle (ADR 0015): batch-synthesize the day's stashed conversations
 /// (+ inbox texts) with the curation 14B, then route each proposed write — additive ones
 /// auto-applied to the vault, high-judgment ones queued as suggestions. The stash is
@@ -10,9 +18,9 @@ import os
 /// whole gather→synthesize→route→clear flow is testable without a model or a real vault.
 @MainActor
 final class DreamCycle {
-    /// Runs one synthesis pass for the given (system, user) prompt — production wraps
-    /// `CurationModel.synthesize` (transient 14B borrow); tests return a canned outcome.
-    let synthesize: (_ system: String, _ user: String) async -> CurationModel.RunOutcome
+    /// Runs one synthesis pass for the given (system, user) prompt — production drives the
+    /// live llama-server (`DreamCycleRunner`); tests return a canned outcome.
+    let synthesize: (_ system: String, _ user: String) async -> CurationOutcome
     let stash: ConversationStash
     /// Extra raw inputs beyond the stash (e.g. raw/inbox/ texts). Empty is fine.
     let loadInboxTexts: () -> [String]
@@ -22,7 +30,7 @@ final class DreamCycle {
 
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "DreamCycle")
 
-    init(synthesize: @escaping (String, String) async -> CurationModel.RunOutcome,
+    init(synthesize: @escaping (String, String) async -> CurationOutcome,
          stash: ConversationStash,
          writer: VaultWriter,
          suggestions: SuggestionStore,
@@ -43,6 +51,13 @@ final class DreamCycle {
         var consideredItems = 0
         var ranSynthesis = false
         var note = ""         // why nothing ran, when applicable
+
+        /// One-line outcome for the Settings UI.
+        var summaryLine: String {
+            ranSynthesis
+                ? "Applied \(applied), queued \(queued)" + (failed > 0 ? ", \(failed) failed." : ".")
+                : "Nothing ran: \(note)."
+        }
     }
 
     func run() async -> Report {
@@ -63,11 +78,8 @@ final class DreamCycle {
         let outcome = await synthesize(CurationSynthesis.systemPrompt(),
                                        CurationSynthesis.userPrompt(items: items))
         switch outcome {
-        case .skipped(let reason):
-            // Model unavailable — DON'T clear the stash; try again next run.
-            report.note = "synthesis skipped: \(reason)"
-            return report
-        case .failed(let message, _):
+        case .failed(let message):
+            // Synthesis didn't produce usable text — DON'T clear the stash; try next run.
             report.note = "synthesis failed: \(message)"
             return report
         case .completed(let text):

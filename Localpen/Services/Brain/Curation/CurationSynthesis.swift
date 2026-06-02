@@ -109,31 +109,9 @@ enum CurationSynthesis {
         let fromPage, toTitle, name, page, detail, into, from: String?
 
         func curationWrite() -> CurationWrite? {
-            switch kind {
-            case "captureToInbox":      return text.map(CurationWrite.captureToInbox)
-            case "updateNow":           return text.map(CurationWrite.updateNow)
-            case "createPerson":        return name.map(CurationWrite.createPerson)
-            case "promoteTopic":        return title.map(CurationWrite.promoteTopic)
-            case "appendTimeline":
-                guard let person, let entry else { return nil }
-                return .appendTimeline(person: person, entry: entry)
-            case "createSource":
-                guard let title, let body else { return nil }
-                return .createSource(title: title, body: body)
-            case "nominateLink":
-                guard let fromPage, let toTitle else { return nil }
-                return .nominateLink(fromPage: fromPage, toTitle: toTitle)
-            case "rewriteCuratedPage":
-                guard let title, let body else { return nil }
-                return .rewriteCuratedPage(title: title, body: body)
-            case "resolveContradiction":
-                guard let page, let detail else { return nil }
-                return .resolveContradiction(page: page, detail: detail)
-            case "mergeIdentities":
-                guard let into, let from else { return nil }
-                return .mergeIdentities(into: into, from: from)
-            default:                    return nil
-            }
+            CurationWrite.make(kind: kind, text: text, person: person, entry: entry,
+                               title: title, body: body, fromPage: fromPage, toTitle: toTitle,
+                               name: name, page: page, detail: detail, into: into, from: from)
         }
     }
 

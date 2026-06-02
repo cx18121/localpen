@@ -388,95 +388,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         guard !dreamCycleRunning else { dreamFinished(force, "Curation is already running.") ; return }
         guard BrainAccess.isActive else { dreamFinished(force, "Turn on the knowledge base in Settings first.") ; return }
         guard let server = llamaServer,
-              let transform = registry.activeModel,
               let stash = conversationStash,
               let suggestions = suggestionStore else {
             dreamFinished(force, "Curation isn't ready (model registry didn't load)."); return
         }
 
-        // ADR 0017: curate with a dedicated curation-role model if one is configured AND
-        // downloaded; otherwise with the already-loaded transform model — no second model
-        // to download, no transient swap, no lag spike. `usesLiveServer` picks the path.
-        let curation = registry.curationModel ?? transform
-        let usesLiveServer = curation.id == transform.id
-        let port = server.port
-
-        if !usesLiveServer {
-            let curationPath = registry.modelPath(for: curation).path
-            guard FileManager.default.fileExists(atPath: curationPath) else {
-                log.info("dream cycle: curation model not downloaded — skipping")
-                dreamFinished(force, "Curation model not downloaded — run scripts/download-curation-model.sh.")
-                return
-            }
-        }
-
         dreamCycleRunning = true
         if force { NotificationCenter.default.post(name: .dreamCycleStarted, object: nil) }
 
-        // Collect the full synthesis (no UI streaming). 10-minute timeout: prompt-eval on a
-        // batch far exceeds the 60s interactive default, which is what was timing runs out.
-        let runCompletion: (String, String, ModelDescriptor.Sampling) async throws -> String = { sys, user, sampling in
-            let client = StreamingClient(port: port)
-            var acc = ""
-            for try await tok in client.complete(systemPrompt: sys, userText: user,
-                                                 sampling: sampling, timeout: 600) {
-                acc += tok
-            }
-            return acc
-        }
-
-        let synthesize: (String, String) async -> CurationModel.RunOutcome
-        if usesLiveServer {
-            // Faithful, less-inventive synthesis: lower temperature than the transform default.
-            let sampling = ModelDescriptor.Sampling(temperature: 0.3, topP: 0.9, repeatPenalty: 1.05)
-            synthesize = { sys, user in
-                do { return .completed(text: try await runCompletion(sys, user, sampling)) }
-                catch { return .failed(message: "curation synthesis failed: \(error.localizedDescription)",
-                                       transformModelRestored: true) }
-            }
-        } else {
-            let curationStage = CurationModel.Stage(path: registry.modelPath(for: curation).path,
-                                                    contextSize: curation.contextSize, sampling: curation.sampling)
-            let restoreStage = CurationModel.RestoreStage(path: registry.modelPath(for: transform).path,
-                                                          contextSize: transform.contextSize)
-            let model = CurationModel(
-                start: { path, ctx in try await server.start(modelPath: path, contextSize: ctx) },
-                stop: { server.stop() },
-                complete: runCompletion
-            )
-            synthesize = { sys, user in
-                await model.synthesize(systemPrompt: sys, userText: user,
-                                       curation: curationStage, restore: restoreStage, isDownloaded: true)
-            }
-        }
-
-        let cycle = DreamCycle(
-            synthesize: synthesize,
-            stash: stash,
-            writer: VaultWriter(vaultRoot: BrainAccess.vaultRoot),
-            suggestions: suggestions,
+        // ADR 0017: synthesis runs against the already-loaded transform model. The runner
+        // owns the synthesis policy; this method owns only the run flag, the timestamp, the
+        // reindex, and reporting back to Settings.
+        let runner = DreamCycleRunner(
+            server: server, stash: stash, suggestions: suggestions,
             loadInboxTexts: { [weak self] in self?.loadInboxTexts() ?? [] },
             nowMillis: { Int64(Date().timeIntervalSince1970 * 1000) }
         )
 
         Task { @MainActor in
-            let report = await cycle.run()
+            let report = await runner.run()
             self.dreamCycleRunning = false
             UserDefaults.standard.set(Date().timeIntervalSince1970 * 1000, forKey: Self.dreamCycleLastRunKey)
             self.log.info("dream cycle: applied \(report.applied) queued \(report.queued) failed \(report.failed) note=\(report.note, privacy: .public)")
-            // Only the borrow path leaves the model cold (it stopped+restarted the server);
-            // the live-server path never touched it, so warming would just waste a call.
-            if !usesLiveServer { self.warmUpModel(port: port) }
             // New vault pages should become searchable immediately.
             if report.applied > 0, let brainIndex = self.brainIndex {
                 let root = BrainAccess.vaultRoot
                 Task.detached { await brainIndex.reindexAll(root: root) }
             }
-            let summary = report.ranSynthesis
-                ? "Applied \(report.applied), queued \(report.queued)"
-                    + (report.failed > 0 ? ", \(report.failed) failed." : ".")
-                : "Nothing ran: \(report.note)."
-            self.dreamFinished(force, summary)
+            self.dreamFinished(force, report.summaryLine)
         }
     }
 

@@ -10,18 +10,10 @@ struct ModelDescriptor: Codable, Equatable {
     let sha256: String
     let contextSize: Int
     let isDefault: Bool?
-    /// Optional model role (ADR 0015). `"curation"` marks the heavier model the
-    /// nightly dream cycle brings up transiently — kept out of the latency-critical
-    /// transform picker. Nil/absent ⇒ a general transform model (the normal case).
-    let role: String?
     let prompts: Prompts
     let sampling: Sampling
 
     var downloadURL: URL? { URL(string: downloadURLString) }
-
-    /// True for the dedicated curation model (ADR 0015); resolved by the dream cycle
-    /// and excluded from the transform-model picker.
-    var isCuration: Bool { role == "curation" }
 
     struct Prompts: Codable, Equatable {
         let proofread: String
@@ -50,7 +42,7 @@ struct ModelDescriptor: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, sha256, prompts, sampling, role
+        case id, name, sha256, prompts, sampling
         case downloadURLString = "download_url"
         case downloadSizeBytes = "download_size_bytes"
         case contextSize = "context_size"

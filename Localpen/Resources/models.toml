@@ -21,5 +21,4 @@ sampling = { temperature = 0.4, top_p = 0.9, repeat_penalty = 1.05 }
 
 # Curation runs on this same model (ADR 0017 supersedes 0015's dedicated 14B): the
 # dream cycle synthesizes against the already-loaded transform model, so there is no
-# second model to download and no transient swap. A dedicated `role = "curation"`
-# model can still be added here to override that, but it is no longer required.
+# second model to download and no transient swap.

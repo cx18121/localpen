@@ -18,9 +18,9 @@ In practice that premise didn't hold up on the user's hardware:
 
 **Curate with the already-loaded transform model (Qwen-7B). No dedicated curation model is bundled.**
 
-- The dream cycle runs synthesis **against the live server** — no `stop`/`start`, no second model download, no lag spike. Curation uses a lower sampling temperature (0.3) than transforms (0.4) for faithful, less-inventive synthesis.
+- The dream cycle runs synthesis **against the live server** — no `stop`/`start`, no second model download, no lag spike. Curation uses a lower sampling temperature (0.3) than transforms (0.4) for faithful, less-inventive synthesis. `DreamCycleRunner` owns this synthesis policy (model, sampling, the long timeout); `AppDelegate` only schedules the run and reports the result.
 - The transform model's context is raised to **8k** so a curation batch (capped at ~20k chars) fits without the server silently truncating it. 8k also benefits KB-context asks. A 7B Q4 @ 8k is comfortable on 24 GB.
-- A dedicated `role = "curation"` model **remains supported but optional**: if one is registered and downloaded, the dream cycle falls back to the transient-borrow path (`CurationModel`, still tested). Nothing is bundled, so by default `curationModel` is nil and the live-server path runs.
+- **The transient model-borrow path is removed entirely.** The original revision of this ADR kept a dedicated `role = "curation"` model as an opt-in fallback (the `CurationModel` stop→load→synthesize→restore machinery). A follow-up simplification pass deleted it: it was ~250 lines (file + tests + an `AppDelegate` fork) guarding a path nothing bundled and the project had just decided against, and the stop-the-world swap was the very lag this ADR set out to remove. There is now exactly one curation path. Re-introducing a heavier curation model later would mean restoring that machinery deliberately, not leaving it dormant.
 
 ## Alternatives considered
 
@@ -32,5 +32,5 @@ In practice that premise didn't hold up on the user's hardware:
 
 - The dream cycle no longer downloads or swaps models; "Run curation now" is responsive. The 14B can be deleted to reclaim 8.4 GB.
 - The transform model always runs at 8k context (slightly larger KV cache; negligible on 24 GB).
-- `scripts/download-curation-model.sh` and `CurationModel`'s borrow path are retained as the opt-in dedicated-model route, not the default.
+- There is one curation path. `CurationModel` and its tests were deleted; `DreamCycleRunner` is the single synthesis entry point. `scripts/download-curation-model.sh` is retained only as a manual convenience for anyone who later chooses to wire a heavier model back in.
 - The judgment-split (auto additive vs. queued high-judgment), git backstop, substance filter, hybrid stash→nightly cadence, and "operate under the vault's rules" discipline from ADR 0015 are unchanged.
