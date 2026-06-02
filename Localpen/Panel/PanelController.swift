@@ -1162,7 +1162,9 @@ final class PanelController {
                     question: question,
                     contextSelection: context.selection,
                     sourceApp: context.appLabel,
-                    contextCalendar: context.calendar,
+                    // App replays from source_app above; persist the remaining ambient
+                    // sources (calendar, files, …) as the v8 context_sources JSON (ADR 0019).
+                    contextSources: context.sources.filter { $0.kind != .app },
                     contextKnowledge: ctx.knowledge,
                     contextProvenance: ContextBundle.Provenance.encode(provenance),
                     modelID: modelID,

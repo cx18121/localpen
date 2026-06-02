@@ -54,6 +54,19 @@ struct ContextItem: Codable, Equatable, Sendable {
         return .init(kind: .files, label: name, chipText: "file [\(name)]",
                      promptLine: trimmed.isEmpty ? "file [\(name)]" : "file [\(name)]: \(trimmed)")
     }
+
+    // MARK: Persistence (ADR 0019) — a JSON array on the thread (context_sources, v8).
+
+    static func encode(_ items: [ContextItem]) -> String? {
+        guard !items.isEmpty, let data = try? JSONEncoder().encode(items) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func decode(_ json: String?) -> [ContextItem] {
+        guard let json, let data = json.data(using: .utf8),
+              let items = try? JSONDecoder().decode([ContextItem].self, from: data) else { return [] }
+        return items
+    }
 }
 
 /// A capture-time context source (ADR 0019). Implementations read one ambient
