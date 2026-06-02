@@ -190,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if let existing = settingsWindow {
             NSApp.activate(ignoringOtherApps: true)
             existing.makeKeyAndOrderFront(nil)
+            centerInVisibleFrame(existing)
             return
         }
 
@@ -222,10 +223,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         window.title = "Localpen Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
-        window.center()
         settingsWindow = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        centerInVisibleFrame(window)
+    }
+
+    /// Center a window within the active screen's `visibleFrame` — which excludes the menu
+    /// bar AND the notch inset — so the title bar can never land under the notch. Re-applied
+    /// on the next runloop because the SwiftUI panes set their size after first layout, and
+    /// AppKit keeps the top-left fixed as the window grows (which is what was tucking the
+    /// title bar under the notch when we centered pre-sizing).
+    private func centerInVisibleFrame(_ window: NSWindow) {
+        let place = { [weak window] in
+            guard let window, let screen = window.screen ?? NSScreen.main else { return }
+            let vis = screen.visibleFrame
+            var f = window.frame
+            f.origin.x = (vis.midX - f.width / 2).rounded()
+            f.origin.y = (vis.midY - f.height / 2).rounded()
+            f.origin.x = min(max(f.origin.x, vis.minX), vis.maxX - f.width)
+            f.origin.y = min(max(f.origin.y, vis.minY), vis.maxY - f.height)
+            window.setFrame(f, display: true)
+        }
+        place()
+        DispatchQueue.main.async(execute: place)   // again after panes size themselves
     }
 
     // MARK: - Server
