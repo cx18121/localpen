@@ -43,7 +43,8 @@ struct TodayModeView: View {
                 if !controller.hub.todayInbox.isEmpty {
                     SectionHeader(title: "Inbox", trailing: "\(controller.hub.todayInbox.count)")
                     ForEach(controller.hub.todayInbox, id: \.self) { title in
-                        MenuRow(icon: "tray", title: title, trailing: .none) {}
+                        // Glance-only: captured items have no detail view to open, so no tap affordance.
+                        MenuRow(icon: "tray", title: title)
                     }
                 }
 
