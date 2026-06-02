@@ -68,6 +68,33 @@ targets:
       - package: DynamicNotchKit
         product: DynamicNotchKit
 
+  # `localpen` agent-retrieval CLI (PLAN-brain.md Phase 5). A standalone command-line
+  # tool that compiles the brain READ core directly — no duplicated query logic, and it
+  # opens the same `~/Library/Application Support/Localpen/brain.sqlite` the app writes.
+  # Only the Foundation/GRDB-only files are listed (no SwiftUI/AppKit, no watcher/engine).
+  localpen-cli:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: LocalpenCLI
+      - path: Localpen/Services/Brain/KBModels.swift
+      - path: Localpen/Services/Brain/MarkdownParser.swift
+      - path: Localpen/Services/Brain/BrainIndex.swift
+      - path: Localpen/Services/Brain/KBSearch.swift
+      - path: Localpen/Services/BrainAccess.swift
+    settings:
+      base:
+        PRODUCT_NAME: localpen
+        SWIFT_VERSION: "5.10"
+        SWIFT_STRICT_CONCURRENCY: targeted
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "-"
+    dependencies:
+      - package: GRDB
+        product: GRDB
+
   LocalpenTests:
     type: bundle.unit-test
     platform: macOS
@@ -132,5 +159,13 @@ schemes:
       config: Release
     analyze:
       config: Debug
+    archive:
+      config: Release
+  localpen-cli:
+    build:
+      targets:
+        localpen-cli: all
+    run:
+      config: Release
     archive:
       config: Release
