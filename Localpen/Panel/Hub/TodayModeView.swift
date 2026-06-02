@@ -57,7 +57,7 @@ struct TodayModeView: View {
             }
             .padding(.vertical, Spacing.s2)
         }
-        .frame(maxHeight: 340)
+        .frame(maxHeight: controller.readingMaxHeight)
         .onAppear { controller.hub.loadToday() }
     }
 

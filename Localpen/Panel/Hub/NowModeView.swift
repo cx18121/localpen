@@ -19,7 +19,7 @@ struct NowModeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Spacing.s7)
             }
-            .frame(maxHeight: 320)
+            .frame(maxHeight: controller.readingMaxHeight)
         }
     }
 }

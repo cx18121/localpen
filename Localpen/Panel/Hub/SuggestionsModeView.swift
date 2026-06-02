@@ -31,7 +31,7 @@ struct SuggestionsModeView: View {
                         ForEach(controller.hub.suggestions, id: \.id) { row($0) }
                     }
                 }
-                .frame(maxHeight: 320)
+                .frame(maxHeight: controller.readingMaxHeight)
             }
         }
         .onAppear { controller.hub.loadSuggestions() }

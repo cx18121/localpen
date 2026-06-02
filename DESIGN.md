@@ -187,8 +187,9 @@ shared with writing transforms, so ask-specific affordances are gated on
 ### 3.1 Window
 
 - Type: `NSPanel` (translates from this spec; see swiftui-expert pass).
-- Width: **360pt** fixed.
+- Width: **360pt** fixed. _(Built at **400pt** per the §0 calibration; **560pt** in the focus-size toggle — see below.)_
 - Height: **content-fit**, with minimum 200pt and maximum 480pt. Result region scrolls if exceeded.
+- **Focus-size toggle (post-1.0).** The hub carries an expand control (trailing slot of the mode strip) that flips a persisted `panel.expanded` preference. When on, the **hub widens** (400 → 560pt, clamped to the screen) and the **reading surfaces** (hub modes, conversation, history) get a taller scroll cap. Transform/editor surfaces (quick-action menu, result, custom prompt, capture, profile) stay compact — a wide quick-action menu or text column reads worse, not better. Because DynamicNotchKit hosts the panel in a window ~half the screen tall, the expanded height is clamped to that window (minus chrome), floored at the compact height: on a laptop "expand" yields the width gain; tall external displays grow both.
 - Style mask: borderless, non-activating (key but doesn't steal focus from frontmost app for accessibility tree purposes; swiftui-expert specifies exact NSPanel flags).
 - Background: `--panel-bg`, opaque. No vibrancy material in Phase 1 — vibrancy adds complexity and can clash with source-app accent colors. Reconsider in Phase 2.
 - Corner radius: `--radius` (10pt). Applied to the window, not just an inner view.

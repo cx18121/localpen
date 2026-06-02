@@ -37,7 +37,7 @@ struct KBModeView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 320)
+                .frame(maxHeight: controller.readingMaxHeight)
             }
         }
     }

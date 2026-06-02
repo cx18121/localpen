@@ -77,6 +77,11 @@ final class PanelController {
 
     static let panelSize = NSSize(width: 400, height: 480)
     static let panelEdgeMargin: CGFloat = 24
+    /// Expanded ("focus") sizing — wider hub + taller reading surfaces (the `panelExpanded`
+    /// toggle). Clamped to the screen's visibleFrame at read time so the panel can't overrun.
+    static let expandedWidth: CGFloat = 560
+    static let readingHeightCompact: CGFloat = 340
+    static let readingHeightExpanded: CGFloat = 580
 
     /// Set immediately after init via `attach(notch:)`. It can't be an init
     /// parameter: the presenter's `DynamicNotch` eagerly evaluates its content
@@ -131,6 +136,64 @@ final class PanelController {
     /// The voice-card inspect/edit state. ProfileView binds `controller.profile.*`; the
     /// transition to the profile surface stays here (`showProfile`/`dismissProfile`).
     var profile: ProfileModel
+
+    /// "Focus" size toggle (persisted): when on, the hub widens and the reading surfaces grow
+    /// taller. Transform/editor surfaces stay compact regardless — a wide quick-action menu or
+    /// a wide text column is worse, not better.
+    var panelExpanded = UserDefaults.standard.bool(forKey: "panel.expanded")
+
+    /// The panel's current width. Only the hub widens when expanded; everything else stays at
+    /// the compact width (text reads better in a narrow column; the quick-action menu is small
+    /// by design).
+    var panelWidth: CGFloat {
+        Self.width(expanded: panelExpanded, isHub: currentPhase == .hub,
+                   screenWidth: NSScreen.main?.visibleFrame.width ?? 1200)
+    }
+
+    /// The max height for the scrollable reading surfaces (hub modes, conversation, history).
+    var readingMaxHeight: CGFloat {
+        Self.readingHeight(expanded: panelExpanded, phaseIsReading: currentPhaseIsReading,
+                           screenHeight: NSScreen.main?.frame.height ?? 1000)
+    }
+
+    /// Pure sizing (testable). Only the hub widens; clamp to the screen so a wide panel can't
+    /// overrun the visibleFrame.
+    static func width(expanded: Bool, isHub: Bool, screenWidth: CGFloat) -> CGFloat {
+        guard expanded, isHub else { return panelSize.width }
+        return min(expandedWidth, screenWidth - 2 * panelEdgeMargin)
+    }
+
+    /// Reserve for the notch inset + panel chrome (mode strip / footer / hairlines / padding)
+    /// when sizing the expanded reading surface against the notch window.
+    static let notchChromeReserve: CGFloat = 190
+
+    /// Pure sizing (testable). DynamicNotchKit hosts the panel in a window ~half the screen
+    /// tall, so the expanded reading cap is clamped to THAT window minus chrome — never
+    /// `visibleFrame` (which would let the panel grow past the window and clip the bottom). It
+    /// floors at the known-safe compact height, so on a short laptop screen "expand" simply
+    /// yields the width gain rather than a clipped panel; tall external displays grow both.
+    static func readingHeight(expanded: Bool, phaseIsReading: Bool, screenHeight: CGFloat) -> CGFloat {
+        guard expanded, phaseIsReading else { return readingHeightCompact }
+        let notchWindowUsable = screenHeight / 2 - notchChromeReserve
+        return max(readingHeightCompact, min(readingHeightExpanded, notchWindowUsable))
+    }
+
+    /// Flip the focus-size toggle and persist it (survives relaunch).
+    func togglePanelExpanded() {
+        panelExpanded.toggle()
+        UserDefaults.standard.set(panelExpanded, forKey: "panel.expanded")
+    }
+
+    private var currentPhase: PanelState.Phase? {
+        if case .visible(_, let phase) = state { return phase }
+        return nil
+    }
+    private var currentPhaseIsReading: Bool {
+        switch currentPhase {
+        case .hub, .conversing, .history: return true
+        default: return false
+        }
+    }
 
     /// The AskContext snapshot of the most recent `startAskStream`, kept so a
     /// retry from the error banner can re-run the ask through `startAskStream`

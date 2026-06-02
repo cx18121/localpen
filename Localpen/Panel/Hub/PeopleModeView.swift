@@ -31,7 +31,7 @@ struct PeopleModeView: View {
                     ForEach(insights.all) { row($0, trailing: .chevron) }
                 }
             }
-            .frame(maxHeight: 320)
+            .frame(maxHeight: controller.readingMaxHeight)
         }
     }
 

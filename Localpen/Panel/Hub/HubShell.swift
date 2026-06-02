@@ -49,9 +49,26 @@ private struct HubModeStrip: View {
         HStack(spacing: Spacing.s2) {
             ForEach(HubMode.allCases) { tile($0) }
             Spacer(minLength: 0)
+            expandToggle
         }
         .padding(.horizontal, Spacing.s5)
         .padding(.vertical, Spacing.s3)
+    }
+
+    /// Toggle the focus ("expanded") size — wider hub + taller reading surfaces. Lives in the
+    /// strip's empty trailing slot, the one consistent spot across hub modes.
+    private var expandToggle: some View {
+        Button { controller.togglePanelExpanded() } label: {
+            Image(systemName: controller.panelExpanded
+                  ? "arrow.down.right.and.arrow.up.left"
+                  : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(controller.panelExpanded ? Tokens.accent : Tokens.textSoft)
+                .padding(Spacing.s2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(controller.panelExpanded ? "Collapse" : "Expand")
     }
 
     @ViewBuilder private func tile(_ mode: HubMode) -> some View {

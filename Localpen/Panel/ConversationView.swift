@@ -129,7 +129,7 @@ struct ConversationView: View {
             }
             // Cap the scrollable thread so SelectionBlock + ReplyBox stay visible
             // within the fixed 480pt panel (PanelController.panelSize.height).
-            .frame(maxHeight: 280)
+            .frame(maxHeight: controller.readingMaxHeight)
 
             // The KB pages this brain-backed answer drew on (ADR 0014). Pinned below the
             // thread so they stay visible; click a chip to open the note in Obsidian.

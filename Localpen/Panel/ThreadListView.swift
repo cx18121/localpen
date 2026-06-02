@@ -35,7 +35,7 @@ struct ThreadListView: View {
                 .padding(.horizontal, Spacing.s4)
                 .padding(.bottom, Spacing.s4)
             }
-            .frame(maxHeight: 360)
+            .frame(maxHeight: controller.readingMaxHeight)
         }
     }
 

@@ -84,7 +84,8 @@ struct PanelView: View {
                 }
             }
         }
-        .frame(width: PanelController.panelSize.width)
+        .frame(width: controller.panelWidth)
+        .animation(.snappy(duration: 0.20), value: controller.panelWidth)
         .background(PanelSurface())
         .clipShape(RoundedRectangle(cornerRadius: Spacing.panelRadius, style: .continuous))
         .overlay(
