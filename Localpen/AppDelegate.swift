@@ -4,7 +4,7 @@ import ApplicationServices
 import os
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, ObservableObject {
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let registry = ModelRegistry()
     var persistence: Persistence?
 
@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     private var dreamCycleTimer: Timer?
     private var dreamCycleRunning = false
     private var firstRunWindow: NSWindow?
-    private var settingsWindow: NSWindow?
+    private var settingsWindowController: SettingsWindowController?
     private var serverStartedForModel: String?
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "App")
 
@@ -95,8 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             brainIndex: brainIndex,
             conversationStash: conversationStash,
             suggestionStore: suggestionStore,
-            openSettings: { [weak self] in self?.openSettings() }
+            openSettings: { [weak self] in self?.settingsWindowController?.show() }
         )
+        settingsWindowController = SettingsWindowController(
+            registry: registry, persistence: persistence,
+            switchModel: { [weak self] id in self?.switchModel(id: id) })
         let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })
         panel.attach(notch: notch)
         panelController = panel
@@ -182,85 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         firstRunWindow = window
-    }
-
-    // MARK: - Settings window (AppKit-controlled)
-
-    func openSettings() {
-        // Become a regular app while Settings is open: an LSUIElement (accessory) app has no
-        // Dock icon and never appears in ⌘-Tab, so a backgrounded Settings window is
-        // unreachable. `.regular` gives it a Dock tile + app-switcher entry; we revert to
-        // `.accessory` on close (windowWillClose) so the app stays menu-bar-only otherwise.
-        NSApp.setActivationPolicy(.regular)
-
-        if let existing = settingsWindow {
-            NSApp.activate(ignoringOtherApps: true)
-            existing.makeKeyAndOrderFront(nil)
-            centerInVisibleFrame(existing)
-            return
-        }
-
-        // Native System-Preferences look: an NSTabViewController with `.toolbar` style renders
-        // icon+label tabs in a unified toolbar. Each pane is a SwiftUI grouped Form that fills
-        // the content area (flexible frame) so the window stays user-resizable.
-        let tabVC = NSTabViewController()
-        tabVC.tabStyle = .toolbar
-
-        func tab(_ title: String, _ symbol: String, _ root: some View) -> NSTabViewItem {
-            let hc = NSHostingController(
-                rootView: root.frame(minWidth: 440, maxWidth: .infinity, minHeight: 180, maxHeight: .infinity))
-            let item = NSTabViewItem(viewController: hc)
-            item.label = title
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
-            return item
-        }
-
-        tabVC.addTabViewItem(tab("General", "gear", GeneralSettingsView()))
-        tabVC.addTabViewItem(tab("Model", "cube",
-            ModelPickerView(registry: registry,
-                            switchModel: { [weak self] id in self?.switchModel(id: id) })))
-        tabVC.addTabViewItem(tab("History", "clock.arrow.circlepath",
-            HistorySettingsView(persistence: persistence)))
-
-        let window = NSWindow(contentViewController: tabVC)
-        window.title = "Localpen Settings"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.setContentSize(NSSize(width: 480, height: 320))
-        window.contentMinSize = NSSize(width: 440, height: 220)
-        settingsWindow = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        centerInVisibleFrame(window)
-    }
-
-    /// Center a window within the active screen's `visibleFrame` — which excludes the menu
-    /// bar AND the notch inset — so the title bar can never land under the notch. Re-applied
-    /// on the next runloop because the SwiftUI panes set their size after first layout, and
-    /// AppKit keeps the top-left fixed as the window grows (which is what was tucking the
-    /// title bar under the notch when we centered pre-sizing).
-    private func centerInVisibleFrame(_ window: NSWindow) {
-        let place = { [weak window] in
-            guard let window, let screen = window.screen ?? NSScreen.main else { return }
-            let vis = screen.visibleFrame
-            var f = window.frame
-            f.origin.x = (vis.midX - f.width / 2).rounded()
-            f.origin.y = (vis.midY - f.height / 2).rounded()
-            f.origin.x = min(max(f.origin.x, vis.minX), vis.maxX - f.width)
-            f.origin.y = min(max(f.origin.y, vis.minY), vis.maxY - f.height)
-            window.setFrame(f, display: true)
-        }
-        place()
-        DispatchQueue.main.async(execute: place)   // again after panes size themselves
-    }
-
-    /// When the Settings window closes, drop back to accessory (menu-bar-only) so the app
-    /// leaves no Dock tile / ⌘-Tab entry behind. Guarded to the settings window since other
-    /// windows may share this delegate.
-    func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === settingsWindow else { return }
-        NSApp.setActivationPolicy(.accessory)
     }
 
     // MARK: - Server
@@ -457,5 +381,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     func openPanel() {
         handleHotkey()
+    }
+
+    /// Menu-bar "Settings…" entry point — forwards to the dedicated window controller.
+    func showSettings() {
+        settingsWindowController?.show()
     }
 }

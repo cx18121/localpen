@@ -13,7 +13,7 @@ struct LocalpenApp: App {
         MenuBarExtra("Localpen", systemImage: "pencil.tip") {
             StatusMenu(
                 onOpenPanel: { appDelegate.openPanel() },
-                onOpenSettings: { appDelegate.openSettings() }
+                onOpenSettings: { appDelegate.showSettings() }
             )
         }
     }
