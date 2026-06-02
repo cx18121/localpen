@@ -37,3 +37,17 @@ A pre-defined transformation applied to the selection. The Phase 1 menu is six i
 
 ### Interaction
 A single hotkey-to-accept cycle: selection → action → model output → accept-or-reject (with optional edit before accept). Every interaction is persisted to local SQLite from Phase 1, ready for Phase 2's memory inference. See [ADR 0006](./docs/adr/0006-persist-interactions-from-day-1.md).
+
+---
+
+## Context
+
+Material the assistant reads to ground an Ask, beyond the question itself. Two distinct kinds, split by *when* they're read — they are **not** one thing (see [ADR 0019](./docs/adr/0019-context-source-seam.md)):
+
+### Context source
+An **ambient, query-independent** input read at **capture time** (the moment you invoke Localpen), frozen for the session, and shown as a **removable chip** above the Ask input. "What's around you right now": the **active app/window**, your **calendar**, the **file you have open**, what's **on your screen**, your **mail**. Each is off by default, enabled from Settings, and gated by its own authorization. The canonical term for one such input is a **context source**; the captured value it contributes is a **context item**.
+
+### Knowledge (brain context)
+A **query-dependent, relevance-ranked** input read at **stream time** (it needs your question to rank against), drawn from the knowledge brain and shown as **provenance** under the answer, not as a pre-filled chip. This is the brain ([ADR 0014](./docs/adr/0014-brain-derived-fts5-index-over-vault.md)) and is deliberately **not** a context source — different timing, different surfacing, different mechanism.
+
+The **selection** (above) is neither: it is the *operand* a transform acts on, not ambient context.
