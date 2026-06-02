@@ -59,7 +59,7 @@ struct ActionMenuView: View {
                 groupHeader("Create")
                 row(respondIdx)
                 row(askIdx)
-                Hairline().padding(.horizontal, Spacing.s4).padding(.vertical, 6)
+                Hairline().padding(.horizontal, Spacing.s4).padding(.vertical, Spacing.s2)
                 row(customIdx)
             }
         }

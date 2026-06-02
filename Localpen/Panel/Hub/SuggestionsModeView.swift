@@ -49,16 +49,13 @@ struct SuggestionsModeView: View {
                     .foregroundStyle(Tokens.textFaint)
             }
             Spacer(minLength: Spacing.s2)
+            // Canonical paired actions (DESIGN §2.7) — quiet outline pills, not an
+            // accent-text button (accent is reserved for the caret/copied note after
+            // the neutral-focus polish).
             if suggestion.isOneClickApplicable {
-                Button("Apply") { controller.hub.applySuggestion(suggestion) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Tokens.accent)
-                    .font(Typography.menuRowFocused)
+                OutlineButton(title: "Apply") { controller.hub.applySuggestion(suggestion) }
             }
-            Button("Dismiss") { controller.hub.dismissSuggestion(suggestion) }
-                .buttonStyle(.plain)
-                .foregroundStyle(Tokens.textMute)
-                .font(Typography.subhead)
+            OutlineButton(title: "Dismiss") { controller.hub.dismissSuggestion(suggestion) }
         }
         .padding(.horizontal, Spacing.s7)
         .padding(.vertical, Spacing.s3)

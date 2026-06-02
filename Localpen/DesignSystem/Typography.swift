@@ -10,7 +10,16 @@ enum Typography {
     static let result = Font.system(size: 15, weight: .regular)
     static let footerHint = Font.system(size: 12, weight: .regular)
     static let pill = Font.system(size: 11, weight: .medium)
-    static let kbdGlyph = Font.system(size: 11, weight: .medium, design: .monospaced)
+    /// Keyboard-hint glyph face. Rounded·semibold (not mono) is deliberate: the 2026-05
+    /// "legible kbd hints" polish found mono 11 too thin inside the keycap chip. KbdHint
+    /// is the single component that renders these, so this token is its one source.
+    static let kbdGlyph = Font.system(size: 11, weight: .semibold, design: .rounded)
+
+    // SF Symbol glyph sizes (applied via `.font` on Image). Two sizes only, so chrome
+    // icons don't drift: `chromeIcon` for tappable chrome glyphs (matches MenuRow's leading
+    // icon), `microGlyph` for in-chip / inline meta marks.
+    static let chromeIcon = Font.system(size: 13)
+    static let microGlyph = Font.system(size: 9, weight: .medium)
 
     // First-run / Settings
     static let headline = Font.system(size: 17, weight: .semibold)

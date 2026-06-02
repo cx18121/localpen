@@ -10,6 +10,13 @@ struct ResultView: View {
 
     @FocusState private var editorFocused: Bool
 
+    // One source for the result region's dimensions (DESIGN §3.4): min height so a
+    // short result still reads as a panel, max so a long one scrolls instead of
+    // overrunning the screen. Repeated across the edit / warm-up / display branches.
+    private static let minBodyHeight: CGFloat = 96
+    private static let maxBodyHeight: CGFloat = 320
+    private static let bodyLineSpacing: CGFloat = Spacing.s1
+
     var body: some View {
         Group {
             if isEditing {
@@ -17,16 +24,16 @@ struct ResultView: View {
                     .focused($editorFocused)
                     .font(Typography.result)
                     .foregroundStyle(Tokens.text)
-                    .lineSpacing(4)
+                    .lineSpacing(Self.bodyLineSpacing)
                     .scrollContentBackground(.hidden)
-                    .frame(minHeight: 96, maxHeight: 320)
+                    .frame(minHeight: Self.minBodyHeight, maxHeight: Self.maxBodyHeight)
                     .padding(.horizontal, Spacing.s7)
                     .padding(.vertical, Spacing.s6)
                     .onAppear { editorFocused = true }
             } else if isStreaming && text.isEmpty {
                 // Subtle pulse while the model warms up before the first token lands.
                 GeneratingIndicator()
-                    .frame(minHeight: 96, maxHeight: 320, alignment: .topLeading)
+                    .frame(minHeight: Self.minBodyHeight, maxHeight: Self.maxBodyHeight, alignment: .topLeading)
                     .padding(.horizontal, Spacing.s7)
                     .padding(.vertical, Spacing.s6)
             } else {
@@ -37,7 +44,7 @@ struct ResultView: View {
                                 Text(text)
                                     .font(Typography.result)
                                     .foregroundStyle(Tokens.text)
-                                    .lineSpacing(4)
+                                    .lineSpacing(Self.bodyLineSpacing)
                                     .textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -50,7 +57,7 @@ struct ResultView: View {
                             Color.clear.frame(height: 1).id("bottom")
                         }
                     }
-                    .frame(minHeight: 96, maxHeight: 320)
+                    .frame(minHeight: Self.minBodyHeight, maxHeight: Self.maxBodyHeight)
                     .padding(.horizontal, Spacing.s7)
                     .padding(.vertical, Spacing.s6)
                     .contentShape(Rectangle())

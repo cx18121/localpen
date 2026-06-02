@@ -12,15 +12,10 @@ struct ErrorBanner: View {
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
-            Button(action: onAction) {
-                Text(error.actionLabel)
-                    .font(Typography.body)
-                    .padding(.horizontal, Spacing.s5)
-                    .padding(.vertical, Spacing.s2)
-            }
-            .buttonStyle(.bordered)
+            OutlineButton(title: error.actionLabel, action: onAction)
         }
         .padding(Spacing.s7)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Tokens.chromeTint)
     }
 }

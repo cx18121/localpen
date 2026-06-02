@@ -12,7 +12,7 @@ struct PanelFooter: View {
             Spacer(minLength: 0)
             Button(action: onHistory) {
                 Image(systemName: "clock")
-                    .font(.system(size: 12))
+                    .font(Typography.chromeIcon)
                     .foregroundStyle(Tokens.textFaint)
             }
             .buttonStyle(.plain)

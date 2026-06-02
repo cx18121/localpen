@@ -86,4 +86,11 @@ enum Tokens {
         light: .oklch(0.55, 0.14, 28),
         dark:  .oklch(0.72, 0.10, 28)
     )
+
+    /// Panel drop-shadow (elevation-1). Tinted toward the brand hue rather than pure
+    /// black — the system bans `#000`. The panel's depth comes from material + this shadow.
+    static let panelShadow = Color.dynamic(
+        light: .oklch(0.20, 0.012, 240, opacity: 0.22),
+        dark:  .oklch(0.04, 0.012, 240, opacity: 0.40)
+    )
 }

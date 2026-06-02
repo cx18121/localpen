@@ -12,7 +12,7 @@ struct NowModeView: View {
                 EmptyStateView(
                     icon: "doc.text",
                     title: "now.md is empty",
-                    caption: "Your live ‘this week’ page. Edit it in Obsidian — it shows here."
+                    caption: "Your live ‘this week’ page. Edit it in Obsidian; it shows here."
                 )
             } else {
                 ScrollView {
