@@ -14,9 +14,7 @@ struct NowModeView: View {
             )
         } else {
             ScrollView {
-                Text(controller.hub.nowText)
-                    .font(Typography.body)
-                    .foregroundStyle(Tokens.text)
+                MarkdownText(controller.hub.nowText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Spacing.s7)
