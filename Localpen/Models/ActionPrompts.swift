@@ -113,15 +113,16 @@ enum ActionPrompts {
     /// chip-never-existed ask (Codex spec review §6). Both the app/window
     /// chip AND the selection chip reach the model (Codex plan review MED).
     static func askUserMessage(question: String, context: AskContext) -> String {
-        var lines: [String] = []
-        if let app = context.appLabel { lines.append("app: \(app)") }
-        if let sel = context.selection { lines.append("selection: \(sel)") }
-        // Knowledge (ADR 0014) is the richest context and reads naturally before the
-        // calendar/question. Its lines are pre-prefixed "kb [Title]: …" by ContextEngine.
-        // Nil (brain off / nothing relevant) ⇒ no line ⇒ byte-identical prompt.
-        if let kb = context.knowledge { lines.append(kb) }
-        if let cal = context.calendar { lines.append("calendar: \(cal)") }
-        if lines.isEmpty { return question }
+        // One ranked loop over everything (ADR 0019): ambient sources + the selection
+        // operand + the knowledge brain, each tagged with a fixed `promptRank` so the
+        // order is deterministic (app → selection → files → knowledge → calendar → …).
+        // Nil/absent inputs add no line ⇒ byte-identical to a context-never-existed ask.
+        var entries: [(rank: Int, line: String)] = context.sources.map { ($0.kind.promptRank, $0.promptLine) }
+        if let sel = context.selection { entries.append((ContextKind.selection.promptRank, "selection: \(sel)")) }
+        // Knowledge lines are pre-prefixed "kb [Title]: …" by ContextEngine.
+        if let kb = context.knowledge { entries.append((ContextKind.knowledge.promptRank, kb)) }
+        if entries.isEmpty { return question }
+        let lines = entries.sorted { $0.rank < $1.rank }.map(\.line)
         return "<context>\n" + lines.joined(separator: "\n") + "\n</context>\n\n" + question
     }
 }

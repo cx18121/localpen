@@ -1001,16 +1001,13 @@ final class PanelController {
 
     // MARK: - Ask flow
 
-    func removeAskAppChip() {
-        askContext.appLabel = nil
+    /// Remove one ambient context source's chip (ADR 0019) — app, calendar, files, …
+    func removeAskSource(_ kind: ContextKind) {
+        askContext.removeSource(kind)
     }
 
     func removeAskSelectionChip() {
         askContext.selection = nil
-    }
-
-    func removeAskCalendarChip() {
-        askContext.calendar = nil
     }
 
     /// Attach calendar context (ADR 0012) to the current `askContext` via an

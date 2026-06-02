@@ -29,8 +29,8 @@ struct ContextItem: Codable, Equatable, Sendable { let kind: ContextKind; let ch
 ```
 
 - `ContextProbe` runs every **enabled** source's `capture()` **concurrently** at capture time and collects `[ContextItem]`.
-- `AskContext` gains `sources: [ContextItem]`, **replacing** the explicit `appLabel` and `calendar` fields. One chip renderer loops the list; one prompt loop emits the lines.
-- Persisted as a **single `context_sources` JSON column** (migration **v7**); the existing `context_calendar` is folded forward so resumed threads replay faithfully (the existing replay tests are the safety net).
+- `AskContext` gains `sources: [ContextItem]`. The existing `appLabel`/`calendar` are kept as a **thin facade** (computed accessors + a named init) over `sources`, so every call site and test is unchanged and the refactor is provably behavior-neutral. One ranked prompt loop emits the lines (a fixed `promptRank` per kind preserves the prior app → selection → knowledge → calendar order exactly); the chip rail loops the neutral sources, with calendar keeping its own accent row.
+- **Persistence is sequenced, not done in lockstep.** A capture-time source only needs a persisted column to *replay on thread-resume*. The single `context_sources` JSON column (it would be **v8** — `context_provenance` already took v7) is **deferred to its own isolated pass**: doing the schema migration is the riskiest change for the least first-cut value. Until then, Files context is live-only — a resumed thread won't replay its file line (calendar still does, via its existing `context_calendar`). Documented gap, closed when a source genuinely needs resume-fidelity.
 - `capture()` is **async** — calendar is cached-sync today, but screen-OCR and file reads are inherently async; async is the general case.
 - **`selection` and `knowledge` stay first-class and out of the list.** `selection` is the *operand* a transform acts on (it drives `Action.ask(withSelection:)` / `hasSelection`); `knowledge` is the brain (query-time seam). Only *ambient* sources generalize.
 
@@ -53,4 +53,5 @@ Each source: **off by default**, enabled from a Settings toggle, gated by a sync
 - Files / screen-OCR / Mail each become "implement one `ContextSource`" — one chip pipeline, one prompt loop, one persisted column, one permission pattern.
 - A v7 migration touches the persisted thread schema and the replay path; the existing calendar/selection replay tests guard it.
 - The brain stays its own seam; a future change that tried to fold query-time retrieval into `ContextSource` (or vice versa) should reopen this ADR.
+- The `ContextSource` protocol ships with Files conforming and the probe running it (`captureSources()`); calendar and the app/window read still use their dedicated probe seams (`CalendarReading`, `AXWindowTitleReader`) for now and fold into `ContextSource` in a later pass, once a second/third conformer makes the unification a real seam rather than a one-conformer abstraction.
 - The in-app-Gmail question is explicitly deferred to a future ADR so the local-only line ("no cloud **model**"; network fetch of *your own* data is allowed, per ADR 0013) is decided deliberately, not by drift.
