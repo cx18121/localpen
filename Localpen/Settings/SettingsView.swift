@@ -68,6 +68,12 @@ struct GeneralSettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 11, design: .monospaced))
                     }
+                    // Manual trigger for the nightly curation pass (ADR 0015) — runs the
+                    // dream cycle now instead of waiting for the off-peak schedule.
+                    Button("Run curation now") {
+                        NotificationCenter.default.post(name: .runDreamCycleNow, object: nil)
+                    }
+                    .help("Synthesize recent conversations + inbox into the vault using the curation model (must be downloaded).")
                 }
             } header: {
                 Text("Knowledge base")

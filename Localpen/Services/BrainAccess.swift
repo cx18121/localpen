@@ -4,6 +4,10 @@ extension Notification.Name {
     /// Posted when the brain enable toggle or vault path changes (Settings). AppDelegate
     /// observes it to (re)index + start/stop the watcher live, without a relaunch.
     static let brainConfigChanged = Notification.Name("localpen.brainConfigChanged")
+
+    /// Posted by the Settings "Run curation now" button to trigger the dream cycle
+    /// on demand (ADR 0015), instead of waiting for the nightly schedule.
+    static let runDreamCycleNow = Notification.Name("localpen.runDreamCycleNow")
 }
 
 /// Brain enablement + vault location (ADR 0014). Mirrors `CalendarAccess`: a cheap,

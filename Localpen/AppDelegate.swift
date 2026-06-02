@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var llamaServer: LlamaServerController?
     private var brainIndex: BrainIndex?
     private var brainWatcher: KBWatcher?
+    private var conversationStash: ConversationStash?
+    private var suggestionStore: SuggestionStore?
+    private var dreamCycleTimer: Timer?
+    private var dreamCycleRunning = false
     private var firstRunWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var serverStartedForModel: String?
@@ -69,6 +73,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         self.brainIndex = brainIndex
         let contextEngine = brainIndex.map { ContextEngine(search: KBSearch(dbQueue: $0.dbQueue), index: $0) }
 
+        // Curation (ADR 0015): the hot-path stash + the high-judgment suggestion queue.
+        // Both are Localpen-private dirs; harmless if they fail to open (nil ⇒ no curation).
+        let conversationStash = try? ConversationStash()
+        self.conversationStash = conversationStash
+        self.suggestionStore = try? SuggestionStore()
+
         // Build the controller first: the presenter's DynamicNotch eagerly builds
         // its content (PanelView(controller:)) during the presenter's init, so the
         // controller must already exist. Then attach the presenter to the controller.
@@ -82,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             contextProbe: contextProbe,
             contextEngine: contextEngine,
             brainIndex: brainIndex,
+            conversationStash: conversationStash,
             openSettings: { [weak self] in self?.openSettings() }
         )
         let notch = NotchPresenter(expanded: { AnyView(PanelView(controller: panel)) })
@@ -113,6 +124,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         refreshBrain()
         NotificationCenter.default.addObserver(self, selector: #selector(refreshBrain),
                                                name: .brainConfigChanged, object: nil)
+
+        // Nightly dream cycle (ADR 0015) + a manual "Run curation now" trigger from Settings.
+        scheduleDreamCycle()
+        NotificationCenter.default.addObserver(self, selector: #selector(runDreamCycleNow),
+                                               name: .runDreamCycleNow, object: nil)
 
         let coordinator = FirstRunCoordinator(registry: registry)
         firstRunCoordinator = coordinator
@@ -300,6 +316,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         Task.detached(priority: .utility) {
             for try await _ in client.complete(systemPrompt: "Warmup.", userText: "Hi") { break }
         }
+    }
+
+    // MARK: - Dream cycle (ADR 0015)
+
+    private static let dreamCycleLastRunKey = "curation.lastRunMillis"
+
+    /// Poll every 30 min; `maybeRunDreamCycle` self-gates on the off-peak window + a
+    /// once-a-day floor, so the cycle only fires while the user is likely asleep.
+    private func scheduleDreamCycle() {
+        let timer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.maybeRunDreamCycle() }
+        }
+        timer.tolerance = 300
+        dreamCycleTimer = timer
+    }
+
+    @objc private func runDreamCycleNow() { runDreamCycle(force: true) }
+
+    private func maybeRunDreamCycle() {
+        let hour = Calendar.current.component(.hour, from: Date())
+        guard (2..<6).contains(hour) else { return }                       // off-peak only
+        let last = UserDefaults.standard.double(forKey: Self.dreamCycleLastRunKey)
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        guard nowMs - last > 18 * 3600 * 1000 else { return }              // at most ~once/day
+        runDreamCycle(force: false)
+    }
+
+    /// Build + run one dream cycle. `force` (the manual Settings trigger) bypasses the
+    /// schedule gate but still respects the brain toggle and the model being present.
+    private func runDreamCycle(force: Bool) {
+        guard BrainAccess.isActive, !dreamCycleRunning,
+              let server = llamaServer,
+              let curation = registry.curationModel,
+              let transform = registry.activeModel,
+              let stash = conversationStash,
+              let suggestions = suggestionStore else { return }
+
+        let curationPath = registry.modelPath(for: curation).path
+        guard FileManager.default.fileExists(atPath: curationPath) else {
+            log.info("dream cycle: curation model not downloaded — skipping")
+            if force { presentSimpleAlert("Curation model not downloaded",
+                "Run scripts/download-curation-model.sh first, then try again.") }
+            return
+        }
+
+        dreamCycleRunning = true
+        let port = server.port
+        let curationStage = CurationModel.Stage(path: curationPath,
+                                                contextSize: curation.contextSize, sampling: curation.sampling)
+        let restoreStage = CurationModel.RestoreStage(path: registry.modelPath(for: transform).path,
+                                                      contextSize: transform.contextSize)
+        let model = CurationModel(
+            start: { path, ctx in try await server.start(modelPath: path, contextSize: ctx) },
+            stop: { server.stop() },
+            complete: { sys, user, sampling in
+                // Collect the full synthesis (no UI streaming) from the borrowed server.
+                let client = StreamingClient(port: port)
+                var acc = ""
+                for try await tok in client.complete(systemPrompt: sys, userText: user, sampling: sampling) {
+                    acc += tok
+                }
+                return acc
+            }
+        )
+        let cycle = DreamCycle(
+            synthesize: { sys, user in
+                await model.synthesize(systemPrompt: sys, userText: user,
+                                       curation: curationStage, restore: restoreStage, isDownloaded: true)
+            },
+            stash: stash,
+            writer: VaultWriter(vaultRoot: BrainAccess.vaultRoot),
+            suggestions: suggestions,
+            loadInboxTexts: { [weak self] in self?.loadInboxTexts() ?? [] },
+            nowMillis: { Int64(Date().timeIntervalSince1970 * 1000) }
+        )
+
+        Task { @MainActor in
+            let report = await cycle.run()
+            self.dreamCycleRunning = false
+            UserDefaults.standard.set(Date().timeIntervalSince1970 * 1000, forKey: Self.dreamCycleLastRunKey)
+            self.log.info("dream cycle: applied \(report.applied) queued \(report.queued) failed \(report.failed) note=\(report.note, privacy: .public)")
+            // The 7B is restored but cold after the borrow — warm it so the next transform is snappy.
+            self.warmUpModel(port: port)
+            // New vault pages should become searchable immediately.
+            if report.applied > 0, let brainIndex = self.brainIndex {
+                let root = BrainAccess.vaultRoot
+                Task.detached { await brainIndex.reindexAll(root: root) }
+            }
+            if force { self.presentDreamCycleReport(report) }
+        }
+    }
+
+    /// raw/inbox/ markdown texts — the other dream-cycle input alongside stashed asks.
+    private func loadInboxTexts() -> [String] {
+        let inbox = BrainAccess.vaultRoot.appendingPathComponent("raw/inbox", isDirectory: true)
+        let urls = (try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? []
+        return urls.filter { $0.pathExtension == "md" }
+            .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
+    }
+
+    private func presentDreamCycleReport(_ report: DreamCycle.Report) {
+        let body = report.ranSynthesis
+            ? "Applied \(report.applied) update(s) to your vault, queued \(report.queued) suggestion(s), \(report.failed) failed."
+            : "Nothing ran: \(report.note)."
+        presentSimpleAlert("Curation run complete", body)
+    }
+
+    private func presentSimpleAlert(_ title: String, _ body: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     // MARK: - Hotkey

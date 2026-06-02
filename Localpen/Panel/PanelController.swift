@@ -88,6 +88,9 @@ final class PanelController {
     /// The brain index, for the hub's KB/People modes (search, recents). nil ⇒ those
     /// modes show empty states. Shared with the injected ContextEngine.
     @ObservationIgnored private let brainIndex: BrainIndex?
+    /// The curation stash (ADR 0015): eligible Ask conversations are captured here on the
+    /// hot path for the nightly dream cycle. nil / brain-off ⇒ nothing is stashed.
+    @ObservationIgnored private let conversationStash: ConversationStash?
     /// Injection seam for the hotkey path's selection capture. Defaults to
     /// the real TextIO; tests override to count calls + simulate timing.
     /// The single-capture invariant is enforced through this closure being
@@ -182,6 +185,7 @@ final class PanelController {
          contextProbe: ContextProbe = ContextProbe(),
          contextEngine: ContextEngine? = nil,
          brainIndex: BrainIndex? = nil,
+         conversationStash: ConversationStash? = nil,
          captureSelection: (@Sendable () async -> TextIO.Capture)? = nil,
          askStreamProvider: AskStreamProvider? = nil,
          isAccessibilityTrusted: (@Sendable () -> Bool)? = nil,
@@ -196,6 +200,7 @@ final class PanelController {
         self.contextProbe = contextProbe
         self.contextEngine = contextEngine
         self.brainIndex = brainIndex
+        self.conversationStash = conversationStash
         self.captureSelection = captureSelection ?? { [textIO] in
             await textIO.captureSelection()
         }
@@ -1197,6 +1202,7 @@ final class PanelController {
                 )
                 self.conversation = convo
                 self.state = .visible(PanelContext(), .conversing)
+                self.stashConversation(convo)
             } catch {
                 guard self.convEpoch == epoch, self.current === session else { return }
                 // Persisted, but a reload step threw: finalize in the conversation
@@ -1212,6 +1218,25 @@ final class PanelController {
 
     private func withSel(context: AskContext) -> Bool {
         context.selection?.isEmpty == false
+    }
+
+    /// Capture an eligible Ask conversation to the curation stash (ADR 0015) for the nightly
+    /// dream cycle. Brain-gated and idempotent (one file per thread, overwritten), so calling
+    /// it after the seed exchange and after each follow-up just keeps the latest transcript.
+    /// No-op when the brain is off, there's no stash, or the thread isn't eligible (a bare
+    /// quick-action transform). Failure is non-fatal — stashing must never break a reply.
+    private func stashConversation(_ convo: Conversation) {
+        guard BrainAccess.isActive, let stash = conversationStash,
+              ConversationStash.isEligible(isAsk: convo.isAsk, turnCount: convo.turns.count) else { return }
+        let stashed = StashedConversation(
+            threadID: convo.threadID,
+            isAsk: convo.isAsk,
+            seedAction: convo.turns.first?.action?.rawValue ?? "",
+            stampMillis: Int64(Date().timeIntervalSince1970 * 1000),
+            turns: convo.turns.map {
+                StashedTurn(role: $0.role == .user ? "user" : "assistant", text: $0.text)
+            })
+        try? stash.stash(stashed)
     }
 
     // MARK: - Persistence
@@ -1369,6 +1394,7 @@ final class PanelController {
                 if convo.turns.last?.role == .assistant {
                     convo.turns[convo.turns.count - 1].interactionID = rowID
                 }
+                stashConversation(convo)
             }
         } catch {
             if Task.isCancelled { return }
