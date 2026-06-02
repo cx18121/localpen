@@ -982,25 +982,7 @@ final class PanelController {
     /// Titles of the most recent raw/inbox/ items awaiting triage (the briefing's "fresh"
     /// section — captures + Granola meetings the dream cycle / `/cxkb-inbox` will file).
     private func loadTodayInbox() {
-        let inbox = BrainAccess.vaultRoot.appendingPathComponent("raw/inbox", isDirectory: true)
-        let urls = (try? FileManager.default.contentsOfDirectory(
-            at: inbox, includingPropertiesForKeys: [.contentModificationDateKey]))?
-            .filter { $0.pathExtension == "md" } ?? []
-        let recent = urls.sorted {
-            let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-            let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-            return a > b
-        }.prefix(6)
-        hubTodayInbox = recent.map { Self.inboxTitle($0) }
-    }
-
-    /// The first `# heading` of an inbox file, else its filename — a readable label.
-    private static func inboxTitle(_ url: URL) -> String {
-        if let text = try? String(contentsOf: url, encoding: .utf8),
-           let heading = text.split(separator: "\n").first(where: { $0.hasPrefix("# ") }) {
-            return String(heading.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-        }
-        return url.deletingPathExtension().lastPathComponent
+        hubTodayInbox = InboxStore(vaultRoot: BrainAccess.vaultRoot).recentTitles()
     }
 
     /// KB results: recent notes when the query is empty, search hits otherwise.
@@ -1045,11 +1027,8 @@ final class PanelController {
     func commitCapture(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let inbox = BrainAccess.vaultRoot.appendingPathComponent("raw/inbox", isDirectory: true)
-        let url = inbox.appendingPathComponent("\(Self.captureStamp()).md")
         do {
-            try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
-            try trimmed.write(to: url, atomically: true, encoding: .utf8)
+            try InboxStore(vaultRoot: BrainAccess.vaultRoot).capture(trimmed)
             hubCaptureStatus = "Saved to inbox"
         } catch {
             hubCaptureStatus = "Couldn't save: \(error.localizedDescription)"
@@ -1092,13 +1071,6 @@ final class PanelController {
         suggestionStore?.remove(id: suggestion.id)
         hubSuggestionStatus = "Dismissed."
         loadSuggestions()
-    }
-
-    private static func captureStamp() -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd-HHmmss"
-        return f.string(from: Date())
     }
 
     // MARK: - Ask flow
