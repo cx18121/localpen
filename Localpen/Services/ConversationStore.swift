@@ -78,18 +78,19 @@ final class ConversationStore {
                             sourceApp: String?,
                             contextCalendar: String? = nil,
                             contextKnowledge: String? = nil,
+                            contextProvenance: String? = nil,
                             modelID: String,
                             assistantText: String) async throws -> (threadID: Int64, seedInteractionID: Int64) {
         let now = self.now()
         let title = Self.title(from: question)
         let result: (threadID: Int64, seedInteractionID: Int64) = try await dbQueue.write { db in
-            // `context_calendar` / `context_knowledge` are stored on the THREAD (not the
-            // seed Interaction), so that context text never enters the interactions export
-            // or MemoryAttribution voice/facts inference (ADR 0012 / ADR 0014 privacy note).
+            // `context_calendar` / `context_knowledge` / `context_provenance` are stored on
+            // the THREAD (not the seed Interaction), so that context text never enters the
+            // interactions export or MemoryAttribution inference (ADR 0012 / ADR 0014 privacy).
             try db.execute(sql: """
-                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title, context_calendar, context_knowledge)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [now, now, sourceApp, question, title, contextCalendar, contextKnowledge])
+                INSERT INTO threads (created_at, updated_at, source_app, original_selection, title, context_calendar, context_knowledge, context_provenance)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [now, now, sourceApp, question, title, contextCalendar, contextKnowledge, contextProvenance])
             let threadID = db.lastInsertedRowID
             // `selection` carries the chip-attached selection (or nil) so
             // the withSelection flag rehydrates on resume.
@@ -209,6 +210,16 @@ final class ConversationStore {
             let cal: String? = row["cal"]
             let kb: String? = row["kb"]
             return AskContext(appLabel: app, selection: sel, calendar: cal, knowledge: kb)
+        }
+    }
+
+    /// The persisted answer-provenance (ADR 0014) for a thread — the KB pages its
+    /// brain-backed ask drew on — decoded for the source chips. [] when none stored.
+    func loadProvenance(threadID: Int64) async throws -> [ContextBundle.Provenance] {
+        try await dbQueue.read { db in
+            let json = try String.fetchOne(db, sql:
+                "SELECT context_provenance FROM threads WHERE id = ?", arguments: [threadID])
+            return ContextBundle.Provenance.decode(json)
         }
     }
 

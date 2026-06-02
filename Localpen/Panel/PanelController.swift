@@ -982,6 +982,11 @@ final class PanelController {
         NSWorkspace.shared.open(URL(fileURLWithPath: page.path))
     }
 
+    /// Open an answer's source page (provenance chip, ADR 0014) in Obsidian.
+    func openProvenanceSource(_ source: ContextBundle.Provenance) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: source.path))
+    }
+
     /// Capture free text into the vault's `raw/inbox/` (ADR 0015 additive write).
     func commitCapture(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1153,10 +1158,13 @@ final class PanelController {
             // runs at stream time (the question exists here), not at capture like calendar.
             // Off/empty ⇒ ctx.knowledge stays nil ⇒ byte-identical prompt + nothing persisted.
             var ctx = context
+            var provenance: [ContextBundle.Provenance] = []
             if let engine = self.contextEngine {
                 let kb = await engine.bundle(for: question)
                 if !kb.text.isEmpty { ctx.knowledge = kb.text }
+                provenance = kb.sources
             }
+            liveConvo.provenance = provenance   // show source chips while the answer streams
             guard self.convEpoch == epoch, self.current === session else { return }
             let userMessage = ActionPrompts.askUserMessage(question: question, context: ctx)
 
@@ -1208,6 +1216,7 @@ final class PanelController {
                     sourceApp: context.appLabel,
                     contextCalendar: context.calendar,
                     contextKnowledge: ctx.knowledge,
+                    contextProvenance: ContextBundle.Provenance.encode(provenance),
                     modelID: modelID,
                     assistantText: assembled
                 )
@@ -1250,6 +1259,7 @@ final class PanelController {
                     turns: turns,
                     seedAskContext: askCtx
                 )
+                convo.provenance = provenance   // carry source chips onto the reloaded thread
                 self.conversation = convo
                 self.state = .visible(PanelContext(), .conversing)
                 self.stashConversation(convo)
@@ -1544,6 +1554,7 @@ final class PanelController {
             // follow-up would lose the source text it's meant to reason over.
             // Returns nil for non-ask threads, so non-ask resume is unaffected.
             let askCtx = try? await store.loadSeedAskContext(threadID: id)
+            let provenance = (try? await store.loadProvenance(threadID: id)) ?? []
             // Dismiss, Back, or a second resume during the loads above must not be
             // overridden by this late completion installing a stale session/thread.
             guard self.convEpoch == epoch else { return }
@@ -1560,6 +1571,7 @@ final class PanelController {
             let convo = Conversation(threadID: id, originalSelection: sel,
                                      operationClass: seed.operationClass, turns: turns,
                                      seedAskContext: askCtx)
+            convo.provenance = provenance
             self.conversation = convo
             self.state = .visible(PanelContext(selection: sel, action: seed), .conversing)
         }

@@ -221,6 +221,15 @@ final class Persistence {
                 t.add(column: "context_knowledge", .text)
             }
         }
+
+        // v7: Answer provenance — the KB pages a brain-backed ask drew on, stored as a
+        // JSON array on the THREAD (like context_knowledge) so the source chips replay on
+        // resume. Nullable: non-brain / pre-v7 ask threads leave it NULL.
+        migrator.registerMigration("v7.thread_context_provenance") { db in
+            try db.alter(table: "threads") { t in
+                t.add(column: "context_provenance", .text)
+            }
+        }
         try migrator.migrate(queue)
     }
 }

@@ -131,6 +131,13 @@ struct ConversationView: View {
             // within the fixed 480pt panel (PanelController.panelSize.height).
             .frame(maxHeight: 280)
 
+            // The KB pages this brain-backed answer drew on (ADR 0014). Pinned below the
+            // thread so they stay visible; click a chip to open the note in Obsidian.
+            if conversation.isAsk && !conversation.provenance.isEmpty {
+                Hairline()
+                SourceChips(sources: conversation.provenance) { controller.openProvenanceSource($0) }
+            }
+
             Hairline()
 
             ReplyBox(text: $replyText, autoFocus: true,
@@ -161,6 +168,50 @@ struct ConversationView: View {
 enum AcceptAffordances {
     static func resolve(pastesBack: Bool, isAsk: Bool) -> (replace: Bool, copy: Bool) {
         (replace: pastesBack, copy: !pastesBack || isAsk)
+    }
+}
+
+// MARK: - Source chips (answer provenance)
+
+/// A horizontal row of the KB pages a brain-backed answer drew on (ADR 0014). Accent-
+/// tinted (KB-derived, like the calendar chip) and tappable to open the note in Obsidian.
+private struct SourceChips: View {
+    let sources: [ContextBundle.Provenance]
+    let onOpen: (ContextBundle.Provenance) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.s2) {
+            Text("Sources")
+                .font(Typography.footerHint)
+                .foregroundStyle(Tokens.textFaint)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.s2) {
+                    ForEach(sources, id: \.path) { src in
+                        Button { onOpen(src) } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "book.closed")
+                                    .font(.system(size: 9, weight: .medium))
+                                Text(src.title)
+                                    .font(Typography.subhead)
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(Tokens.accent)
+                            .padding(.horizontal, Spacing.s3)
+                            .padding(.vertical, 3)
+                            .background(
+                                RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
+                                    .fill(Tokens.accentTint)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open “\(src.title)” in Obsidian")
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, Spacing.s7)
+        .padding(.vertical, Spacing.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

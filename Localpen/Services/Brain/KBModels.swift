@@ -51,12 +51,28 @@ struct ContextBundle: Sendable, Equatable {
     let sources: [Provenance]
     let approxTokens: Int
 
-    struct Provenance: Sendable, Equatable {
+    struct Provenance: Sendable, Equatable, Codable {
         let title: String
         let path: String
         let reason: Reason
-        enum Reason: String, Sendable { case always, query }
+        enum Reason: String, Sendable, Codable { case always, query }
     }
 
     static let empty = ContextBundle(text: "", sources: [], approxTokens: 0)
+}
+
+extension ContextBundle.Provenance {
+    /// JSON-encode a provenance list for thread persistence. nil for empty (stored NULL).
+    static func encode(_ list: [ContextBundle.Provenance]) -> String? {
+        guard !list.isEmpty, let data = try? JSONEncoder().encode(list) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Decode a stored provenance JSON string; [] on nil/garbage (fail-soft on resume).
+    static func decode(_ json: String?) -> [ContextBundle.Provenance] {
+        guard let json, let data = json.data(using: .utf8),
+              let list = try? JSONDecoder().decode([ContextBundle.Provenance].self, from: data)
+        else { return [] }
+        return list
+    }
 }

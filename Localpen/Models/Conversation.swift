@@ -13,6 +13,10 @@ final class Conversation {
     var turns: [ConversationTurn]
     var streamingText: String = ""
 
+    /// The KB pages a brain-backed ask drew on (ADR 0014 provenance). Shown as clickable
+    /// source chips in the conversation surface. Empty for non-brain asks / writing threads.
+    var provenance: [ContextBundle.Provenance] = []
+
     /// Set when the latest turn's stream failed; ConversationView shows it inline
     /// with Retry. The failed user turn stays in `turns`, so retry just re-streams.
     var turnError: PanelError?
