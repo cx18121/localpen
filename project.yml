@@ -82,6 +82,7 @@ targets:
       - path: Localpen/Services/Brain/MarkdownParser.swift
       - path: Localpen/Services/Brain/BrainIndex.swift
       - path: Localpen/Services/Brain/KBSearch.swift
+      - path: Localpen/Services/Brain/MCPServer.swift
       - path: Localpen/Services/BrainAccess.swift
     settings:
       base:

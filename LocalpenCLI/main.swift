@@ -97,6 +97,21 @@ case "reindex":
     let n = await pageCount()
     if json { print("{\"indexed\":\(n)}") } else { print("indexed \(n) pages") }
 
+case "serve":
+    // MCP stdio server: speak JSON-RPC over stdin/stdout so agent clients (Claude Code,
+    // Cursor) can query the brain as tools. All diagnostics go to stderr (warn) — stdout
+    // is the protocol channel and must carry ONLY JSON-RPC. Responses are written via
+    // FileHandle so they flush immediately (print() buffers when piped).
+    await ensureIndexed()
+    warn("localpen MCP server ready (stdio) — \(await pageCount()) pages indexed")
+    let server = MCPServer(backend: LiveKBBackend(index: index))
+    let stdout = FileHandle.standardOutput
+    while let line = readLine(strippingNewline: true) {
+        if let response = await server.handle(line) {
+            stdout.write(Data((response + "\n").utf8))
+        }
+    }
+
 default:
     warn("unknown command: \(command)")
     printUsage()
@@ -193,6 +208,7 @@ func printUsage() {
       localpen get "<title>"      [--json]
       localpen backlinks "<title>" [--json]
       localpen reindex            [--json]
+      localpen serve              (MCP stdio server for Claude Code / Cursor)
 
     OPTIONS:
       --vault <path>   vault root to index (default: $LOCALPEN_VAULT or ~/Documents/cxkb)
