@@ -501,9 +501,11 @@ final class PanelController {
             }
             return false
         case .hub:
-            // In an editor mode (Ask/Capture), forward Esc to the hub router
-            // (clear query / dismiss); let the editor keep all other keys.
-            if code == kVK_Escape { return handleKeyDown(event) }
+            // In an editor mode (Ask/Capture), forward Esc (clear query / dismiss) AND Tab
+            // (switch mode — the hub's global affordance) to the hub router. Without the Tab
+            // forward the text view eats it as an indent, so ⇥ silently stops switching modes
+            // whenever the focused mode has an input field. The editor keeps all other keys.
+            if code == kVK_Escape || code == kVK_Tab { return handleKeyDown(event) }
             return false
         default:
             return false
