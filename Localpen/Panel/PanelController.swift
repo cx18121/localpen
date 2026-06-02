@@ -123,6 +123,8 @@ final class PanelController {
     var hubNotes: [KBPage] = []
     /// People-mode list (pages of type `.person`).
     var hubPeople: [KBPage] = []
+    /// People-mode relationship buckets (follow-ups due / reconnect / all) — ADR 0015 CRM.
+    var hubPeopleInsights = PeopleInsights.Result()
     /// Now-mode: the rendered text of `now.md` (empty if absent / brain off).
     var hubNowText: String = ""
     /// Transient confirmation after a Capture write ("Saved to inbox").
@@ -965,9 +967,11 @@ final class PanelController {
     }
 
     private func loadPeople() {
-        guard let index = brainIndex else { hubPeople = []; return }
+        guard let index = brainIndex else { hubPeople = []; hubPeopleInsights = .init(); return }
         Task { @MainActor in
-            self.hubPeople = (await index.recentPages(limit: 200)).filter { $0.type == .person }
+            let people = (await index.recentPages(limit: 200)).filter { $0.type == .person }
+            self.hubPeople = people
+            self.hubPeopleInsights = PeopleInsights.analyze(people, today: Date())
         }
     }
 
