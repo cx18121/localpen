@@ -89,7 +89,7 @@ struct GeneralSettingsView: View {
                             .font(Typography.subhead)
                             .foregroundStyle(Tokens.textMute)
                     } else if curationRunning {
-                        Text("Synthesizing with the 14B — this can take a minute.")
+                        Text("Synthesizing with the local model — this can take a minute.")
                             .font(Typography.subhead)
                             .foregroundStyle(Tokens.textMute)
                     }

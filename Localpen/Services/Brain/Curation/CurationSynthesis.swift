@@ -11,23 +11,31 @@ enum CurationSynthesis {
     static func systemPrompt() -> String {
         """
         You maintain Charlie's personal knowledge base. Read the conversations and notes \
-        below and propose ONLY well-supported updates. Be conservative: when in doubt, \
-        propose nothing.
+        below and propose well-supported updates. File the substantive things — people he \
+        met, facts about them, decisions, notable articles. Skip pure chit-chat.
 
-        Output a SINGLE JSON object and nothing else: {"writes": [ ... ]}. Each entry has a \
-        "kind" and fields:
-        - captureToInbox {text}
-        - appendTimeline {person, entry}      (only for a person already in the base)
-        - createSource {title, body}
-        - nominateLink {fromPage, toTitle}
-        - updateNow {text}
-        - createPerson {name}                  (a genuinely new person)
-        - promoteTopic {title}
-        - rewriteCuratedPage {title, body}
-        - resolveContradiction {page, detail}
-        - mergeIdentities {into, from}
+        Output a SINGLE JSON object and nothing else: {"writes": [ ... ]}. Each write is a \
+        FLAT object with a "kind" string field plus that kind's fields:
+        - {"kind":"createPerson","name":"..."}                    a person Charlie newly met
+        - {"kind":"appendTimeline","person":"...","entry":"..."}  a dated fact about a person
+        - {"kind":"createSource","title":"...","body":"..."}      a notable article/resource
+        - {"kind":"nominateLink","fromPage":"...","toTitle":"..."}
+        - {"kind":"captureToInbox","text":"..."}
+        - {"kind":"updateNow","text":"..."}
+        - {"kind":"promoteTopic","title":"..."}
+        - {"kind":"rewriteCuratedPage","title":"...","body":"..."}
+        - {"kind":"resolveContradiction","page":"...","detail":"..."}
+        - {"kind":"mergeIdentities","into":"...","from":"..."}
 
-        If nothing is worth filing, return {"writes": []}. Output only the JSON object.
+        Example output:
+        {"writes":[{"kind":"createPerson","name":"Mac Bennett"},\
+        {"kind":"appendTimeline","person":"Mac Bennett",\
+        "entry":"Warp engineer; saw the Sparrow demo on 2026-05-15; to reach out Aug 2026 re winter internship."}]}
+
+        For each new contact Charlie met, emit a createPerson AND an appendTimeline entry \
+        for them. Treat a long reference article as one createSource (title + a short \
+        summary), not many small writes. If truly nothing is worth filing, return \
+        {"writes": []}. Output only the JSON object.
         """
     }
 
@@ -54,20 +62,44 @@ enum CurationSynthesis {
     }
 
     /// Parse the model's reply into proposed writes. Tolerant of prose or ```json fences
-    /// around the object; drops malformed entries rather than throwing (a partial batch is
-    /// better than none, and a garbled write must never reach the vault).
+    /// around the object AND of the two write shapes the model emits in practice — the flat
+    /// `{"kind":"appendTimeline", ...}` the prompt asks for, and the nested
+    /// `{"appendTimeline": {...}}` it often produces instead. Drops malformed entries rather
+    /// than throwing (a partial batch beats none, and a garbled write must never reach the
+    /// vault). A single nested write must not sink the whole batch — which is exactly what
+    /// the old strict decode did, surfacing as "Applied 0, queued 0".
     static func parse(_ raw: String) -> [CurationWrite] {
         guard let json = extractJSONObject(raw),
               let data = json.data(using: .utf8),
-              let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else {
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawWrites = root["writes"] as? [[String: Any]] else {
             return []
         }
-        return envelope.writes.compactMap { $0.curationWrite() }
+        return rawWrites.compactMap { write in
+            let flat = flattened(write)
+            guard let data = try? JSONSerialization.data(withJSONObject: flat),
+                  let dto = try? JSONDecoder().decode(ProposedWrite.self, from: data) else {
+                return nil
+            }
+            return dto.curationWrite()
+        }
+    }
+
+    /// Normalize a single write into the flat `{"kind": ..., <fields>}` shape `ProposedWrite`
+    /// decodes. A nested `{"appendTimeline": {fields}}` (one key whose value is the field
+    /// object) is rewritten to `{"kind":"appendTimeline", <fields>}`; an already-flat write
+    /// passes through unchanged.
+    private static func flattened(_ write: [String: Any]) -> [String: Any] {
+        if write["kind"] is String { return write }
+        if write.count == 1, let (kind, value) = write.first, let fields = value as? [String: Any] {
+            var flat = fields
+            flat["kind"] = kind
+            return flat
+        }
+        return write
     }
 
     // MARK: -
-
-    private struct Envelope: Decodable { let writes: [ProposedWrite] }
 
     /// A loosely-typed DTO: every field optional so a missing field drops just that one
     /// write (via `curationWrite()` returning nil), never fails the whole decode.

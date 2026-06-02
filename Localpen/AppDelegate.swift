@@ -4,7 +4,7 @@ import ApplicationServices
 import os
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, ObservableObject {
     let registry = ModelRegistry()
     var persistence: Persistence?
 
@@ -187,6 +187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // MARK: - Settings window (AppKit-controlled)
 
     func openSettings() {
+        // Become a regular app while Settings is open: an LSUIElement (accessory) app has no
+        // Dock icon and never appears in ⌘-Tab, so a backgrounded Settings window is
+        // unreachable. `.regular` gives it a Dock tile + app-switcher entry; we revert to
+        // `.accessory` on close (windowWillClose) so the app stays menu-bar-only otherwise.
+        NSApp.setActivationPolicy(.regular)
+
         if let existing = settingsWindow {
             NSApp.activate(ignoringOtherApps: true)
             existing.makeKeyAndOrderFront(nil)
@@ -194,35 +200,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             return
         }
 
-        // Native System-Preferences look: an NSTabViewController with `.toolbar`
-        // style renders icon+label tabs in a unified toolbar and resizes the
-        // window to each pane (no fixed oversized frame). Each pane is a SwiftUI
-        // grouped Form hosted with `.preferredContentSize` so its fitting size
-        // drives the window.
+        // Native System-Preferences look: an NSTabViewController with `.toolbar` style renders
+        // icon+label tabs in a unified toolbar. Each pane is a SwiftUI grouped Form that fills
+        // the content area (flexible frame) so the window stays user-resizable.
         let tabVC = NSTabViewController()
         tabVC.tabStyle = .toolbar
 
-        func tab(_ title: String, _ symbol: String, _ root: some View, height: CGFloat) -> NSTabViewItem {
-            let hc = NSHostingController(rootView: root.frame(width: 460, height: height))
-            hc.sizingOptions = [.preferredContentSize]
+        func tab(_ title: String, _ symbol: String, _ root: some View) -> NSTabViewItem {
+            let hc = NSHostingController(
+                rootView: root.frame(minWidth: 440, maxWidth: .infinity, minHeight: 180, maxHeight: .infinity))
             let item = NSTabViewItem(viewController: hc)
             item.label = title
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
             return item
         }
 
-        tabVC.addTabViewItem(tab("General", "gear", GeneralSettingsView(), height: 200))
+        tabVC.addTabViewItem(tab("General", "gear", GeneralSettingsView()))
         tabVC.addTabViewItem(tab("Model", "cube",
             ModelPickerView(registry: registry,
-                            switchModel: { [weak self] id in self?.switchModel(id: id) }),
-            height: 240))
+                            switchModel: { [weak self] id in self?.switchModel(id: id) })))
         tabVC.addTabViewItem(tab("History", "clock.arrow.circlepath",
-            HistorySettingsView(persistence: persistence), height: 220))
+            HistorySettingsView(persistence: persistence)))
 
         let window = NSWindow(contentViewController: tabVC)
         window.title = "Localpen Settings"
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.setContentSize(NSSize(width: 480, height: 320))
+        window.contentMinSize = NSSize(width: 440, height: 220)
         settingsWindow = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -247,6 +253,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
         place()
         DispatchQueue.main.async(execute: place)   // again after panes size themselves
+    }
+
+    /// When the Settings window closes, drop back to accessory (menu-bar-only) so the app
+    /// leaves no Dock tile / ⌘-Tab entry behind. Guarded to the settings window since other
+    /// windows may share this delegate.
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === settingsWindow else { return }
+        NSApp.setActivationPolicy(.accessory)
     }
 
     // MARK: - Server
@@ -374,48 +388,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         guard !dreamCycleRunning else { dreamFinished(force, "Curation is already running.") ; return }
         guard BrainAccess.isActive else { dreamFinished(force, "Turn on the knowledge base in Settings first.") ; return }
         guard let server = llamaServer,
-              let curation = registry.curationModel,
               let transform = registry.activeModel,
               let stash = conversationStash,
               let suggestions = suggestionStore else {
             dreamFinished(force, "Curation isn't ready (model registry didn't load)."); return
         }
 
-        let curationPath = registry.modelPath(for: curation).path
-        guard FileManager.default.fileExists(atPath: curationPath) else {
-            log.info("dream cycle: curation model not downloaded — skipping")
-            dreamFinished(force, "Curation model not downloaded — run scripts/download-curation-model.sh.")
-            return
+        // ADR 0017: curate with a dedicated curation-role model if one is configured AND
+        // downloaded; otherwise with the already-loaded transform model — no second model
+        // to download, no transient swap, no lag spike. `usesLiveServer` picks the path.
+        let curation = registry.curationModel ?? transform
+        let usesLiveServer = curation.id == transform.id
+        let port = server.port
+
+        if !usesLiveServer {
+            let curationPath = registry.modelPath(for: curation).path
+            guard FileManager.default.fileExists(atPath: curationPath) else {
+                log.info("dream cycle: curation model not downloaded — skipping")
+                dreamFinished(force, "Curation model not downloaded — run scripts/download-curation-model.sh.")
+                return
+            }
         }
 
         dreamCycleRunning = true
         if force { NotificationCenter.default.post(name: .dreamCycleStarted, object: nil) }
-        let port = server.port
-        let curationStage = CurationModel.Stage(path: curationPath,
-                                                contextSize: curation.contextSize, sampling: curation.sampling)
-        let restoreStage = CurationModel.RestoreStage(path: registry.modelPath(for: transform).path,
-                                                      contextSize: transform.contextSize)
-        let model = CurationModel(
-            start: { path, ctx in try await server.start(modelPath: path, contextSize: ctx) },
-            stop: { server.stop() },
-            complete: { sys, user, sampling in
-                // Collect the full synthesis (no UI streaming) from the borrowed server.
-                // 10-minute timeout: the 14B's prompt-eval on a big batch far exceeds the
-                // 60s interactive default, which is what was timing the run out.
-                let client = StreamingClient(port: port)
-                var acc = ""
-                for try await tok in client.complete(systemPrompt: sys, userText: user,
-                                                     sampling: sampling, timeout: 600) {
-                    acc += tok
-                }
-                return acc
+
+        // Collect the full synthesis (no UI streaming). 10-minute timeout: prompt-eval on a
+        // batch far exceeds the 60s interactive default, which is what was timing runs out.
+        let runCompletion: (String, String, ModelDescriptor.Sampling) async throws -> String = { sys, user, sampling in
+            let client = StreamingClient(port: port)
+            var acc = ""
+            for try await tok in client.complete(systemPrompt: sys, userText: user,
+                                                 sampling: sampling, timeout: 600) {
+                acc += tok
             }
-        )
-        let cycle = DreamCycle(
-            synthesize: { sys, user in
+            return acc
+        }
+
+        let synthesize: (String, String) async -> CurationModel.RunOutcome
+        if usesLiveServer {
+            // Faithful, less-inventive synthesis: lower temperature than the transform default.
+            let sampling = ModelDescriptor.Sampling(temperature: 0.3, topP: 0.9, repeatPenalty: 1.05)
+            synthesize = { sys, user in
+                do { return .completed(text: try await runCompletion(sys, user, sampling)) }
+                catch { return .failed(message: "curation synthesis failed: \(error.localizedDescription)",
+                                       transformModelRestored: true) }
+            }
+        } else {
+            let curationStage = CurationModel.Stage(path: registry.modelPath(for: curation).path,
+                                                    contextSize: curation.contextSize, sampling: curation.sampling)
+            let restoreStage = CurationModel.RestoreStage(path: registry.modelPath(for: transform).path,
+                                                          contextSize: transform.contextSize)
+            let model = CurationModel(
+                start: { path, ctx in try await server.start(modelPath: path, contextSize: ctx) },
+                stop: { server.stop() },
+                complete: runCompletion
+            )
+            synthesize = { sys, user in
                 await model.synthesize(systemPrompt: sys, userText: user,
                                        curation: curationStage, restore: restoreStage, isDownloaded: true)
-            },
+            }
+        }
+
+        let cycle = DreamCycle(
+            synthesize: synthesize,
             stash: stash,
             writer: VaultWriter(vaultRoot: BrainAccess.vaultRoot),
             suggestions: suggestions,
@@ -428,8 +464,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             self.dreamCycleRunning = false
             UserDefaults.standard.set(Date().timeIntervalSince1970 * 1000, forKey: Self.dreamCycleLastRunKey)
             self.log.info("dream cycle: applied \(report.applied) queued \(report.queued) failed \(report.failed) note=\(report.note, privacy: .public)")
-            // The 7B is restored but cold after the borrow — warm it so the next transform is snappy.
-            self.warmUpModel(port: port)
+            // Only the borrow path leaves the model cold (it stopped+restarted the server);
+            // the live-server path never touched it, so warming would just waste a call.
+            if !usesLiveServer { self.warmUpModel(port: port) }
             // New vault pages should become searchable immediately.
             if report.applied > 0, let brainIndex = self.brainIndex {
                 let root = BrainAccess.vaultRoot

@@ -1,6 +1,6 @@
 # ADR 0015 — Autonomous curation: judgment-split writes, dual local models, nightly dream cycle
 
-**Status:** Accepted
+**Status:** Accepted — the "dual local model" sub-decision is superseded by [ADR 0017](./0017-single-model-curation-supersedes-dual-model.md) (curation now runs on the transform model); everything else here stands.
 **Date:** 2026-06-01
 **Related:** writes into the vault that [ADR 0014](./0014-brain-derived-fts5-index-over-vault.md) indexes; honors the discuss-first discipline in `cxkb/CLAUDE.md`. This is a **later build phase** (Phase 4) — the read path (ADR 0014) and hub ([ADR 0016](./0016-hub-surface-and-modes.md)) ship first.
 
