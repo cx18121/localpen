@@ -25,20 +25,11 @@ final class ModelRegistry {
         models.first { $0.id == activeModelID } ?? models.first
     }
 
+    /// The active model's per-action prompt override if it supplies one, else the built-in
+    /// default. One dictionary lookup keyed by `Action.rawValue` — no per-action switch to
+    /// keep in sync, and respond/custom/ask become overridable for free (previously blocked).
     func systemPrompt(for action: Action) -> String {
-        guard let model = activeModel else {
-            return ActionPrompts.systemPrompt(for: action)
-        }
-        switch action {
-        case .proofread:   return model.prompts.proofread
-        case .polish:      return model.prompts.polish
-        case .moreFormal:  return model.prompts.moreFormal
-        case .moreCasual:  return model.prompts.moreCasual
-        case .shorter:     return model.prompts.shorter
-        case .respond:     return ActionPrompts.systemPrompt(for: .respond(""))
-        case .custom:      return ActionPrompts.systemPrompt(for: .custom(""))
-        case .ask:         return ActionPrompts.systemPrompt(for: .ask(question: "", withSelection: false))
-        }
+        activeModel?.prompts[action.rawValue] ?? ActionPrompts.systemPrompt(for: action)
     }
 
     func modelPath(for descriptor: ModelDescriptor) -> URL {

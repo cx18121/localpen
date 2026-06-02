@@ -10,24 +10,13 @@ struct ModelDescriptor: Codable, Equatable {
     let sha256: String
     let contextSize: Int
     let isDefault: Bool?
-    let prompts: Prompts
+    /// Per-action system-prompt overrides, keyed by `Action.rawValue` (e.g. "proofread",
+    /// "more_formal"). A model only needs to supply the actions it wants to override;
+    /// anything absent falls back to `ActionPrompts.systemPrompt(for:)`.
+    let prompts: [String: String]
     let sampling: Sampling
 
     var downloadURL: URL? { URL(string: downloadURLString) }
-
-    struct Prompts: Codable, Equatable {
-        let proofread: String
-        let polish: String
-        let moreFormal: String
-        let moreCasual: String
-        let shorter: String
-
-        enum CodingKeys: String, CodingKey {
-            case proofread, polish, shorter
-            case moreFormal = "more_formal"
-            case moreCasual = "more_casual"
-        }
-    }
 
     struct Sampling: Codable, Equatable {
         let temperature: Double
