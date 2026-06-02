@@ -81,6 +81,15 @@ struct MCPServer {
                 "required": ["title"],
             ],
         ],
+        [
+            "name": "kb_project",
+            "description": "Project-aware recall: given a repo path, return the matching cxkb project page + related notes. Use at the start of work in a repo to load what Charlie already knows about THIS project.",
+            "inputSchema": [
+                "type": "object",
+                "properties": ["path": ["type": "string", "description": "absolute path to the repo/working dir"]],
+                "required": ["path"],
+            ],
+        ],
     ]
 
     private func callTool(_ name: String, args: [String: Any]) async -> String {
@@ -101,6 +110,9 @@ struct MCPServer {
             let pages = await backend.backlinks(title: title)
             guard !pages.isEmpty else { return "No backlinks to \"\(title)\"." }
             return pages.map { "- \($0.title) (\($0.path))" }.joined(separator: "\n")
+        case "kb_project":
+            let path = args["path"] as? String ?? "."
+            return await backend.projectContext(repoName: ProjectMatcher.repoName(fromPath: path))
         default:
             return "Unknown tool: \(name)"
         }
@@ -144,6 +156,7 @@ protocol KBQuerying {
     func search(_ query: String, limit: Int) async -> [KBHit]
     func page(title: String) async -> KBPage?
     func backlinks(title: String) async -> [KBPage]
+    func projects() async -> [KBPage]
 }
 
 /// Live backend: the same index + ranking the GUI and CLI use.
@@ -154,4 +167,25 @@ struct LiveKBBackend: KBQuerying {
     }
     func page(title: String) async -> KBPage? { await index.pageByTitle(title) }
     func backlinks(title: String) async -> [KBPage] { await index.backlinks(toTitle: title) }
+    func projects() async -> [KBPage] { await index.pages(ofType: .project) }
+}
+
+extension KBQuerying {
+    /// Project-aware recall: resolve a repo name to its `projects/` page + related notes,
+    /// formatted as text. Falls back to a free-text search when no project page matches —
+    /// so an agent in any repo gets *something* useful. Shared by the MCP tool + the CLI.
+    func projectContext(repoName: String) async -> String {
+        if let page = ProjectMatcher.match(repoName: repoName, projects: await projects()) {
+            let related = await backlinks(title: page.title)
+            var out = "# \(page.title)\n\(page.path)\n\n\(page.body)"
+            if !related.isEmpty {
+                out += "\n\n## Related\n" + related.map { "- \($0.title)" }.joined(separator: "\n")
+            }
+            return out
+        }
+        let hits = await search(repoName, limit: 5)
+        guard !hits.isEmpty else { return "No project page or related notes for \"\(repoName)\"." }
+        return "No project page named \"\(repoName)\". Closest notes:\n"
+            + hits.map { "- \($0.page.title) (\($0.page.path))" }.joined(separator: "\n")
+    }
 }

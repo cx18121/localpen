@@ -97,6 +97,12 @@ case "reindex":
     let n = await pageCount()
     if json { print("{\"indexed\":\(n)}") } else { print("indexed \(n) pages") }
 
+case "project":
+    // Map a repo path (arg, else cwd) to its cxkb project page + related notes.
+    await ensureIndexed()
+    let repo = ProjectMatcher.repoName(fromPath: argument)
+    print(await LiveKBBackend(index: index).projectContext(repoName: repo))
+
 case "serve":
     // MCP stdio server: speak JSON-RPC over stdin/stdout so agent clients (Claude Code,
     // Cursor) can query the brain as tools. All diagnostics go to stderr (warn) — stdout
@@ -207,6 +213,7 @@ func printUsage() {
       localpen search "<query>"   [--limit N] [--json]
       localpen get "<title>"      [--json]
       localpen backlinks "<title>" [--json]
+      localpen project [<path>]   (repo → its cxkb project page + related; default cwd)
       localpen reindex            [--json]
       localpen serve              (MCP stdio server for Claude Code / Cursor)
 

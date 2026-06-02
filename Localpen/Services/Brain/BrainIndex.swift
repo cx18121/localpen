@@ -131,6 +131,14 @@ final class BrainIndex {
         }) ?? []
     }
 
+    /// All pages of a given type (e.g. every `project` page) — for project-aware recall.
+    func pages(ofType type: KBPageType) async -> [KBPage] {
+        (try? await dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM pages WHERE type = ?",
+                             arguments: [type.rawValue]).map(KBPage.init(brainRow:))
+        }) ?? []
+    }
+
     // MARK: - Internals
 
     /// Keep `pages` and the contentless-external `pages_fts` in lockstep, then rewrite
