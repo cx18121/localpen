@@ -6,8 +6,8 @@ struct ProfileView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             backBar
-            if controller.profileEligibleCount < MemoryService.coldStartGate
-               && controller.profileDraft.voiceCard == nil {
+            if controller.profile.eligibleCount < MemoryService.coldStartGate
+               && controller.profile.draft.voiceCard == nil {
                 coldStart
             } else {
                 content
@@ -50,25 +50,25 @@ struct ProfileView: View {
     private var voiceCardEditor: some View {
         Card {
             TextEditor(text: Binding(
-                get: { controller.profileDraft.voiceCard ?? "" },
-                set: { controller.profileDraft.voiceCard = $0.isEmpty ? nil : $0 }
+                get: { controller.profile.draft.voiceCard ?? "" },
+                set: { controller.profile.draft.voiceCard = $0.isEmpty ? nil : $0 }
             ))
             .font(Typography.menuRow)
             .scrollContentBackground(.hidden)
             .frame(minHeight: 90, maxHeight: 160)
         }
         .padding(.horizontal, Spacing.s6)
-        .onChange(of: controller.profileDraft.voiceCard) { _, _ in controller.saveProfileEdits() }
+        .onChange(of: controller.profile.draft.voiceCard) { _, _ in controller.profile.saveEdits() }
     }
 
     private var factsEditor: some View {
         VStack(spacing: 0) {
-            ForEach(controller.profileDraft.facts.indices, id: \.self) { i in
+            ForEach(controller.profile.draft.facts.indices, id: \.self) { i in
                 factRow(at: i)
             }
             Button {
-                controller.profileDraft.facts.append("")
-                controller.saveProfileEdits()
+                controller.profile.draft.facts.append("")
+                controller.profile.saveEdits()
             } label: {
                 HStack(spacing: Spacing.s4) {
                     Image(systemName: "plus")
@@ -95,13 +95,13 @@ struct ProfileView: View {
         // previous binding only persisted on add/remove, silently losing edits.
         FactRow(
             text: Binding(
-                get: { controller.profileDraft.facts[index] },
-                set: { controller.profileDraft.facts[index] = $0 }
+                get: { controller.profile.draft.facts[index] },
+                set: { controller.profile.draft.facts[index] = $0 }
             ),
-            onCommit: { controller.saveProfileEdits() },
+            onCommit: { controller.profile.saveEdits() },
             onDelete: {
-                controller.profileDraft.facts.remove(at: index)
-                controller.saveProfileEdits()
+                controller.profile.draft.facts.remove(at: index)
+                controller.profile.saveEdits()
             }
         )
     }
@@ -109,9 +109,9 @@ struct ProfileView: View {
     private var footer: some View {
         HStack {
             Spacer()
-            OutlineButton(title: "Regenerate") { controller.regenerateProfileNow() }
+            OutlineButton(title: "Regenerate") { controller.profile.regenerateNow() }
             OutlineButton(title: "Forget everything", role: .destructive) {
-                controller.forgetMemoryEverything()
+                controller.profile.forgetEverything()
             }
         }
         .padding(Spacing.s5)
@@ -123,10 +123,10 @@ struct ProfileView: View {
             Text("Localpen is still getting to know how you write.")
                 .font(Typography.menuRow)
                 .foregroundStyle(Tokens.textSoft)
-            Text("Your voice profile turns on after \(MemoryService.coldStartGate) edits. So far: \(controller.profileEligibleCount) / \(MemoryService.coldStartGate).")
+            Text("Your voice profile turns on after \(MemoryService.coldStartGate) edits. So far: \(controller.profile.eligibleCount) / \(MemoryService.coldStartGate).")
                 .font(Typography.subhead)
                 .foregroundStyle(Tokens.textFaint)
-            ProgressView(value: min(1.0, Double(controller.profileEligibleCount) / Double(MemoryService.coldStartGate)))
+            ProgressView(value: min(1.0, Double(controller.profile.eligibleCount) / Double(MemoryService.coldStartGate)))
                 .progressViewStyle(.linear)
                 .tint(Tokens.accent)
         }

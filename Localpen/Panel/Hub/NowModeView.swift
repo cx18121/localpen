@@ -6,7 +6,7 @@ struct NowModeView: View {
     @Bindable var controller: PanelController
 
     var body: some View {
-        if controller.hubNowText.isEmpty {
+        if controller.hub.nowText.isEmpty {
             EmptyStateView(
                 icon: "doc.text",
                 title: "now.md is empty",
@@ -14,7 +14,7 @@ struct NowModeView: View {
             )
         } else {
             ScrollView {
-                Text(controller.hubNowText)
+                Text(controller.hub.nowText)
                     .font(Typography.body)
                     .foregroundStyle(Tokens.text)
                     .textSelection(.enabled)

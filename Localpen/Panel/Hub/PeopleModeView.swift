@@ -7,7 +7,7 @@ import SwiftUI
 struct PeopleModeView: View {
     @Bindable var controller: PanelController
 
-    private var insights: PeopleInsights.Result { controller.hubPeopleInsights }
+    private var insights: PeopleInsights.Result { controller.hub.peopleInsights }
 
     var body: some View {
         if insights.isEmpty {
@@ -37,7 +37,7 @@ struct PeopleModeView: View {
 
     private func row(_ p: PeopleInsights.Person, trailing: MenuRow.Trailing) -> some View {
         MenuRow(icon: "person.crop.circle", title: p.name, trailing: trailing) {
-            controller.openNote(p.page)
+            controller.hub.openNote(p.page)
         }
     }
 

@@ -15,14 +15,14 @@ struct CaptureModeView: View {
                     .scrollContentBackground(.hidden)
             }
             HStack(spacing: Spacing.s4) {
-                if let status = controller.hubCaptureStatus {
+                if let status = controller.hub.captureStatus {
                     Text(status)
                         .font(Typography.subhead)
                         .foregroundStyle(Tokens.textMute)
                 }
                 Spacer()
                 OutlineButton(title: "Capture to inbox") {
-                    controller.commitCapture(text)
+                    controller.hub.commitCapture(text)
                     text = ""
                 }
             }

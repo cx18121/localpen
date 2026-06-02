@@ -123,30 +123,14 @@ final class PanelController {
     /// Context attached to the current free-form ask session.
     var askContext: AskContext = .empty
 
-    // MARK: - Hub state (ADR 0016)
-    /// Which hub mode is showing. Restored from UserDefaults on open; persisted on change.
-    var hubMode: HubMode = .ask
-    /// The KB-mode search field text.
-    var hubQuery: String = ""
-    /// KB-mode results (recent pages when the query is empty, search hits otherwise).
-    var hubNotes: [KBPage] = []
-    /// People-mode list (pages of type `.person`).
-    var hubPeople: [KBPage] = []
-    /// People-mode relationship buckets (follow-ups due / reconnect / all) — ADR 0015 CRM.
-    var hubPeopleInsights = PeopleInsights.Result()
-    /// Now-mode: the rendered text of `now.md` (empty if absent / brain off).
-    var hubNowText: String = ""
-    /// Today-mode (daily briefing): the cached upcoming schedule + recent inbox items.
-    /// Follow-ups reuse `hubPeopleInsights`; the now excerpt reuses `hubNowText`.
-    var hubTodaySchedule: String? = nil
-    var hubTodayInbox: [String] = []   // titles of recent raw/inbox/ items awaiting triage
-    /// Transient confirmation after a Capture write ("Saved to inbox").
-    var hubCaptureStatus: String? = nil
-    /// Suggestions-mode: the queued high-judgment proposals (ADR 0015).
-    var hubSuggestions: [Suggestion] = []
-    /// Transient status after an apply/dismiss in Suggestions mode.
-    var hubSuggestionStatus: String? = nil
-    private static let hubLastModeKey = "hub.lastMode"
+    // MARK: - Hub + Profile (ADR 0016 / memory)
+    /// The hub surface's state + data loading. Views bind `controller.hub.*`; the panel
+    /// transition into the hub stays here (`enterHub` sets `state`). `var` (not `let`) so the
+    /// SwiftUI binding chain `$controller.hub.query` forms a writable key-path; never reassigned.
+    var hub: HubModel
+    /// The voice-card inspect/edit state. ProfileView binds `controller.profile.*`; the
+    /// transition to the profile surface stays here (`showProfile`/`dismissProfile`).
+    var profile: ProfileModel
 
     /// The AskContext snapshot of the most recent `startAskStream`, kept so a
     /// retry from the error banner can re-run the ask through `startAskStream`
@@ -233,6 +217,8 @@ final class PanelController {
         }
         self.isAccessibilityTrusted = isAccessibilityTrusted ?? { AXIsProcessTrusted() }
         self.openSettings = openSettings
+        self.hub = HubModel(brainIndex: brainIndex, suggestionStore: suggestionStore)
+        self.profile = ProfileModel(memory: memory, persistence: persistence)
         installMouseTracking()
     }
 
@@ -405,13 +391,13 @@ final class PanelController {
             switch code {
             case kVK_Escape:
                 // Clear a non-empty KB query first; otherwise dismiss.
-                if !hubQuery.isEmpty { hubQuery = ""; searchHubNotes(); return true }
+                if !hub.query.isEmpty { hub.query = ""; hub.searchNotes(); return true }
                 dismiss(); return true
             case kVK_Tab:
                 let modes = HubMode.allCases
-                if let i = modes.firstIndex(of: hubMode) {
+                if let i = modes.firstIndex(of: hub.mode) {
                     let next = shift ? (i - 1 + modes.count) % modes.count : (i + 1) % modes.count
-                    setHubMode(modes[next])
+                    hub.setMode(modes[next])
                 }
                 return true
             default:
@@ -934,143 +920,18 @@ final class PanelController {
 
     // MARK: - Hub (ADR 0016)
 
-    /// Enter the hub as the no-selection home. Restores the last-used mode, resets the
-    /// query, loads that mode's data, and shows it. Callers set `askContext` (for the
+    /// Enter the hub as the no-selection home. `HubModel` restores the last-used mode + loads
+    /// its data; this method owns only the panel transition. Callers set `askContext` (for the
     /// Ask mode's chips) before calling.
     func enterHub() {
-        let stored = UserDefaults.standard.string(forKey: Self.hubLastModeKey)
-        hubMode = stored.flatMap(HubMode.init(rawValue:)) ?? .ask
-        hubQuery = ""
-        hubCaptureStatus = nil
-        hubSuggestionStatus = nil
+        hub.enter()
         state = .visible(PanelContext(), .hub)
-        loadHubMode()
     }
 
-    func setHubMode(_ mode: HubMode) {
-        hubMode = mode
-        UserDefaults.standard.set(mode.rawValue, forKey: Self.hubLastModeKey)
-        hubQuery = ""
-        hubCaptureStatus = nil
-        hubSuggestionStatus = nil
-        loadHubMode()
-    }
-
-    /// Load the active mode's data. No-op for Ask/Capture (they're editors).
-    private func loadHubMode() {
-        switch hubMode {
-        case .today:       loadToday()
-        case .kb:          searchHubNotes()
-        case .people:      loadPeople()
-        case .now:         loadNow()
-        case .suggestions: loadSuggestions()
-        case .ask, .capture: break
-        }
-    }
-
-    /// Daily briefing (ADR 0016): compose the cached schedule, due follow-ups, the now.md
-    /// excerpt, and recent inbox items — a morning glance over already-assembled signals.
-    func loadToday() {
-        // Schedule: the same cached 7-day window the ask chip uses (warms in background).
-        let schedule = ICSCalendarReader().upcomingContext()
-        hubTodaySchedule = (schedule?.isEmpty == false) ? schedule : nil
-        loadNow()        // populates hubNowText
-        loadPeople()     // populates hubPeopleInsights (follow-ups)
-        loadTodayInbox()
-    }
-
-    /// Titles of the most recent raw/inbox/ items awaiting triage (the briefing's "fresh"
-    /// section — captures + Granola meetings the dream cycle / `/cxkb-inbox` will file).
-    private func loadTodayInbox() {
-        hubTodayInbox = InboxStore(vaultRoot: BrainAccess.vaultRoot).recentTitles()
-    }
-
-    /// KB results: recent notes when the query is empty, search hits otherwise.
-    func searchHubNotes() {
-        guard let index = brainIndex else { hubNotes = []; return }
-        let q = hubQuery.trimmingCharacters(in: .whitespaces)
-        Task { @MainActor in
-            if q.isEmpty {
-                self.hubNotes = (await index.recentPages(limit: 40)).filter { $0.type != .person }
-            } else {
-                self.hubNotes = (await KBSearch(dbQueue: index.dbQueue).search(q, limit: 30)).map(\.page)
-            }
-        }
-    }
-
-    private func loadPeople() {
-        guard let index = brainIndex else { hubPeople = []; hubPeopleInsights = .init(); return }
-        Task { @MainActor in
-            let people = (await index.recentPages(limit: 200)).filter { $0.type == .person }
-            self.hubPeople = people
-            self.hubPeopleInsights = PeopleInsights.analyze(people, today: Date())
-        }
-    }
-
-    private func loadNow() {
-        let url = BrainAccess.vaultRoot.appendingPathComponent("now.md")
-        let raw = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        hubNowText = MarkdownParser.splitFrontmatter(raw).body.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Open a KB page in its default app — Obsidian registers as the `.md` handler.
-    func openNote(_ page: KBPage) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: page.path))
-    }
-
-    /// Open an answer's source page (provenance chip, ADR 0014) in Obsidian.
+    /// Open an answer's source page (provenance chip, ADR 0014) in Obsidian. Lives here (not on
+    /// HubModel) because it serves the ask/conversation surface, not the hub.
     func openProvenanceSource(_ source: ContextBundle.Provenance) {
         NSWorkspace.shared.open(URL(fileURLWithPath: source.path))
-    }
-
-    /// Capture free text into the vault's `raw/inbox/` (ADR 0015 additive write).
-    func commitCapture(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try InboxStore(vaultRoot: BrainAccess.vaultRoot).capture(trimmed)
-            hubCaptureStatus = "Saved to inbox"
-        } catch {
-            hubCaptureStatus = "Couldn't save: \(error.localizedDescription)"
-        }
-    }
-
-    /// Load the high-judgment suggestion queue (ADR 0015) for the hub's Suggestions mode.
-    func loadSuggestions() {
-        hubSuggestions = suggestionStore?.all() ?? []
-    }
-
-    /// Apply a user-approved suggestion: the one click is the human judgment the classifier
-    /// required, so this writes via `VaultWriter.applyApproved`. On success the suggestion
-    /// leaves the queue and the index re-reads the new page. Errors surface inline.
-    func applySuggestion(_ suggestion: Suggestion) {
-        guard let store = suggestionStore else { return }
-        guard let write = suggestion.payload.curationWrite() else {
-            hubSuggestionStatus = "Couldn't reconstruct that proposal."
-            return
-        }
-        let writer = VaultWriter(vaultRoot: BrainAccess.vaultRoot)
-        do {
-            _ = try writer.applyApproved(write, nowMillis: Int64(Date().timeIntervalSince1970 * 1000))
-            store.remove(id: suggestion.id)
-            hubSuggestionStatus = "Applied: \(suggestion.summary)"
-            loadSuggestions()
-            if let index = brainIndex {
-                let root = BrainAccess.vaultRoot
-                Task.detached { await index.reindexAll(root: root) }
-            }
-        } catch let VaultWriter.WriteError.notApplicable(msg) {
-            hubSuggestionStatus = msg
-        } catch {
-            hubSuggestionStatus = "Couldn't apply: \(error.localizedDescription)"
-        }
-    }
-
-    /// Drop a suggestion without applying it.
-    func dismissSuggestion(_ suggestion: Suggestion) {
-        suggestionStore?.remove(id: suggestion.id)
-        hubSuggestionStatus = "Dismissed."
-        loadSuggestions()
     }
 
     // MARK: - Ask flow
@@ -1600,46 +1461,11 @@ final class PanelController {
 
     // MARK: - Profile (memory inspect/edit)
 
-    // PanelController is @Observable — properties auto-observed; no @Published needed.
-    var profileDraft: StyleProfile = StyleProfile()
-    var profileEligibleCount: Int = 0
-
+    /// Show the voice-card surface: `ProfileModel` loads the draft (no-op + no transition if
+    /// memory is off); this method owns the panel transition.
     func showProfile() {
-        guard let memory else { return }
-        profileDraft = memory.currentProfile()
+        guard profile.prepareForShow() else { return }
         state = .visible(state.context ?? PanelContext(selection: nil), .profile)
-        Task {
-            if let p = persistence {
-                profileEligibleCount = await p.eligibleInteractionCount(since: profileDraft.forgottenBefore)
-            }
-        }
-    }
-
-    func saveProfileEdits() {
-        guard let memory else { return }
-        var draft = profileDraft
-        draft.userEdited = true
-        Task { await memory.saveProfile(draft) }
-    }
-
-    func regenerateProfileNow() {
-        guard let memory else { return }
-        // Clear userEdited so the regen isn't suppressed; reuse the eligible count.
-        Task {
-            var current = memory.currentProfile()
-            current.userEdited = false
-            await memory.saveProfile(current)
-            let count = await (persistence?.eligibleInteractionCount(since: current.forgottenBefore) ?? 0)
-            memory.scheduleGeneration(eligibleAt: count)
-        }
-    }
-
-    func forgetMemoryEverything() {
-        guard let memory else { return }
-        Task {
-            await memory.forget()
-            profileDraft = memory.currentProfile()
-        }
     }
 
     func dismissProfile() {

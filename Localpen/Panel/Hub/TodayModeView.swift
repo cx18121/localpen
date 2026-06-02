@@ -7,12 +7,12 @@ import SwiftUI
 struct TodayModeView: View {
     @Bindable var controller: PanelController
 
-    private var followUps: [PeopleInsights.Person] { controller.hubPeopleInsights.followUpsDue }
+    private var followUps: [PeopleInsights.Person] { controller.hub.peopleInsights.followUpsDue }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if let schedule = controller.hubTodaySchedule {
+                if let schedule = controller.hub.todaySchedule {
                     section("Schedule") {
                         Text(schedule)
                             .font(Typography.body)
@@ -26,11 +26,11 @@ struct TodayModeView: View {
                     SectionHeader(title: "Follow-ups due", trailing: "\(followUps.count)")
                     ForEach(followUps) { p in
                         MenuRow(icon: "person.crop.circle", title: p.name,
-                                trailing: .text(p.followUp ?? "")) { controller.openNote(p.page) }
+                                trailing: .text(p.followUp ?? "")) { controller.hub.openNote(p.page) }
                     }
                 }
 
-                if !controller.hubNowText.isEmpty {
+                if !controller.hub.nowText.isEmpty {
                     section("Now") {
                         Text(nowExcerpt)
                             .font(Typography.body)
@@ -40,9 +40,9 @@ struct TodayModeView: View {
                     }
                 }
 
-                if !controller.hubTodayInbox.isEmpty {
-                    SectionHeader(title: "Inbox", trailing: "\(controller.hubTodayInbox.count)")
-                    ForEach(controller.hubTodayInbox, id: \.self) { title in
+                if !controller.hub.todayInbox.isEmpty {
+                    SectionHeader(title: "Inbox", trailing: "\(controller.hub.todayInbox.count)")
+                    ForEach(controller.hub.todayInbox, id: \.self) { title in
                         MenuRow(icon: "tray", title: title, trailing: .none) {}
                     }
                 }
@@ -58,17 +58,17 @@ struct TodayModeView: View {
             .padding(.vertical, Spacing.s2)
         }
         .frame(maxHeight: 340)
-        .onAppear { controller.loadToday() }
+        .onAppear { controller.hub.loadToday() }
     }
 
     private var isEmpty: Bool {
-        controller.hubTodaySchedule == nil && followUps.isEmpty
-            && controller.hubNowText.isEmpty && controller.hubTodayInbox.isEmpty
+        controller.hub.todaySchedule == nil && followUps.isEmpty
+            && controller.hub.nowText.isEmpty && controller.hub.todayInbox.isEmpty
     }
 
     /// First ~6 non-empty lines of now.md — enough for a glance, tap "Now" for the rest.
     private var nowExcerpt: String {
-        controller.hubNowText
+        controller.hub.nowText
             .split(separator: "\n", omittingEmptySubsequences: false)
             .prefix(6)
             .joined(separator: "\n")

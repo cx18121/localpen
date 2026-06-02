@@ -17,7 +17,7 @@ struct HubShell: View {
     }
 
     @ViewBuilder private var modeBody: some View {
-        switch controller.hubMode {
+        switch controller.hub.mode {
         case .today:   TodayModeView(controller: controller)
         case .ask:     AskInput(controller: controller)        // existing view, reused verbatim
         case .kb:      KBModeView(controller: controller)
@@ -55,8 +55,8 @@ private struct HubModeStrip: View {
     }
 
     @ViewBuilder private func tile(_ mode: HubMode) -> some View {
-        let active = controller.hubMode == mode
-        Button { controller.setHubMode(mode) } label: {
+        let active = controller.hub.mode == mode
+        Button { controller.hub.setMode(mode) } label: {
             HStack(spacing: Spacing.s2) {
                 Image(systemName: mode.icon)
                     .font(.system(size: 13, weight: active ? .medium : .regular))

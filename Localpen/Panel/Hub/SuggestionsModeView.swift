@@ -9,7 +9,7 @@ struct SuggestionsModeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let status = controller.hubSuggestionStatus {
+            if let status = controller.hub.suggestionStatus {
                 Text(status)
                     .font(Typography.subhead)
                     .foregroundStyle(Tokens.textMute)
@@ -18,7 +18,7 @@ struct SuggestionsModeView: View {
                 Hairline()
             }
 
-            if controller.hubSuggestions.isEmpty {
+            if controller.hub.suggestions.isEmpty {
                 EmptyStateView(
                     icon: "lightbulb",
                     title: "No suggestions",
@@ -27,14 +27,14 @@ struct SuggestionsModeView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
-                        SectionHeader(title: "Proposed", trailing: "\(controller.hubSuggestions.count)")
-                        ForEach(controller.hubSuggestions, id: \.id) { row($0) }
+                        SectionHeader(title: "Proposed", trailing: "\(controller.hub.suggestions.count)")
+                        ForEach(controller.hub.suggestions, id: \.id) { row($0) }
                     }
                 }
                 .frame(maxHeight: 320)
             }
         }
-        .onAppear { controller.loadSuggestions() }
+        .onAppear { controller.hub.loadSuggestions() }
     }
 
     private func row(_ suggestion: Suggestion) -> some View {
@@ -50,12 +50,12 @@ struct SuggestionsModeView: View {
             }
             Spacer(minLength: Spacing.s2)
             if suggestion.isOneClickApplicable {
-                Button("Apply") { controller.applySuggestion(suggestion) }
+                Button("Apply") { controller.hub.applySuggestion(suggestion) }
                     .buttonStyle(.plain)
                     .foregroundStyle(Tokens.accent)
                     .font(Typography.menuRowFocused)
             }
-            Button("Dismiss") { controller.dismissSuggestion(suggestion) }
+            Button("Dismiss") { controller.hub.dismissSuggestion(suggestion) }
                 .buttonStyle(.plain)
                 .foregroundStyle(Tokens.textMute)
                 .font(Typography.subhead)

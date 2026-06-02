@@ -8,31 +8,31 @@ struct KBModeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TextField("Search notes…", text: $controller.hubQuery)
+            TextField("Search notes…", text: $controller.hub.query)
                 .textFieldStyle(.plain)
                 .font(Typography.body)
                 .padding(.horizontal, Spacing.s7)
                 .padding(.vertical, Spacing.s4)
-                .onChange(of: controller.hubQuery) { _, _ in controller.searchHubNotes() }
+                .onChange(of: controller.hub.query) { _, _ in controller.hub.searchNotes() }
             Hairline()
 
-            if controller.hubNotes.isEmpty {
+            if controller.hub.notes.isEmpty {
                 EmptyStateView(
                     icon: "book.closed",
-                    title: controller.hubQuery.isEmpty ? "No notes indexed" : "No matches",
-                    caption: controller.hubQuery.isEmpty
+                    title: controller.hub.query.isEmpty ? "No notes indexed" : "No matches",
+                    caption: controller.hub.query.isEmpty
                         ? "Enable the knowledge base in Settings, then your cxkb notes appear here."
                         : nil
                 )
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
-                        SectionHeader(title: controller.hubQuery.isEmpty ? "Recent notes" : "Results",
-                                      trailing: "\(controller.hubNotes.count)")
-                        ForEach(controller.hubNotes, id: \.path) { page in
+                        SectionHeader(title: controller.hub.query.isEmpty ? "Recent notes" : "Results",
+                                      trailing: "\(controller.hub.notes.count)")
+                        ForEach(controller.hub.notes, id: \.path) { page in
                             MenuRow(icon: "doc.text", title: page.title,
                                     trailing: page.area.isEmpty ? .chevron : .text(page.area)) {
-                                controller.openNote(page)
+                                controller.hub.openNote(page)
                             }
                         }
                     }
