@@ -8,7 +8,13 @@ enum Motion {
     static let focusMove  = Animation.linear(duration: 0.10)
     static let focusSlide = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.16)
     static let menuToResult = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.20)
+    /// Panel resize (focus-size toggle widening the hub). Same ease-out-quart family —
+    /// §2.6 bans springs, so the width change must not use `.snappy`/spring presets.
+    static let resize = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.20)
     static let acceptFlash  = Animation.linear(duration: 0.10)
     static let errorAppear  = Animation.linear(duration: 0.15)
     static let caretBlink   = Animation.easeInOut(duration: 0.425)
+    /// "Warming up" pulse on the pre-first-token Generating indicator (paired with
+    /// `.repeatForever()`). Lives here so the warm-up tempo isn't a stray literal.
+    static let warmupPulse  = Animation.easeInOut(duration: 0.8)
 }

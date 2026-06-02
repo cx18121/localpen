@@ -28,21 +28,11 @@ struct ResultToolbar: View {
 
             case .result:
                 if isCreate {
-                    if justCopied {
-                        Text("copied ✓").font(Typography.pill).foregroundStyle(Tokens.accent)
-                    } else {
-                        KbdHint("⌘↩", "copy reply")
-                    }
+                    if justCopied { copiedLabel } else { KbdHint("⌘↩", "copy reply") }
                     KbdHint("esc", "back")
                 } else {
                     KbdHint("⌘↩", "accept")
-                    if justCopied {
-                        Text("copied ✓")
-                            .font(Typography.pill)
-                            .foregroundStyle(Tokens.accent)
-                    } else {
-                        KbdHint("⌘C", "copy")
-                    }
+                    if justCopied { copiedLabel } else { KbdHint("⌘C", "copy") }
                     KbdHint("esc", "back")
                 }
 
@@ -51,9 +41,12 @@ struct ResultToolbar: View {
                 KbdHint("esc", "cancel")
             }
         }
-        .padding(.horizontal, Spacing.s6)
-        .padding(.vertical, Spacing.s3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.chromeTint)
+        .panelFooterChrome()
+    }
+
+    /// Transient copy confirmation. No glyph/emoji in chrome (PRODUCT voice); the accent
+    /// is one of the few sanctioned accent notes left after the neutral-focus polish.
+    private var copiedLabel: some View {
+        Text("copied").font(Typography.pill).foregroundStyle(Tokens.accent)
     }
 }

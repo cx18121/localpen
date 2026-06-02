@@ -11,7 +11,9 @@ struct MenuRow: View {
     let icon: String                   // SF Symbol name
     let title: String
     var trailing: Trailing = .none
-    let action: () -> Void
+    /// Optional — a non-interactive glance row (no hover lift, no tap) when nil, so a
+    /// list of read-only items doesn't present a tappable affordance that does nothing.
+    var action: (() -> Void)? = nil
 
     enum Trailing: Equatable {
         case none
@@ -20,26 +22,34 @@ struct MenuRow: View {
     }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: Spacing.s4) {
-                Image(systemName: icon)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Tokens.textFaint)
-                    .frame(width: 18)
-                Text(title)
-                    .font(Typography.menuRow)
-                    .foregroundStyle(Tokens.text)
-                    .lineLimit(1)
-                Spacer(minLength: Spacing.s4)
-                trailingView
+        if let action {
+            Button(action: action) {
+                rowContent
+                    .hoverFill(radius: Spacing.innerRadius)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, Spacing.s5)
-            .padding(.vertical, Spacing.s4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .hoverFill(radius: Spacing.innerRadius)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+        } else {
+            rowContent
         }
-        .buttonStyle(.plain)
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: Spacing.s4) {
+            Image(systemName: icon)
+                .font(Typography.chromeIcon)
+                .foregroundStyle(Tokens.textFaint)
+                .frame(width: 18)
+            Text(title)
+                .font(Typography.menuRow)
+                .foregroundStyle(Tokens.text)
+                .lineLimit(1)
+            Spacer(minLength: Spacing.s4)
+            trailingView
+        }
+        .padding(.horizontal, Spacing.s5)
+        .padding(.vertical, Spacing.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

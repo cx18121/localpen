@@ -85,7 +85,7 @@ struct PanelView: View {
             }
         }
         .frame(width: controller.panelWidth)
-        .animation(.snappy(duration: 0.20), value: controller.panelWidth)
+        .animation(Motion.resize, value: controller.panelWidth)
         .background(PanelSurface())
         .clipShape(RoundedRectangle(cornerRadius: Spacing.panelRadius, style: .continuous))
         .overlay(
@@ -101,9 +101,9 @@ struct PanelView: View {
                     lineWidth: 0.75
                 )
         )
-        .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .shadow(color: Tokens.panelShadow, radius: 22, y: 10)
+        .padding(.horizontal, Spacing.s3)
+        .padding(.bottom, Spacing.s3)
         .animation(Motion.menuToResult, value: controller.state.renderKey)
         .contextMenu {
             if case .visible(_, .result) = controller.state {

@@ -59,7 +59,7 @@ struct ActionMenuView: View {
                 groupHeader("Create")
                 row(respondIdx)
                 row(askIdx)
-                Hairline().padding(.horizontal, Spacing.s4).padding(.vertical, 6)
+                Hairline().padding(.horizontal, Spacing.s4).padding(.vertical, Spacing.s2)
                 row(customIdx)
             }
         }
@@ -68,7 +68,7 @@ struct ActionMenuView: View {
 
     private func groupHeader(_ text: String) -> some View {
         Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold))
+            .font(Typography.sectionHeader)
             .tracking(0.9)
             .foregroundStyle(Tokens.textFaint)
             .frame(height: headerHeight, alignment: .bottomLeading)
@@ -87,8 +87,9 @@ struct ActionMenuView: View {
                 RoundedRectangle(cornerRadius: Spacing.innerRadius)
                     .fill(Tokens.rowHighlight)
                     .padding(.horizontal, Spacing.s4)
-                    // Only the hovered, non-focused, enabled row gets the lift.
-                    .opacity(hoveredIndex == i && controller.focusedActionIndex != i && !disabled ? 0.6 : 0)
+                    // Only the hovered, non-focused, enabled row gets the lift (matches
+                    // HoverFill's 0.7 so the hover feels identical to MenuRow-based lists).
+                    .opacity(hoveredIndex == i && controller.focusedActionIndex != i && !disabled ? 0.7 : 0)
             )
             .contentShape(Rectangle())
             .onTapGesture {

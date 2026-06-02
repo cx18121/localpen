@@ -15,14 +15,7 @@ struct PermissionAskView: View {
                 .foregroundStyle(Tokens.textSoft)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button(action: onOpenSettings) {
-                Text("Open System Settings")
-                    .font(Typography.body)
-                    .padding(.horizontal, Spacing.s7)
-                    .padding(.vertical, Spacing.s3)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Tokens.accent)
+            FirstRunPrimaryButton(title: "Open System Settings", action: onOpenSettings)
 
             DisclosureGroup(isExpanded: $whyExpanded) {
                 Text("Localpen uses Accessibility permission to read your text selections (via the clipboard) and paste results back. It never walks the accessibility tree, never sends anything over the network. Permission can be revoked any time in System Settings.")

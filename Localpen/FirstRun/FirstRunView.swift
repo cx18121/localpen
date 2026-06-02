@@ -39,13 +39,7 @@ private struct DownloadErrorView: View {
                 .font(Typography.body)
                 .foregroundStyle(Tokens.accentError)
                 .multilineTextAlignment(.center)
-            Button(action: onRetry) {
-                Text("Retry")
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Tokens.accent)
+            FirstRunPrimaryButton(title: "Retry", action: onRetry)
         }
         .padding(Spacing.s8)
     }

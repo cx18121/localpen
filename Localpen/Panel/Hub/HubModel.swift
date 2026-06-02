@@ -116,6 +116,12 @@ final class HubModel {
         NSWorkspace.shared.open(URL(fileURLWithPath: page.path))
     }
 
+    /// Open `now.md` in its default editor — the edit door for the read-only Now glance
+    /// surface. Editing happens in Obsidian (the `.md` handler); the panel re-reads on reopen.
+    func openNow() {
+        NSWorkspace.shared.open(BrainAccess.vaultRoot.appendingPathComponent("now.md"))
+    }
+
     /// Capture free text into the vault's `raw/inbox/` (ADR 0015 additive write).
     func commitCapture(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

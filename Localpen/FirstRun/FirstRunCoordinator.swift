@@ -90,7 +90,7 @@ final class FirstRunCoordinator {
         if available < required {
             let neededGB = Double(required) / 1_073_741_824
             let availableGB = Double(available) / 1_073_741_824
-            step = .downloadError(String(format: "Not enough space — need %.1f GB, have %.1f GB.", neededGB, availableGB))
+            step = .downloadError(String(format: "Not enough space: need %.1f GB, have %.1f GB.", neededGB, availableGB))
             return
         }
 

@@ -20,7 +20,7 @@ struct ProfileView: View {
     /// shared component — there's no second back-nav surface to share with yet.
     private var backBar: some View {
         Button { controller.dismissProfile() } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.s2) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .semibold))
                 Text("Recent")
@@ -66,25 +66,10 @@ struct ProfileView: View {
             ForEach(controller.profile.draft.facts.indices, id: \.self) { i in
                 factRow(at: i)
             }
-            Button {
+            MenuRow(icon: "plus", title: "Add a fact") {
                 controller.profile.draft.facts.append("")
                 controller.profile.saveEdits()
-            } label: {
-                HStack(spacing: Spacing.s4) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Tokens.textFaint)
-                        .frame(width: 18)
-                    Text("Add a fact")
-                        .font(Typography.menuRow)
-                        .foregroundStyle(Tokens.textFaint)
-                    Spacer()
-                }
-                .padding(.horizontal, Spacing.s5)
-                .padding(.vertical, Spacing.s3)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.s6)
         .padding(.bottom, Spacing.s4)
@@ -114,8 +99,7 @@ struct ProfileView: View {
                 controller.profile.forgetEverything()
             }
         }
-        .padding(Spacing.s5)
-        .background(Tokens.chromeTint)
+        .panelFooterChrome()
     }
 
     private var coldStart: some View {
@@ -148,8 +132,8 @@ private struct FactRow: View {
     var body: some View {
         HStack(spacing: Spacing.s4) {
             Image(systemName: "circle.fill")
-                .font(.system(size: 4))
-                .foregroundStyle(Tokens.accent.opacity(0.7))
+                .font(.system(size: 5))
+                .foregroundStyle(Tokens.textFaint)
                 .frame(width: 18)
             TextField("", text: $text)
                 .textFieldStyle(.plain)
@@ -160,7 +144,7 @@ private struct FactRow: View {
             if hover {
                 Button(action: onDelete) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(Typography.microGlyph)
                         .foregroundStyle(Tokens.textFaint)
                 }
                 .buttonStyle(.plain)
@@ -171,7 +155,7 @@ private struct FactRow: View {
         .background(
             RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
                 .fill(Tokens.rowHighlight)
-                .opacity(hover ? 0.5 : 0)
+                .opacity(hover ? 0.7 : 0)
         )
         .contentShape(Rectangle())
         .onHover { hover = $0 }

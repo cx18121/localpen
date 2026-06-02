@@ -13,7 +13,7 @@ struct ModelPickerView: View {
             } header: {
                 Text("Installed models")
             } footer: {
-                Text("Select a downloaded model to make it active — Localpen reloads the local server on the new model. To add a custom model, edit ~/Library/Application Support/Localpen/models.toml and restart.")
+                Text("Select a downloaded model to make it active; Localpen reloads the local server on the new model. To add a custom model, edit ~/Library/Application Support/Localpen/models.toml and restart.")
             }
         }
         .formStyle(.grouped)

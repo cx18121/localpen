@@ -43,13 +43,7 @@ struct ModelDownloadView: View {
 
             HStack {
                 if !didStart {
-                    Button(action: { didStart = true; onStart() }) {
-                        Text("Download")
-                            .padding(.horizontal, Spacing.s7)
-                            .padding(.vertical, Spacing.s3)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Tokens.accent)
+                    FirstRunPrimaryButton(title: "Download") { didStart = true; onStart() }
                 } else {
                     Button(action: { didStart = false; onCancel() }) {
                         Text("Cancel")

@@ -10,7 +10,15 @@ Upstream: [PRD.md](./PRD.md) · [CONTEXT.md](./CONTEXT.md) · [docs/adr/](./docs
 > - **Placement:** fixed right-edge sidebar, **top-edge-anchored** so it sizes to content without jumping vertically (replaces §3.2's per-source-app last-anchored store, which was removed).
 > - **Motion:** entrance slides in from the right + fades; the action-menu focus is a single highlight that **slides** between rows. Both honor Reduce Motion.
 > - **Streaming** text lives in `PanelController.streamingText` and renders via `StreamingResultView`, so tokens re-render only the result region.
-> - **Keyboard/focus model:** `Tab` cycles focus (input ↔ action menu; `Tab` also enters the result to edit). The input auto-focuses on open **only in the empty state** — when text is captured the menu keeps focus so `Return` still picks an action immediately. `⌘C` copies the result without pasting back. **`⌫` "try another" was dropped** (Esc is the only back path) — supersedes §5.1/§3.4/§6. Shortcut hints render key glyphs in a mono style (`KbdHint`).
+> - **Keyboard/focus model:** `Tab` cycles focus (input ↔ action menu; `Tab` also enters the result to edit). The input auto-focuses on open **only in the empty state** — when text is captured the menu keeps focus so `Return` still picks an action immediately. `⌘C` copies the result without pasting back. **`⌫` "try another" was dropped** (Esc is the only back path) — supersedes §5.1/§3.4/§6.
+>
+> **De-blue / neutral-focus pass (later 2026-05, commit "restrain blue, kill blue rails").** The single-accent discipline was tightened *further* — accent now reads as the panel "lit up" only in motion, never as standing chrome. This supersedes the accent-rail language throughout §2/§3:
+> - **Focus is a neutral sliding highlight, not an accent rail.** The action menu's focused row (and hover) is a soft `rowHighlight` rounded fill that slides between rows — **no 2px `--accent` rail, no `--accent-tint` background.** Supersedes §3.1 "Action Row → Focused state" and the "Accent rail (focus 2px bar)" / "Accent tint" color rows.
+> - **Inputs are borderless with no rail.** The type/compose fields are bare text on the surface with a placeholder — **no left rail at all** (neither hairline-at-rest nor accent-on-focus). Supersedes §3.6 "the rail treatment" in full.
+> - **Result-toolbar action pill is neutral:** `--text-soft` text on a `rowHighlight` capsule, **not** `--accent` on `--accent-tint`. Supersedes the §2.3 "Result-toolbar action pill" row and §3.4's pill spec.
+> - **Accent's remaining homes** are the **streaming caret** and the **transient "copied" confirmation**; `--accent-error` still owns error states. That's it.
+> - **Keyboard hints** render in a small **keycap chip** — glyphs in `Typography.kbdGlyph` (**rounded·semibold 11**, the "legible kbd hints" fix; the original mono-11 read too thin), on a `rowHighlight` fill with a hairline stroke. Supersedes §2.3's "mono … without surrounding bracket/box."
+> - **Panel shadow** is a hue-tinted `Tokens.panelShadow` (mode-aware), never pure black.
 
 ---
 
@@ -40,7 +48,7 @@ All colors expressed in OKLCH. Never `#000` or `#fff`. Every neutral tinted towa
 | Soft text | `--text-soft` | `oklch(0.78 0.008 240)` | Menu items, default state. |
 | Muted text | `--text-mute` | `oklch(0.58 0.008 240)` | Hints, metadata ("from Slack"). |
 | Faint text | `--text-faint` | `oklch(0.44 0.008 240)` | Placeholder text. |
-| Accent (active / streaming) | `--accent` | `oklch(0.74 0.10 255)` | Cohesive low-chroma blue (same family as the neutrals). Used **only** for focus indicator + streaming caret + result-toolbar action pill text. |
+| Accent (active / streaming) | `--accent` | `oklch(0.74 0.10 255)` | Cohesive low-chroma blue (same family as the neutrals). Used **only** for the streaming caret + transient "copied" note. *(Focus rail + result pill were neutralized — see the de-blue note at top.)* |
 | Accent rail (focus 2px bar) | `--accent` | same | Left-edge of focused row. |
 | Accent tint (focused row bg) | `--accent-tint` | `oklch(0.34 0.045 255 / 0.5)` | Subtle background tint of the focused row. |
 | Quote rule (selection bar) | `--accent-mute` | `oklch(0.42 0.040 255 / 0.6)` | 2px vertical rule beside the captured selection text. |
@@ -277,7 +285,9 @@ When the user picks **Custom…** or **Respond** from the action menu, the menu 
 
 On submit, the compose region becomes the Result section (same animation as picking a fixed action).
 
-### 3.6 Input fields — the rail treatment
+### 3.6 Input fields — borderless (no rail)
+
+> **Superseded by the de-blue pass (top of doc):** the rail described below was removed. Inputs are now bare text + placeholder on the surface, with **no left rail** in any state. The section is kept for the "no box / no fill / placeholder treatment" intent, which still holds.
 
 Both editable inputs (the **type/paste** field in S2/S3 and the **Custom/Respond** compose field) share one borderless treatment, so they read as one system with the action menu rather than as web-style form boxes:
 
