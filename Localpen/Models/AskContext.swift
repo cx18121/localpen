@@ -51,20 +51,11 @@ struct AskContext: Equatable {
     }
     mutating func removeSource(_ kind: ContextKind) { sources.removeAll { $0.kind == kind } }
 
-    /// Builds an AskContext from a ContextProbe snapshot. Formats the
-    /// appLabel as "<app> · <window>" when both are present, falls back
-    /// gracefully to whichever single field is non-nil. Calendar and file are already
-    /// formatted in the probe (matching how appLabel-not-raw lands here).
+    /// Builds an AskContext from a ContextProbe snapshot. Opt-in context (ADR 0020):
+    /// only the selection (the operand) rides the summon snapshot — ambient sources
+    /// (app / calendar / files / mail) are added on demand from the tray, so `from` no
+    /// longer attaches them.
     static func from(_ snapshot: ContextProbe.Snapshot) -> AskContext {
-        let label: String?
-        switch (snapshot.appName, snapshot.windowTitle) {
-        case (let app?, let title?):  label = "\(app) · \(title)"
-        case (let app?, nil):         label = app
-        case (nil, let title?):       label = title
-        case (nil, nil):              label = nil
-        }
-        var ctx = AskContext(appLabel: label, selection: snapshot.selection, calendar: snapshot.calendar)
-        for item in snapshot.sourceItems { ctx.setSource(item.kind, item) }
-        return ctx
+        AskContext(selection: snapshot.selection)
     }
 }

@@ -23,6 +23,11 @@ struct GeneralSettingsView: View {
     // context, via the AX permission Localpen already holds. No feed, no new prompt.
     @State private var filesEnabled = FilesAccess.isEnabled
 
+    // Mail context (ADR 0019, source #3): read recent inbox mail from the local Apple
+    // Mail store. Needs Full Disk Access (the store is TCC-protected) — degrades to
+    // "no chip" without it.
+    @State private var mailEnabled = MailAccess.isEnabled
+
     // Knowledge base (ADR 0014): opt-in toggle + the Obsidian vault folder. A local,
     // rebuildable FTS5 index — nothing leaves the Mac.
     @State private var brainEnabled = BrainAccess.isActive
@@ -72,8 +77,18 @@ struct GeneralSettingsView: View {
                 Text("Files")
             } footer: {
                 Text(filesEnabled
-                     ? "On. The file open in the frontmost app rides along as a removable context chip on each ask (text + PDF, capped). Read locally via Accessibility; drop the chip per-ask to leave it out."
-                     : "Let the assistant see the document you have open as context on asks. Local-only, read through the Accessibility permission.")
+                     ? "On. \"File\" appears in the ask's add-context tray; tap it to attach the document open in the app you summoned from (text + PDF, capped). Read locally via Accessibility, only when you add it."
+                     : "Make the document you have open available to add as context on an ask. Local-only, read through the Accessibility permission.")
+            }
+
+            Section {
+                Toggle("Use recent mail as context", isOn: $mailEnabled)
+            } header: {
+                Text("Mail")
+            } footer: {
+                Text(mailEnabled
+                     ? "On. \"Mail\" appears in the ask's add-context tray; tap it to open a picker — your recent inbox (last day) plus search by sender or subject — and check the emails to attach (full body, capped). Read locally from Apple Mail, only when you add them. Requires Full Disk Access (System Settings → Privacy & Security → Full Disk Access) since the mail store is protected."
+                     : "Make your inbox mail available to add as context on an ask, via a recent + search picker. Reads the local Apple Mail store (connect your account in Mail first); needs Full Disk Access. Local-only.")
             }
 
             Section {
@@ -139,6 +154,9 @@ struct GeneralSettingsView: View {
         .onChange(of: filesEnabled) { _, newValue in
             FilesAccess.isEnabled = newValue
         }
+        .onChange(of: mailEnabled) { _, newValue in
+            MailAccess.isEnabled = newValue
+        }
         .onChange(of: brainEnabled) { _, newValue in
             BrainAccess.isActive = newValue
             NotificationCenter.default.post(name: .brainConfigChanged, object: nil)
@@ -170,8 +188,8 @@ struct GeneralSettingsView: View {
             return "Paste your calendar's read-only iCal URL above. In Google Calendar: Settings → your calendar → Integrate calendar → “Secret address in iCal format”. Localpen fetches it directly (read-only); it goes to your calendar provider, not anywhere else."
         }
         if calendarEnabled {
-            return "On. Your next 7 days (titles, times, locations) ride along as a removable context chip on each ask. Read-only; refreshed every few minutes. Keep these URLs private; they grant read access to your calendar."
+            return "On. \"Calendar\" appears in the ask's add-context tray; tap it to attach your next 7 days (titles, times, locations). Read-only; refreshed every few minutes. Keep these URLs private; they grant read access to your calendar."
         }
-        return "Let the assistant see your upcoming schedule as context on asks. Uses a read-only iCal feed URL (no macOS calendar permission needed)."
+        return "Make your upcoming schedule available to add as context on an ask. Uses a read-only iCal feed URL (no macOS calendar permission needed)."
     }
 }

@@ -126,14 +126,13 @@ final class ContextProbe {
             reader.readWindowTitle(pid: pidValue, timeoutSeconds: 0.15)
         }.value
 
-        let calendar = await readCalendarOffMain()
-        let sourceItems = await captureSources()
-
+        // ADR 0020: calendar + capture-time sources are opt-in (added on demand from the
+        // tray), so the summon path no longer reads them — keeping the hot path cheap and
+        // private (no mail/file read on a notch-open that never uses them). `captureSources`
+        // / `readCalendarOffMain` remain, now called per-source by `addAskSource`.
         return Snapshot(appName: resolvedAppName,
                         windowTitle: windowTitle,
-                        selection: normalizedSelection,
-                        calendar: calendar,
-                        sourceItems: sourceItems)
+                        selection: normalizedSelection)
     }
 
     /// Runs every enabled `ContextSource` concurrently and collects their items

@@ -201,13 +201,28 @@ final class PanelController {
     /// which would rebuild the prompt via `userMessage(for:.ask)` and lose it.
     @ObservationIgnored private var pendingAskContext: AskContext = .empty
 
-    /// The in-flight off-main calendar read for a hover/menu ask entry (ADR 0012),
-    /// plus the session it belongs to. `askSubmitted` awaits this before snapshotting
-    /// so a fast submit can't race past the read and stream an ask without the
-    /// calendar context the user expects. The session tag keeps the hotkey path
-    /// (which gets calendar synchronously via the probe) on the synchronous submit.
-    @ObservationIgnored private var calendarAttachTask: Task<Void, Never>?
-    @ObservationIgnored private var calendarAttachSession: UInt64 = 0   // 0 = none; real sessions are ≥ 1
+    /// The frontmost app's pid at summon (ADR 0020). Held so a deferred Files capture
+    /// can read the document that was open when you summoned — by add-time Localpen is
+    /// frontmost, so this is the only way to reach the right window. 0 = unknown.
+    @ObservationIgnored private var summonPID: pid_t = 0
+
+    /// In-flight `addAskSource` captures for the current session (ADR 0020 opt-in tray).
+    /// `askSubmitted` awaits them so adding a source then immediately pressing return
+    /// can't stream the ask before that source's capture lands. Reset per summon.
+    @ObservationIgnored private var sourceAddTasks: [Task<Void, Never>] = []
+    @ObservationIgnored private var sourceAddSession: UInt64 = 0   // 0 = none; real sessions are ≥ 1
+
+    // MARK: Mail picker (ADR 0020 — mail is retrieval, not a recency dump). Opened from the
+    // "+ Mail" tray: recent inbox (last day) by default, search by sender/subject, the user
+    // checks emails to attach as full-body ask context. State is per-ask (reset on summon).
+    var mailPickerActive = false
+    var mailPickerQuery = ""
+    private(set) var mailPickerResults: [MailMessage] = []
+    private(set) var mailPickerSelected: [Int64: MailMessage] = [:]   // id → checked message
+    private(set) var mailPickerBodies: [Int64: String] = [:]          // expanded-row preview bodies
+    private(set) var mailPickerLoading = false
+    @ObservationIgnored private let mailReader: any MailStoreReading
+    @ObservationIgnored private var mailSearchTask: Task<Void, Never>?
 
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
     /// everything scoped to one summon (capture, tasks, pending result) so a
@@ -252,6 +267,7 @@ final class PanelController {
          llamaServer: LlamaServerController?,
          memory: MemoryService? = nil,
          contextProbe: ContextProbe = ContextProbe(),
+         mailReader: any MailStoreReading = SystemMailStoreReader(),
          contextEngine: ContextEngine? = nil,
          brainIndex: BrainIndex? = nil,
          conversationStash: ConversationStash? = nil,
@@ -268,6 +284,7 @@ final class PanelController {
         self.llamaServer = llamaServer
         self.memory = memory
         self.contextProbe = contextProbe
+        self.mailReader = mailReader
         self.contextEngine = contextEngine
         self.brainIndex = brainIndex
         self.conversationStash = conversationStash
@@ -523,11 +540,11 @@ final class PanelController {
             // submit back through pick(.ask) would loop into menu-open
             // and never reach the stream path).
             if case .visible(let ctx, _) = state, let sel = ctx.selection {
-                askContext = AskContext(appLabel: sel.sourceAppName, selection: sel.text)
+                askContext = AskContext(selection: sel.text)
             } else {
                 askContext = .empty
             }
-            attachCalendarContext()   // menu→ask builds askContext without the probe
+            beginAskContext()   // opt-in tray; the summon pid carries over from the original capture (ADR 0020)
             state = .visible(PanelContext(), .ask)
             return
         case .custom, .respond:
@@ -705,6 +722,9 @@ final class PanelController {
         let hotkeyTime = ContinuousClock.now
         focusedActionIndex = 1
         lastInputSource = .keyboard
+        // Record the frontmost app NOW (the user's app, before the notch shows) so a
+        // later Files add can read its open document (ADR 0020).
+        summonPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
 
         // Accessibility can be revoked AFTER first-run (System Settings → Privacy).
         // Without trust, the synthetic ⌘C capture and ⌘V paste-back silently no-op,
@@ -755,7 +775,8 @@ final class PanelController {
             guard sessionCounter == myID, current === session else {
                 textIO.restoreClipboard(capture); return
             }
-            askContext = AskContext.from(snap)
+            beginAskContext()
+            askContext = AskContext(selection: snap.selection)   // opt-in: only the operand attaches (ADR 0020)
             enterHub()   // no-selection hotkey lands on the hub home (ADR 0016), opened on Ask
         }
         await notch?.expand()
@@ -782,9 +803,9 @@ final class PanelController {
         flushPendingAsRejected()
         if let session = current { textIO.restoreClipboard(session.capture) }
 
-        // Grab the frontmost app BEFORE we touch the notch (hover is non-activating,
-        // so this is still the user's app) to show as ask context.
-        let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName
+        // Grab the frontmost app's pid BEFORE we touch the notch (hover is non-activating,
+        // so this is still the user's app) so a later Files add can read its document.
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
 
         sessionCounter += 1
         focusedActionIndex = 1
@@ -795,10 +816,11 @@ final class PanelController {
         inputText = ""
         // Land on free-form Ask (the headline pivot), not the transform menu, so the
         // most ambient entry point reaches the assistant. No selection (hover is a
-        // no-capture entry — never synthesize ⌘C here); the frontmost app shows as a
-        // context chip. Submitting is Copy-only (non-pasteable session).
-        askContext = AskContext(appLabel: frontmostName, selection: nil)
-        attachCalendarContext()   // hover is a no-capture entry; calendar rides this side path
+        // no-capture entry — never synthesize ⌘C here); ambient context is opt-in via the
+        // add-context tray (ADR 0020). Submitting is Copy-only (non-pasteable session).
+        summonPID = frontmostPID
+        beginAskContext()
+        askContext = AskContext(selection: nil)   // opt-in: nothing ambient auto-attaches (ADR 0020)
         enterHub()                // hover lands on the hub home (ADR 0016), opened on Ask
         Task { @MainActor in
             await notch?.expand()
@@ -1004,28 +1026,154 @@ final class PanelController {
     /// Remove one ambient context source's chip (ADR 0019) — app, calendar, files, …
     func removeAskSource(_ kind: ContextKind) {
         askContext.removeSource(kind)
+        if kind == .mail { mailPickerSelected = [:]; mailPickerBodies = [:] }   // start fresh next time
     }
 
     func removeAskSelectionChip() {
         askContext.selection = nil
     }
 
-    /// Attach calendar context (ADR 0012) to the current `askContext` via an
-    /// off-main read. Used by the ask entry points that build `askContext`
-    /// WITHOUT running the full ContextProbe — the no-capture hover entry and the
-    /// menu→ask pivot. (The hotkey .ask route already gets calendar inside
-    /// `ContextProbe.capture`.) The session-counter guard drops a late read whose
-    /// session has been superseded, so a stale calendar can't bleed into a new
-    /// ask. A nil result (disabled/unauthorized/empty) leaves the field nil.
-    private func attachCalendarContext() {
+    /// Reset the opt-in context state for a fresh ask (ADR 0020): drop any pending adds
+    /// and the mail-picker selection from the prior ask. The summon pid is recorded
+    /// separately at each summon point (it must be read while the user's app is still
+    /// frontmost). Called before the ask shows.
+    private func beginAskContext() {
+        sourceAddTasks = []
+        sourceAddSession = sessionCounter
+        mailPickerActive = false
+        mailPickerQuery = ""
+        mailPickerResults = []
+        mailPickerSelected = [:]
+        mailPickerBodies = [:]
+    }
+
+    /// The capture-time sources the user can ADD to this ask (ADR 0020): enabled in
+    /// Settings and not already attached. Files needs a known summon app to read from.
+    /// The chip rail renders these as an "add context" tray.
+    var availableAskSources: [ContextKind] {
+        let attached = Set(askContext.sources.map(\.kind))
+        var kinds: [ContextKind] = []
+        if CalendarAccess.isActive { kinds.append(.calendar) }
+        if FilesAccess.isActive, summonPID > 0 { kinds.append(.files) }
+        if MailAccess.isActive { kinds.append(.mail) }
+        return kinds.filter { !attached.contains($0) }
+    }
+
+    /// Add one capture-time source to this ask, captured lazily NOW (ADR 0020) — so an
+    /// ask that adds nothing reads nothing. Files reads the held summon app's document;
+    /// calendar/mail read their feed/store fresh. The session guard drops a late capture
+    /// whose ask has been superseded; nil (nothing to add / unreadable) is a no-op.
+    func addAskSource(_ kind: ContextKind) {
+        // Mail is retrieval, not a recency dump (ADR 0020): "+ Mail" opens the picker
+        // (recent + search + see/check), which attaches on confirm. Other sources capture
+        // lazily and attach directly.
+        if kind == .mail { openMailPicker(); return }
+        guard !askContext.sources.contains(where: { $0.kind == kind }) else { return }
         let myCounter = sessionCounter
-        calendarAttachSession = myCounter
-        calendarAttachTask = Task { @MainActor [weak self] in
+        sourceAddSession = myCounter
+        let pid = summonPID
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            let cal = await self.contextProbe.readCalendarOffMain()
-            guard self.sessionCounter == myCounter, let cal else { return }
-            self.askContext.calendar = cal
+            let item: ContextItem?
+            switch kind {
+            case .calendar:
+                item = (await self.contextProbe.readCalendarOffMain()).map(ContextItem.calendar)
+            case .files:
+                item = await FilesContextSource(isEnabled: { true }, pid: { pid }).capture()
+            default:
+                item = nil
+            }
+            guard self.sessionCounter == myCounter, let item else { return }
+            self.askContext.setSource(item.kind, item)
         }
+        sourceAddTasks.append(task)
+    }
+
+    // MARK: - Mail picker (ADR 0020)
+
+    /// Open the mail picker. Tapping "+ Mail" or the attached mail chip both land here;
+    /// the prior selection (if any) is preserved so reopening edits rather than restarts.
+    func openMailPicker() {
+        guard MailAccess.isActive else { return }
+        mailPickerActive = true
+        loadMailList(mailPickerQuery)
+    }
+
+    /// Re-run the list for the current query: empty ⇒ recent inbox (last day window),
+    /// non-empty ⇒ sender/subject search. Off-main; the latest query wins.
+    func mailQueryChanged(_ query: String) {
+        mailPickerQuery = query
+        loadMailList(query)
+    }
+
+    private func loadMailList(_ query: String) {
+        mailPickerLoading = true
+        let reader = mailReader
+        let limit = MailAccess.listLimit
+        let sinceEpoch = Date().timeIntervalSince1970 - Double(MailAccess.recentWindowHours) * 3600
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        mailSearchTask?.cancel()
+        mailSearchTask = Task { @MainActor [weak self] in
+            let results = await Task.detached(priority: .userInitiated) { () -> [MailMessage] in
+                q.isEmpty ? reader.recentInbox(sinceEpoch: sinceEpoch, limit: limit)
+                          : reader.search(q, limit: limit)
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.mailPickerResults = results
+            self.mailPickerLoading = false
+        }
+    }
+
+    /// Toggle whether a listed email is attached.
+    func toggleMailSelection(_ msg: MailMessage) {
+        if mailPickerSelected[msg.id] != nil { mailPickerSelected[msg.id] = nil }
+        else { mailPickerSelected[msg.id] = msg }
+    }
+
+    func isMailSelected(_ id: Int64) -> Bool { mailPickerSelected[id] != nil }
+
+    /// Lazily load one email's body for an expanded preview row.
+    func expandMailPreview(_ msg: MailMessage) {
+        guard mailPickerBodies[msg.id] == nil else { return }
+        let reader = mailReader
+        let cap = MailAccess.bodyCharCap
+        let id = msg.id
+        Task { @MainActor [weak self] in
+            let body = await Task.detached(priority: .utility) { reader.body(forID: id, charCap: cap) }.value
+            self?.mailPickerBodies[id] = body
+        }
+    }
+
+    func cancelMailPicker() {
+        mailPickerActive = false
+        mailSearchTask?.cancel()
+    }
+
+    /// Attach the checked emails (full bodies, fetched now) as the mail context, or clear
+    /// it if none are checked. Runs as a tracked add so a fast submit awaits the bodies.
+    func confirmMailPicker() {
+        mailPickerActive = false
+        mailSearchTask?.cancel()
+        let selected = Array(mailPickerSelected.values).sorted { $0.date > $1.date }
+        guard !selected.isEmpty else { askContext.removeSource(.mail); return }
+        let reader = mailReader
+        let cap = MailAccess.bodyCharCap
+        let myCounter = sessionCounter
+        sourceAddSession = myCounter
+        let task = Task { @MainActor [weak self] in
+            var withBodies: [MailMessage] = []
+            for var m in selected {
+                if m.body == nil {
+                    let id = m.id
+                    m.body = await Task.detached(priority: .utility) { reader.body(forID: id, charCap: cap) }.value
+                }
+                withBodies.append(m)
+            }
+            guard let self, self.sessionCounter == myCounter else { return }
+            self.askContext.setSource(.mail, .mail(count: withBodies.count,
+                                                   body: MailContextFormatter.block(withBodies)))
+        }
+        sourceAddTasks.append(task)
     }
 
     /// Entry point from AskInput's submit. Builds the Action.ask with the
@@ -1036,16 +1184,15 @@ final class PanelController {
     func askSubmitted(_ question: String) {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // A hover/menu ask entry may still be reading calendar off-main
-        // (attachCalendarContext). If so — and it's THIS session's read — await it
-        // before snapshotting, so a fast submit doesn't race past and stream/persist
-        // the ask without the calendar context the user expects (ADR 0012 always-on).
-        // The hotkey .ask path tags no current-session read (calendar arrives
-        // synchronously via ContextProbe.capture), so submit stays synchronous there.
-        if let pending = calendarAttachTask, calendarAttachSession == sessionCounter {
+        // The user may have just tapped "add context" and its lazy capture is still in
+        // flight (ADR 0020). If so — and the adds belong to THIS session — await them
+        // before snapshotting, so a fast submit doesn't stream/persist the ask without
+        // the source the user explicitly added. With no pending adds, submit is synchronous.
+        let pendingAdds = sourceAddTasks
+        if sourceAddSession == sessionCounter, !pendingAdds.isEmpty {
             let submitEpoch = convEpoch
             Task { @MainActor [weak self] in
-                await pending.value
+                for task in pendingAdds { await task.value }
                 // Re-check the intent token after the await. convEpoch is bumped by
                 // EVERY way the user can move on while the read finishes — dismiss,
                 // reopen (new session), History, Back-to-menu. Guarding on it (not

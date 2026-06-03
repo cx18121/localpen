@@ -55,6 +55,15 @@ struct ContextItem: Codable, Equatable, Sendable {
                      promptLine: trimmed.isEmpty ? "file [\(name)]" : "file [\(name)]: \(trimmed)")
     }
 
+    /// Recent inbox mail (ADR 0019, source #3). `count` drives the chip; `body` is the
+    /// pre-formatted block of recent messages (sender / subject / date + capped body),
+    /// built by `MailContextSource` so this stays a dumb struct (like `.file`). The
+    /// source returns nil rather than building this with an empty body.
+    static func mail(count: Int, body: String) -> ContextItem {
+        .init(kind: .mail, label: "mail", chipText: "mail [\(count)]",
+              promptLine: "mail [recent inbox]:\n\(body)")
+    }
+
     // MARK: Persistence (ADR 0019) — a JSON array on the thread (context_sources, v8).
 
     static func encode(_ items: [ContextItem]) -> String? {

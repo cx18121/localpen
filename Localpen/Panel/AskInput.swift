@@ -6,28 +6,37 @@ struct AskInput: View {
     @State private var question: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.s3) {
-            chipRail
-            editorWithPlaceholder
-            footer
+        if controller.mailPickerActive {
+            MailPicker(controller: controller)
+        } else {
+            VStack(alignment: .leading, spacing: Spacing.s3) {
+                chipRail
+                editorWithPlaceholder
+                footer
+            }
+            .padding(Spacing.s5)
         }
-        .padding(Spacing.s5)
     }
 
     @ViewBuilder
     private var chipRail: some View {
         let sources = controller.askContext.sources
         let selection = controller.askContext.selection
-        // Neutral sources (app, files, …) share the top row as gray chips; calendar gets
-        // its own full-width accent row (ADR 0016 §3); the selection operand is its own chip.
+        // Attached sources (files, mail, …) share the top row as gray removable chips;
+        // calendar gets its own full-width accent row (ADR 0016 §3); the selection operand
+        // is its own chip. Below them, the opt-in "add context" tray (ADR 0020).
         let neutral = sources.filter { $0.kind != .calendar }
         let calendar = sources.first { $0.kind == .calendar }
-        if !sources.isEmpty || selection != nil {
+        let available = controller.availableAskSources
+        if !sources.isEmpty || selection != nil || !available.isEmpty {
             VStack(alignment: .leading, spacing: Spacing.s2) {
                 if !neutral.isEmpty || selection != nil {
                     HStack(spacing: Spacing.s2) {
                         ForEach(neutral, id: \.kind) { item in
+                            // The mail chip reopens the picker on tap (edit your selection);
+                            // others are display-only. The × removes either.
                             AskChip(text: item.chipText,
+                                    onTap: item.kind == .mail ? { controller.openMailPicker() } : nil,
                                     onRemove: { controller.removeAskSource(item.kind) })
                         }
                         if let selection {
@@ -41,7 +50,32 @@ struct AskInput: View {
                     CalendarChip(text: calendar.label,
                                  onRemove: { controller.removeAskSource(.calendar) })
                 }
+                if !available.isEmpty {
+                    HStack(spacing: Spacing.s2) {
+                        Text("Add context")
+                            .font(Typography.subhead)
+                            .foregroundStyle(Tokens.textFaint)
+                        ForEach(available, id: \.self) { kind in
+                            AddChip(label: Self.sourceLabel(kind)) {
+                                controller.addAskSource(kind)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
             }
+        }
+    }
+
+    /// Tray label for an addable source kind.
+    private static func sourceLabel(_ kind: ContextKind) -> String {
+        switch kind {
+        case .calendar: "Calendar"
+        case .mail:     "Mail"
+        case .files:    "File"
+        case .app:      "App"
+        case .screen:   "Screen"
+        default:        kind.rawValue.capitalized
         }
     }
 
@@ -89,17 +123,44 @@ struct AskInput: View {
     }
 }
 
+/// An addable source in the opt-in "add context" tray (ADR 0020): a dimmed, outlined
+/// `+ Label` button. Tapping captures that source NOW and turns it into an `AskChip`.
+private struct AddChip: View {
+    let label: String
+    let onAdd: () -> Void
+    var body: some View {
+        Button(action: onAdd) {
+            HStack(spacing: Spacing.s1) {
+                Image(systemName: "plus")
+                    .font(Typography.microGlyph)
+                Text(label)
+                    .font(Typography.subhead)
+            }
+            .foregroundStyle(Tokens.textFaint)
+            .padding(.horizontal, Spacing.s3)
+            .padding(.vertical, Spacing.s1)
+            .background(
+                RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
+                    .stroke(Tokens.panelBorder, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Add \(label.lowercased()) as context for this ask")
+    }
+}
+
 private struct AskChip: View {
     let text: String
+    var onTap: (() -> Void)? = nil
     let onRemove: () -> Void
     var body: some View {
         HStack(spacing: Spacing.s1) {
-            Text(text)
-                .font(Typography.subhead)
-                .foregroundStyle(Tokens.textSoft)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 190, alignment: .leading)
+            if let onTap {
+                Button(action: onTap) { label }.buttonStyle(.plain)
+            } else {
+                label
+            }
             Button(action: onRemove) {
                 Image(systemName: "xmark")
                     .font(Typography.microGlyph)
@@ -113,6 +174,15 @@ private struct AskChip: View {
             RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
                 .fill(Tokens.rowHighlight)
         )
+    }
+
+    private var label: some View {
+        Text(text)
+            .font(Typography.subhead)
+            .foregroundStyle(Tokens.textSoft)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: 190, alignment: .leading)
     }
 }
 
