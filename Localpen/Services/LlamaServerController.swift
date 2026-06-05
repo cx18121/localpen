@@ -42,7 +42,14 @@ final class LlamaServerController {
             "--port", "\(port)",
             "--ctx-size", "\(contextSize)",
             "--n-gpu-layers", "999",
-            "--mlock"
+            "--mlock",
+            // Time-to-first-token wins on the now-large context prompts (mail bodies,
+            // screen OCR): Flash Attention (off by default), a bigger prompt ubatch so the
+            // GPU eats the prompt in fewer passes, and KV prefix reuse so the stable
+            // system-prompt prefix isn't re-evaluated on every ask.
+            "--flash-attn",
+            "--ubatch-size", "1024",
+            "--cache-reuse", "256"
         ]
 
         let logDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]

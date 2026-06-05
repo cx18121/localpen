@@ -103,6 +103,14 @@ struct ConversationView: View {
                         )
                     }
 
+                    // Before the first token the reply is empty but we're already
+                    // streaming — show a thinking indicator so the wait (prompt eval on a
+                    // large-context ask) reads as progress, not a hang.
+                    if conversation.isStreaming && conversation.streamingText.isEmpty
+                        && conversation.turnError == nil {
+                        ThinkingIndicator()
+                    }
+
                     if !conversation.streamingText.isEmpty {
                         // Live reply renders as an assistant bubble with no accept
                         // affordance until the stream finishes.
@@ -387,6 +395,28 @@ private struct ChipRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A three-dot "thinking" indicator shown while an ask is streaming but hasn't produced
+/// its first token yet — so a slow prompt-eval reads as working, not frozen.
+private struct ThinkingIndicator: View {
+    @State private var animating = false
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Tokens.textFaint)
+                    .frame(width: 6, height: 6)
+                    .opacity(animating ? 1 : 0.25)
+                    .animation(
+                        .easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2),
+                        value: animating)
+            }
+        }
+        .padding(.vertical, Spacing.s2)
+        .onAppear { animating = true }
+        .accessibilityLabel("Thinking")
     }
 }
 
