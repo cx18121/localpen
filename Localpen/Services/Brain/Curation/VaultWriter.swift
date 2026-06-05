@@ -281,3 +281,29 @@ struct VaultWriter {
         }
     }
 }
+
+// Readable errors: without this, `error.localizedDescription` falls back to the useless
+// "…(Localpen.VaultWriter.WriteError error 2.)" (the `2` is just the enum case ordinal) —
+// which is what the user saw. Each case now says what actually went wrong.
+extension VaultWriter.WriteError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .notAdditive:
+            return "This change needs manual editing — open it in Obsidian or hand it to Claude Code."
+        case .unsafeName(let n):
+            return "“\(n)” isn’t a usable page name (no slashes, backslashes, or “..”)."
+        case .targetMissing(let rel):
+            return "The page “\(rel)” doesn’t exist yet, so there’s nothing to update."
+        case .targetExists(let rel):
+            return "A page already exists at “\(rel)” — it wasn’t overwritten."
+        case .immutable(let rel):
+            return "“\(rel)” is read-only (everything under raw/ except the inbox is immutable)."
+        case .notApplicable(let msg):
+            return msg
+        case .io(let msg):
+            return "Couldn’t write to the vault: \(msg)"
+        case .git(let msg):
+            return msg
+        }
+    }
+}

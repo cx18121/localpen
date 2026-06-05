@@ -158,6 +158,12 @@ final class HubModel {
                 let root = BrainAccess.vaultRoot
                 Task.detached { await index.reindexAll(root: root) }
             }
+        } catch VaultWriter.WriteError.targetExists {
+            // The page already exists, so the suggestion's goal (it's there) is already
+            // met — resolve it cleanly instead of erroring, and drop the stale suggestion.
+            store.remove(id: suggestion.id)
+            suggestionStatus = "Already exists — \(suggestion.summary)"
+            loadSuggestions()
         } catch let VaultWriter.WriteError.notApplicable(msg) {
             suggestionStatus = msg
         } catch {
