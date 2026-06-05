@@ -1055,6 +1055,7 @@ final class PanelController {
         var kinds: [ContextKind] = []
         if CalendarAccess.isActive { kinds.append(.calendar) }
         if FilesAccess.isActive, summonPID > 0 { kinds.append(.files) }
+        if ScreenAccess.isActive, summonPID > 0 { kinds.append(.screen) }
         if MailAccess.isActive { kinds.append(.mail) }
         return kinds.filter { !attached.contains($0) }
     }
@@ -1080,6 +1081,9 @@ final class PanelController {
                 item = (await self.contextProbe.readCalendarOffMain()).map(ContextItem.calendar)
             case .files:
                 item = await FilesContextSource(isEnabled: { true }, pid: { pid }).capture()
+            case .screen:
+                item = await ScreenCapture.captureWindowText(pid: pid, charCap: ScreenAccess.bodyCharCap)
+                    .map { ContextItem.screen(app: $0.appName, text: $0.text) }
             default:
                 item = nil
             }

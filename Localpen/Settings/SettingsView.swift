@@ -28,6 +28,9 @@ struct GeneralSettingsView: View {
     // "no chip" without it.
     @State private var mailEnabled = MailAccess.isEnabled
 
+    // Screen context (ADR 0021): OCR the window you summoned from. Needs Screen Recording.
+    @State private var screenEnabled = ScreenAccess.isEnabled
+
     // Knowledge base (ADR 0014): opt-in toggle + the Obsidian vault folder. A local,
     // rebuildable FTS5 index — nothing leaves the Mac.
     @State private var brainEnabled = BrainAccess.isActive
@@ -79,6 +82,16 @@ struct GeneralSettingsView: View {
                 Text(filesEnabled
                      ? "On. \"File\" appears in the ask's add-context tray; tap it to attach the document open in the app you summoned from (text + PDF, capped). Read locally via Accessibility, only when you add it."
                      : "Make the document you have open available to add as context on an ask. Local-only, read through the Accessibility permission.")
+            }
+
+            Section {
+                Toggle("Use screen text as context", isOn: $screenEnabled)
+            } header: {
+                Text("Screen")
+            } footer: {
+                Text(screenEnabled
+                     ? "On. \"Screen\" appears in the ask's add-context tray; tap it to OCR the window you summoned from (what's visible) and attach its text. Best for content you can't select — a PDF or page in the browser. Requires Screen Recording (System Settings → Privacy & Security → Screen Recording); the first add prompts for it."
+                     : "Make the text visible in your current window available to add as context, via on-screen OCR. For things you can't select (browser PDFs, images). Needs Screen Recording. Local-only.")
             }
 
             Section {
@@ -156,6 +169,9 @@ struct GeneralSettingsView: View {
         }
         .onChange(of: mailEnabled) { _, newValue in
             MailAccess.isEnabled = newValue
+        }
+        .onChange(of: screenEnabled) { _, newValue in
+            ScreenAccess.isEnabled = newValue
         }
         .onChange(of: brainEnabled) { _, newValue in
             BrainAccess.isActive = newValue

@@ -55,6 +55,16 @@ struct ContextItem: Codable, Equatable, Sendable {
                      promptLine: trimmed.isEmpty ? "file [\(name)]" : "file [\(name)]: \(trimmed)")
     }
 
+    /// OCR'd text of the window you summoned from (ADR 0021). `app` names the source
+    /// window for the chip; `text` is the (capped) recognized text. The source returns
+    /// nil rather than building this with empty text.
+    static func screen(app: String?, text: String) -> ContextItem {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chip = app.map { "screen [\($0)]" } ?? "screen"
+        return .init(kind: .screen, label: app ?? "screen", chipText: chip,
+                     promptLine: "screen\(app.map { " [\($0)]" } ?? ""): \(trimmed)")
+    }
+
     /// Recent inbox mail (ADR 0019, source #3). `count` drives the chip; `body` is the
     /// pre-formatted block of recent messages (sender / subject / date + capped body),
     /// built by `MailContextSource` so this stays a dumb struct (like `.file`). The
