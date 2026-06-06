@@ -13,6 +13,14 @@ struct MailPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s3) {
             searchField
+            if controller.mailIndexing {
+                HStack(spacing: Spacing.s2) {
+                    ProgressView().controlSize(.mini)
+                    Text("Indexing recent mail — searching sender & subject for now…")
+                        .font(Typography.selectionMeta)
+                        .foregroundStyle(Tokens.textFaint)
+                }
+            }
             Hairline()
             list
             Hairline()

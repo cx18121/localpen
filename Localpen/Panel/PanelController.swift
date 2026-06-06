@@ -222,6 +222,7 @@ final class PanelController {
     private(set) var mailPickerBodies: [Int64: String] = [:]          // expanded-row preview bodies
     private(set) var mailPickerSnippets: [Int64: String] = [:]        // why a search row matched
     private(set) var mailPickerLoading = false
+    private(set) var mailIndexing = false                            // FTS body index building
     private(set) var savedMailIDs: Set<Int64> = []                    // promoted to cxkb (dedup)
     var mailSaveStatus: String?                                      // transient "Saved"/error
     @ObservationIgnored private let mailReader: any MailStoreReading
@@ -1161,6 +1162,7 @@ final class PanelController {
         guard let index = mailSearchIndex, mailIndexTask == nil else { return }
         let reader = mailReader
         let sinceEpoch = Date().timeIntervalSince1970 - Double(MailAccess.searchWindowDays) * 86400
+        mailIndexing = true
         mailIndexTask = Task.detached(priority: .utility) { [weak self] in
             let candidates = reader.recentInbox(sinceEpoch: sinceEpoch, limit: MailAccess.searchIndexCap)
             let currentIDs = Set(candidates.map(\.id))
@@ -1175,8 +1177,17 @@ final class PanelController {
                     MailMessage(id: $0.id, sender: $0.sender, subject: $0.subject, date: $0.date, body: bodies[$0.id])
                 })
             }
-            // Clear the gate so a later open does a cheap incremental pass (new mail only).
-            await MainActor.run { [weak self] in self?.mailIndexTask = nil }
+            // Clear the gate so a later open does a cheap incremental pass (new mail only),
+            // and upgrade an active sender/subject fallback search to full-text now.
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.mailIndexing = false
+                self.mailIndexTask = nil
+                if self.mailPickerActive,
+                   !self.mailPickerQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                    self.loadMailList(self.mailPickerQuery)
+                }
+            }
         }
     }
 
