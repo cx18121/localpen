@@ -220,9 +220,16 @@ final class PanelController {
     private(set) var mailPickerResults: [MailMessage] = []
     private(set) var mailPickerSelected: [Int64: MailMessage] = [:]   // id → checked message
     private(set) var mailPickerBodies: [Int64: String] = [:]          // expanded-row preview bodies
+    private(set) var mailPickerSnippets: [Int64: String] = [:]        // why a search row matched
     private(set) var mailPickerLoading = false
+    private(set) var savedMailIDs: Set<Int64> = []                    // promoted to cxkb (dedup)
+    var mailSaveStatus: String?                                      // transient "Saved"/error
     @ObservationIgnored private let mailReader: any MailStoreReading
     @ObservationIgnored private var mailSearchTask: Task<Void, Never>?
+    /// FTS5 index over recent inbox bodies (ADR 0019 follow-up) — built lazily so search
+    /// finds body-only matches the sender/subject `LIKE` can't. nil if it can't open.
+    @ObservationIgnored private let mailSearchIndex = MailSearchIndex()
+    @ObservationIgnored private var mailIndexTask: Task<Void, Never>?
 
     /// The in-flight capture→generate→accept attempt, or nil when hidden. Holds
     /// everything scoped to one summon (capture, tasks, pending result) so a
@@ -1045,6 +1052,9 @@ final class PanelController {
         mailPickerResults = []
         mailPickerSelected = [:]
         mailPickerBodies = [:]
+        mailPickerSnippets = [:]
+        savedMailIDs = []
+        mailSaveStatus = nil
     }
 
     /// The capture-time sources the user can ADD to this ask (ADR 0020): enabled in
@@ -1100,7 +1110,74 @@ final class PanelController {
     func openMailPicker() {
         guard MailAccess.isActive else { return }
         mailPickerActive = true
+        savedMailIDs = mailSearchIndex?.savedIDs() ?? []   // reflect prior saves across sessions
+        mailSaveStatus = nil
+        refreshMailSearchIndex()        // build/extend the body index in the background
         loadMailList(mailPickerQuery)
+    }
+
+    /// Promote an email into the cxkb inbox (raw/inbox/) so the dream cycle can fold it into
+    /// people/topics. Deduped: the same email can't be saved twice (`savedMailIDs`, persisted
+    /// in the index DB). Optimistically marks saved to disable the button + block double-taps;
+    /// rolls back on failure with the (now readable) write error.
+    func saveEmailToCxkb(_ msg: MailMessage) {
+        guard !savedMailIDs.contains(msg.id) else { return }
+        savedMailIDs.insert(msg.id)
+        mailSaveStatus = nil
+        let reader = mailReader
+        let index = mailSearchIndex
+        let cap = MailAccess.bodyCharCap
+        let id = msg.id
+        Task { @MainActor [weak self] in
+            let body: String
+            if let b = msg.body, !b.isEmpty {
+                body = b
+            } else {
+                body = await Task.detached(priority: .utility) { reader.body(forID: id, charCap: cap) }.value
+            }
+            let note = MailContextFormatter.cxkbNote(msg, body: body)
+            let error = await Task.detached(priority: .utility) { () -> String? in
+                do {
+                    _ = try VaultWriter(vaultRoot: BrainAccess.vaultRoot)
+                        .applyApproved(.captureToInbox(text: note), nowMillis: Int64(Date().timeIntervalSince1970 * 1000))
+                    return nil
+                } catch { return error.localizedDescription }
+            }.value
+            guard let self else { return }
+            if let error {
+                self.savedMailIDs.remove(id)
+                self.mailSaveStatus = "Couldn't save: \(error)"
+            } else {
+                index?.markSaved(id)
+                self.mailSaveStatus = "Saved to cxkb"
+            }
+        }
+    }
+
+    /// Build (or incrementally extend) the recent-inbox FTS index off-main. Reads bodies
+    /// only for emails not already indexed, in one filesystem pass. The ~last-90-day window
+    /// is the search scope; sender/subject search works immediately while this fills in.
+    private func refreshMailSearchIndex() {
+        guard let index = mailSearchIndex, mailIndexTask == nil else { return }
+        let reader = mailReader
+        let sinceEpoch = Date().timeIntervalSince1970 - Double(MailAccess.searchWindowDays) * 86400
+        mailIndexTask = Task.detached(priority: .utility) { [weak self] in
+            let candidates = reader.recentInbox(sinceEpoch: sinceEpoch, limit: MailAccess.searchIndexCap)
+            let currentIDs = Set(candidates.map(\.id))
+            let already = index.indexedIDs()
+            // Prune mail that's left the inbox window (archived/deleted/aged out) so stale
+            // hits don't show, then index any new mail since last open.
+            index.remove(ids: Array(already.subtracting(currentIDs)))
+            let fresh = candidates.filter { !already.contains($0.id) }
+            if !fresh.isEmpty {
+                let bodies = reader.bodies(forIDs: fresh.map(\.id), charCap: MailAccess.indexBodyCharCap)
+                index.insert(fresh.map {
+                    MailMessage(id: $0.id, sender: $0.sender, subject: $0.subject, date: $0.date, body: bodies[$0.id])
+                })
+            }
+            // Clear the gate so a later open does a cheap incremental pass (new mail only).
+            await MainActor.run { [weak self] in self?.mailIndexTask = nil }
+        }
     }
 
     /// Re-run the list for the current query: empty ⇒ recent inbox (last day window),
@@ -1113,17 +1190,29 @@ final class PanelController {
     private func loadMailList(_ query: String) {
         mailPickerLoading = true
         let reader = mailReader
+        let index = mailSearchIndex
         let limit = MailAccess.listLimit
         let sinceEpoch = Date().timeIntervalSince1970 - Double(MailAccess.recentWindowHours) * 3600
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         mailSearchTask?.cancel()
         mailSearchTask = Task { @MainActor [weak self] in
-            let results = await Task.detached(priority: .userInitiated) { () -> [MailMessage] in
-                q.isEmpty ? reader.recentInbox(sinceEpoch: sinceEpoch, limit: limit)
-                          : reader.search(q, limit: limit)
+            let (results, snippets) = await Task.detached(priority: .userInitiated) {
+                () -> ([MailMessage], [Int64: String]) in
+                if q.isEmpty {
+                    // Empty query = the recent view (always current, straight from the store).
+                    return (reader.recentInbox(sinceEpoch: sinceEpoch, limit: limit), [:])
+                }
+                // Full-text body search once the index has content; until then fall back to
+                // sender/subject so search is never dead while the index builds.
+                if let index, index.count > 0 {
+                    let hits = index.search(q, limit: limit)
+                    return (hits.map(\.message), Dictionary(hits.map { ($0.message.id, $0.snippet) }, uniquingKeysWith: { a, _ in a }))
+                }
+                return (reader.search(q, limit: limit), [:])
             }.value
             guard let self, !Task.isCancelled else { return }
             self.mailPickerResults = results
+            self.mailPickerSnippets = snippets
             self.mailPickerLoading = false
         }
     }

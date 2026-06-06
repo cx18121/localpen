@@ -23,6 +23,9 @@ protocol MailStoreReading: Sendable {
     func search(_ query: String, limit: Int) -> [MailMessage]
     /// The capped plain-text body of one message, read from its `.emlx`. "" if unavailable.
     func body(forID id: Int64, charCap: Int) -> String
+    /// Bodies for many messages in ONE filesystem pass (for the search-index build) — far
+    /// cheaper than N calls to `body`, each of which scans the store. Missing ⇒ absent.
+    func bodies(forIDs ids: [Int64], charCap: Int) -> [Int64: String]
 }
 
 /// Build the `<context>` block for a set of attached messages (sender / subject / date +
@@ -37,10 +40,43 @@ enum MailContextFormatter {
         }.joined(separator: "\n")
     }
 
+    /// A markdown note for promoting an email into the cxkb inbox (raw/inbox/), where the
+    /// dream cycle can fold it into people/topics. Frontmatter carries `mail_id` for
+    /// traceability + dedup; the body is the MIME-extracted text.
+    static func cxkbNote(_ m: MailMessage, body: String) -> String {
+        let subject = m.subject.isEmpty ? "(no subject)" : m.subject
+        return """
+        ---
+        type: email
+        from: \(yaml(m.sender))
+        subject: \(yaml(subject))
+        date: \(isoDate.string(from: m.date))
+        mail_id: \(m.id)
+        source: mail
+        ---
+
+        # \(subject)
+
+        From: \(m.sender) · \(displayDate.string(from: m.date))
+
+        \(body.trimmingCharacters(in: .whitespacesAndNewlines))
+        """
+    }
+
+    private static func yaml(_ s: String) -> String {
+        "\"\(s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
+    }
+
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d, h:mm a"
         return f
+    }()
+    private static let isoDate: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+    private static let displayDate: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "MMM d, yyyy"; return f
     }()
 }
 
@@ -80,6 +116,19 @@ struct SystemMailStoreReader: MailStoreReading {
         guard let url = Self.locateEmlx(rowids: [id], under: versionRoot)[id],
               let data = try? Data(contentsOf: url) else { return "" }
         return EmlxParser.bodyText(data, charCap: charCap)
+    }
+
+    func bodies(forIDs ids: [Int64], charCap: Int) -> [Int64: String] {
+        guard !ids.isEmpty, let storeURL = MailAccess.storeURL() else { return [:] }
+        let versionRoot = storeURL.deletingLastPathComponent().deletingLastPathComponent()
+        let paths = Self.locateEmlx(rowids: ids, under: versionRoot)   // one scan for all ids
+        var out: [Int64: String] = [:]
+        for (id, url) in paths {
+            if let data = try? Data(contentsOf: url) {
+                out[id] = EmlxParser.bodyText(data, charCap: charCap)
+            }
+        }
+        return out
     }
 
     // MARK: - shared query

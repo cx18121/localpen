@@ -33,6 +33,15 @@ enum MailAccess {
     /// whole; a long newsletter is truncated. Mirrors `FilesAccess.bodyCharCap` intent.
     static let bodyCharCap = 2000
 
+    /// Full-text search index scope: the last ~3 months of inbox (the realistic
+    /// "find that email" window) is read + indexed once, then incrementally. Older mail
+    /// stays searchable by sender/subject. `searchIndexCap` bounds a pathological build.
+    static let searchWindowDays = 90
+    static let searchIndexCap = 8000
+    /// Body cap for the index — more generous than the display cap so more text is
+    /// searchable, but still bounded so one newsletter can't bloat the index.
+    static let indexBodyCharCap = 8000
+
     /// The Mail container root (`~/Library/Mail`). TCC-protected.
     static let mailRoot = FileManager.default
         .homeDirectoryForCurrentUser

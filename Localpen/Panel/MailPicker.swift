@@ -106,6 +106,16 @@ struct MailPicker: View {
                 Text(Self.relativeDate(m.date))
                     .font(Typography.selectionMeta)
                     .foregroundStyle(Tokens.textFaint)
+                // Save to cxkb — disables once saved (deduped, persisted).
+                let saved = controller.savedMailIDs.contains(m.id)
+                Button { controller.saveEmailToCxkb(m) } label: {
+                    Image(systemName: saved ? "checkmark.circle.fill" : "tray.and.arrow.down")
+                        .font(Typography.chromeIcon)
+                        .foregroundStyle(saved ? Tokens.accent : Tokens.textFaint)
+                }
+                .buttonStyle(.plain)
+                .disabled(saved)
+                .help(saved ? "Saved to cxkb" : "Save to cxkb")
                 Image(systemName: isOpen ? "chevron.up" : "chevron.down")
                     .font(Typography.microGlyph)
                     .foregroundStyle(Tokens.textFaint)
@@ -119,6 +129,14 @@ struct MailPicker: View {
                     .lineLimit(10)
                     .padding(.leading, 23)
                     .padding(.bottom, Spacing.s2)
+            } else if let snip = controller.mailPickerSnippets[m.id], !snip.isEmpty {
+                // Why this email matched the search — the body context around the hit.
+                Text("…\(snip)…")
+                    .font(Typography.subhead)
+                    .foregroundStyle(Tokens.textMute)
+                    .lineLimit(2)
+                    .padding(.leading, 23)
+                    .padding(.bottom, Spacing.s2)
             }
             Hairline()
         }
@@ -130,6 +148,12 @@ struct MailPicker: View {
                 .buttonStyle(.plain)
                 .font(Typography.subhead)
                 .foregroundStyle(Tokens.textSoft)
+            if let status = controller.mailSaveStatus {
+                Text(status)
+                    .font(Typography.subhead)
+                    .foregroundStyle(Tokens.textMute)
+                    .lineLimit(1)
+            }
             Spacer()
             let count = controller.mailPickerSelected.count
             Button { controller.confirmMailPicker() } label: {
