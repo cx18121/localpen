@@ -5,70 +5,66 @@
 > wedge, and distribution narrative are **historical**: Localpen is now a solo tool, built
 > features-first, not shipped to others. This file supersedes the PRD's "Phasing" section.
 
-**Date:** 2026-05-27
+**Date:** 2026-05-27 · **Narrowed 2026-06-06** ([ADR 0022](./docs/adr/0022-narrow-to-moat-writing-and-brain-complement-poke.md))
 
 ---
 
 ## North star
 
-A notch-resident **local personal assistant**. Writing is the entry point — already built and
-polished (quick-action + conversation surfaces, now living in the MacBook notch via
-[ADR 0011](./docs/adr/0011-notch-surface-supersedes-floating-slab.md)). The destination is
-something you can ask anything, that pulls in your context and acts on your behalf — entirely
-on-device, no cloud.
+A notch-resident, fully-local **writing + knowledge tool** — the two things a cloud assistant
+structurally can't do: reshape text *in your editor* on the Mac, and reason over a *private
+on-device brain* of your own files. Cloud-free, summon-only, yours.
 
-The arc is **selection-transformer → assistant**: today Localpen rewrites text you've selected;
-long-term it answers free-form requests grounded in your voice, your files, your calendar, your
-mail — and eventually does things with them.
+**Narrowed 2026-06-06 (ADR 0022).** The old arc — *selection-transformer → general assistant*
+(ask-anything, acts-on-your-behalf, rung-2 tool-calling) — is **retired**. That destination is
+occupied by Poke (the iMessage assistant): cloud, proactive, everywhere, frontier-model
+tool-calling. Localpen would only ship a worse version. So Localpen **complements** Poke instead
+of competing: **Poke = the in-the-world assistant; Localpen = the local writing + knowledge
+tool.** Different lanes, no overlap.
+
+The wedge is their **intersection**: writing in your editor, grounded in your private brain —
+*"rewrite this reply using what I know about [[Ana]], in my voice."* Poke can reach neither your
+editor nor your local vault. This is uniquely, durably Localpen's.
 
 ## Capability ladder
 
-How far "acts on your behalf" goes. We climb one rung at a time; each rung is a deliberate
-decision, not an accident.
-
-1. **Read + draft, never send** ← *where we are headed first.* Pulls context to inform what it
-   writes or tells you, and drafts actions, but a human always does the final send / commit. No
-   irreversible action taken without a person. This is the natural extension of the existing
-   clipboard paste-back model: Localpen prepares, you confirm by pasting.
-2. **Act with confirmation.** Real side effects (send mail, create a calendar event, move a file)
-   behind a one-click approval gate that shows exactly what will happen.
-3. **Act autonomously.** Trusted, low-risk actions only, no prompt. Aspirational — gated on rung 2
-   proving reliable.
+Localpen stays at **rung 1 — read + draft, never act — permanently, by choice.** It pulls context
+to inform what it writes, and the human always does the final paste/commit. Rungs 2–3 (act with
+confirmation / autonomously) are **dropped** (ADR 0022): acting in the world is Poke's lane.
 
 ## Build sequence
 
-Dependency spine is **A → B → C → D**. E and F are independent and opportunistic.
+Shipped foundation: **A** (Memory/voice), **B** (free-form ask + context intake), **C**
+(read-only context sources: Files, Calendar-ICS, Mail, screen-OCR), and the **Brain** (FTS5 over
+cxkb + hub + dream-cycle curation). The old A→B→C→**D** spine ends at C — **D (tool-calling) and
+E (personalities) are retired** (ADR 0022).
 
-| # | Sub-project | What it is | Rung |
+The narrowed roadmap deepens the moat — sequence **W1 → W2 → W3**:
+
+| # | Workstream | What it is | Moat |
 |---|---|---|---|
-| **A** | **Memory** *(next)* | Local store of your writing voice + personal facts, inferred implicitly from persisted interactions and injected into every prompt. No memory-management UI. | 1 |
-| **B** | **Free-form ask + context intake** | The pivot: the notch stops being a selection-transformer and becomes something you ask anything. Pulls cheap context first — current selection, active app, on-screen text. | 1 |
-| **C** | **Read-only integrations** | Calendar (EventKit), Mail, Files, screen-OCR as context *sources*. Read-only first to contain blast radius. | 1 |
-| **D** | **Tool-calling architecture** | The framework that lets the model choose which source to read / action to draft. The gate to graduate from rung 1 to rung 2. | 1 → 2 |
-| **E** | **Personalities** | Curated personas, per-conversation switching. Partly subsumed by A + system prompts; lower priority given the assistant focus. | — |
-| **F** | **Voice input** | Wispr-style dictation into the notch. Architecturally independent — can land anytime. | — |
+| **W1** | **Writing core, deepened** *(next)* | Inline diff / accept-reject before paste, voice-aware rewrite using the Memory profile, continue-writing/expand. The daily driver. W1's accept-reject view is the *trust mechanism* every rewrite needs — first by value and a prerequisite for W2. | in-editor writing |
+| **W2** | **Brain-grounded writing** *(the wedge)* | Quick-action + ask surfaces pull cxkb context about the people/projects you mention; draft and reply grounded in your notes, in your voice. The intersection only Localpen can do. | writing × brain |
+| **W3** | **Brain, deepened** | Retrieval quality, backlink/graph navigation, faster "ask my notes." Pulled forward only as far as W2's retrieval needs demand. | private brain |
+| **F** | **Voice input** *(opportunistic)* | Wispr-style dictation into the writing surface. Independent; now *more* aligned with the narrowed frame. | — |
 
-Each sub-project gets its own design spec → implementation plan → build. This table is the map,
+Each workstream gets its own design spec → implementation plan → build. This table is the map,
 not a schedule.
 
 ## What stays true
 
-Commitments that survive the reframe — do not relitigate without an ADR:
+Commitments that survive the narrowing — do not relitigate without an ADR:
 
-- **Local-only, no cloud.** ([PRD principle 4](./PRD.md))
-- **Clipboard-mediated I/O, no AX-tree-walking.** ([ADR 0003](./docs/adr/0003-clipboard-mediated-text-io.md)) — the assistant reads context through deliberate, scoped sources (B/C), not by walking every app's accessibility tree.
-- **Model-agnostic.** ([ADR 0005](./docs/adr/0005-model-agnostic-architecture.md)) — Qwen 2.5 7B is the soft default.
-- **Persist every interaction.** ([ADR 0006](./docs/adr/0006-persist-interactions-from-day-1.md)) — this is precisely what makes **implicit memory (A)** possible without a separate capture step.
+- **Local-only, no cloud.** ([PRD principle 4](./PRD.md)) — now the *defining* differentiator, not just a principle.
+- **Clipboard-mediated I/O, no AX-tree-walking.** ([ADR 0003](./docs/adr/0003-clipboard-mediated-text-io.md)) — context is read through deliberate, scoped sources (C), not by walking every app's accessibility tree.
+- **Model-agnostic.** ([ADR 0005](./docs/adr/0005-model-agnostic-architecture.md)) — Qwen 2.5 7B is the soft default. (No longer pressured by tool-calling reliability, since tool-calling is dropped.)
+- **Persist every interaction.** ([ADR 0006](./docs/adr/0006-persist-interactions-from-day-1.md)) — what makes implicit memory (A) and voice-aware rewrite (W1) possible without a separate capture step.
 
 ## Open risks
 
-- **Local-model tool-calling reliability (rung 2 / sub-project D).** Qwen 2.5 7B supports
-  tool-calling but is not frontier-class at it. Reaching reliable confirm-gated actions may push
-  toward a more tool-capable local model — permitted under ADR 0005, but a real selection
-  pressure to name now.
-- **Integration surface area (C).** Each context source (mail, calendar, files) is genuine
-  complexity and permission scope. Read-only first keeps the blast radius small; writing actions
-  wait for rung 2.
-- **Scope creep away from writing.** The writing core is what's excellent today. Each assistant
-  step must not regress the thing that already works — memory (A) is chosen first precisely
-  because it *improves* the writing tool while laying assistant groundwork.
+- **Will it actually get used?** The honest risk behind the narrowing: with Poke covering general
+  assistance, Localpen earns its keep only if the writing core is genuinely *better in-context*
+  than alternatives and the brain-grounded writing feels magic. W1 leads precisely because it
+  sharpens the thing already reached for most.
+- **Brain retrieval quality (W2/W3).** Brain-grounded writing is only as good as what retrieval
+  surfaces about the mentioned people/projects. W3 exists to backstop W2 here.
