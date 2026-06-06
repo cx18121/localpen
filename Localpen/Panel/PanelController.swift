@@ -1127,7 +1127,7 @@ final class PanelController {
         mailSaveStatus = nil
         let reader = mailReader
         let index = mailSearchIndex
-        let cap = MailAccess.bodyCharCap
+        let cap = MailAccess.savedNoteCharCap   // archival cap — keep more than a prompt slice
         let id = msg.id
         Task { @MainActor [weak self] in
             let body: String
@@ -1265,13 +1265,16 @@ final class PanelController {
         let myCounter = sessionCounter
         sourceAddSession = myCounter
         let task = Task { @MainActor [weak self] in
-            var withBodies: [MailMessage] = []
-            for var m in selected {
-                if m.body == nil {
-                    let id = m.id
-                    m.body = await Task.detached(priority: .utility) { reader.body(forID: id, charCap: cap) }.value
-                }
-                withBodies.append(m)
+            // Fetch every missing body in ONE filesystem pass (the store has no computable
+            // path, so each individual `body` call rescans ~20k files) — `bodies(forIDs:)`
+            // exists precisely so attaching N emails isn't N full-tree scans.
+            let missingIDs = selected.filter { $0.body == nil }.map(\.id)
+            let fetched = missingIDs.isEmpty ? [:] : await Task.detached(priority: .utility) {
+                reader.bodies(forIDs: missingIDs, charCap: cap)
+            }.value
+            let withBodies = selected.map { m -> MailMessage in
+                guard m.body == nil else { return m }
+                var m = m; m.body = fetched[m.id] ?? ""; return m
             }
             guard let self, self.sessionCounter == myCounter else { return }
             self.askContext.setSource(.mail, .mail(count: withBodies.count,
