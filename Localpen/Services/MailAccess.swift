@@ -33,6 +33,13 @@ enum MailAccess {
     /// whole; a long newsletter is truncated. Mirrors `FilesAccess.bodyCharCap` intent.
     static let bodyCharCap = 2000
 
+    /// Body cap for an email *saved* to cxkb (raw/inbox/). Unlike an attached body — a
+    /// transient prompt slice — a saved note is durable archival the dream cycle folds in,
+    /// so it keeps far more of the message; still bounded so a newsletter can't bloat the
+    /// vault. Independent of the display cap on purpose: archival size shouldn't shift when
+    /// the prompt budget is tuned.
+    static let savedNoteCharCap = 8000
+
     /// Full-text search index scope: the last ~3 months of inbox (the realistic
     /// "find that email" window) is read + indexed once, then incrementally. Older mail
     /// stays searchable by sender/subject. `searchIndexCap` bounds a pathological build.
