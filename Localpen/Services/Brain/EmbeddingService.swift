@@ -22,14 +22,32 @@ struct EmbeddingService {
         }
     }
 
+    /// llama.cpp's `/embedding` response shape shifted across versions: older builds
+    /// returned the pooled vector flat (`[{"embedding":[Float]}]`); b9544 nests it one
+    /// level (`[{"index":0,"embedding":[[Float]]}]`, one row per pooled output). Accept
+    /// both so a server upgrade can't silently break retrieval.
     static func decode(_ data: Data) throws -> [Float] {
-        struct Item: Decodable { let embedding: [Float] }
+        enum Embedding: Decodable {
+            case flat([Float]), nested([[Float]])
+            init(from decoder: Decoder) throws {
+                let c = try decoder.singleValueContainer()
+                if let f = try? c.decode([Float].self) { self = .flat(f) }
+                else { self = .nested(try c.decode([[Float]].self)) }
+            }
+            var row: [Float] {
+                switch self {
+                case .flat(let v): return v
+                case .nested(let rows): return rows.first ?? []
+                }
+            }
+        }
+        struct Item: Decodable { let embedding: Embedding }
         let items = try JSONDecoder().decode([Item].self, from: data)
         guard let first = items.first else {
             throw NSError(domain: "Localpen", code: 110,
                           userInfo: [NSLocalizedDescriptionKey: "empty embedding response"])
         }
-        return Array(first.embedding.prefix(dim))     // enforce the contract dim
+        return Array(first.embedding.row.prefix(dim))     // enforce the contract dim
     }
 
     func embed(_ text: String, kind: Kind) async throws -> [Float] {
