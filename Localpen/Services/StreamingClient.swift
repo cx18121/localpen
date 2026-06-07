@@ -72,7 +72,7 @@ final class StreamingClient {
                             continuation.yield(content)
                         }
                     }
-                    if let t = latestTimings { onTimings?(t) }
+                    if !Task.isCancelled, let t = latestTimings { onTimings?(t) }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
