@@ -17,6 +17,8 @@ struct ResultToolbar: View {
             Text(action.pillLabel)
                 .font(Typography.pill)
                 .foregroundStyle(Tokens.textSoft)
+                .lineLimit(1)            // never let a tight toolbar wrap the pill into a vertical letter-stack
+                .fixedSize()
                 .padding(.horizontal, Spacing.s3)
                 .padding(.vertical, 3)
                 .background(Tokens.rowHighlight)
@@ -32,8 +34,14 @@ struct ResultToolbar: View {
                 if isCreate {
                     if justCopied { copiedLabel } else { KbdHint("⌘↩", "copy reply") }
                     KbdHint("esc", "back")
+                } else if canDiff {
+                    // Transform result with the change-view available: ⌥D takes the slot the
+                    // ⌘C hint would — the 400pt panel can't show the pill + 4 rigid hints
+                    // without squeezing the pill. ⌘C still copies, just unhinted here.
+                    KbdHint("⌥D", diffOn ? "clean" : "changes")
+                    KbdHint("⌘↩", "accept")
+                    KbdHint("esc", "back")
                 } else {
-                    if canDiff { KbdHint("⌥D", diffOn ? "clean" : "changes") }
                     KbdHint("⌘↩", "accept")
                     if justCopied { copiedLabel } else { KbdHint("⌘C", "copy") }
                     KbdHint("esc", "back")

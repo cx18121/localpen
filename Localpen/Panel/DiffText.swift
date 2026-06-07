@@ -24,8 +24,16 @@ struct DiffText: View {
             case .equal(let s):
                 var a = AttributedString(s); a.foregroundColor = Tokens.text; out += a
             case .insert(let s):
-                var a = AttributedString(s); a.foregroundColor = Tokens.accent; out += a
+                // Google-Docs-suggest convention: added text is the accent colour AND
+                // underlined. The underline (not colour alone) is what keeps an insertion
+                // legible when it sits right up against the deletion it replaces.
+                var a = AttributedString(s)
+                a.foregroundColor = Tokens.accent
+                a.underlineStyle = .single
+                out += a
             case .delete(let s):
+                // Removed text recedes: muted + struck through, so the eye reads the
+                // accented insertions as the live result and the deletions as ghosts.
                 var a = AttributedString(s)
                 a.foregroundColor = Tokens.textMute
                 a.strikethroughStyle = .single
