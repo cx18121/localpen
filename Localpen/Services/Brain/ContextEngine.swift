@@ -13,12 +13,17 @@ final class ContextEngine {
     private let index: BrainIndex
     private let config: BrainConfig
     private let isBrainEnabled: @Sendable () -> Bool
+    /// Optional dense-retrieval client. `nil` (or a down server / unembedded vault) ⇒
+    /// BM25-only, byte-identical to before hybrid existed.
+    private let embeddingService: EmbeddingService?
 
     init(search: KBSearch, index: BrainIndex, config: BrainConfig = .default,
+         embeddingService: EmbeddingService? = nil,
          isBrainEnabled: @escaping @Sendable () -> Bool = { BrainAccess.isActive }) {
         self.search = search
         self.index = index
         self.config = config
+        self.embeddingService = embeddingService
         self.isBrainEnabled = isBrainEnabled
     }
 
@@ -32,7 +37,7 @@ final class ContextEngine {
         where used.insert(page.path).inserted {
             picked.append((page, .always))
         }
-        for hit in await search.search(query, limit: config.topK)
+        for hit in await queryHits(for: query)
         where used.insert(hit.page.path).inserted {
             picked.append((hit.page, .query))
         }
@@ -51,6 +56,21 @@ final class ContextEngine {
         }
         return ContextBundle(text: lines.joined(separator: "\n"), sources: sources,
                              approxTokens: config.maxContextTokens - budget)
+    }
+
+    /// Top-K query hits for the ask. Hybrid (BM25 ⊕ dense RRF) when an embedding service
+    /// is configured AND the vault has vectors AND the query embeds; otherwise BM25-only.
+    /// A down embedding server, an unembedded vault, or no service is a silent, correct
+    /// fallback — never an error in the ask path.
+    private func queryHits(for query: String) async -> [KBHit] {
+        guard let embeddingService else { return await search.search(query, limit: config.topK) }
+        let store = EmbeddingStore(dbQueue: index.dbQueue)
+        guard let vectors = try? await store.loadAll(), !vectors.isEmpty,
+              let queryVector = try? await embeddingService.embed(query, kind: .query) else {
+            return await search.search(query, limit: config.topK)
+        }
+        return await search.hybridSearch(query, queryVector: queryVector,
+                                         vectors: vectors, limit: config.topK)
     }
 
     /// Strip heading markers, collapse blank lines/runs to single spaces, head-cap with `…`.

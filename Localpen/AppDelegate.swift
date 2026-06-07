@@ -71,7 +71,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // so injecting it always is safe (off ⇒ byte-identical ask prompt).
         let brainIndex = try? BrainIndex()
         self.brainIndex = brainIndex
-        let contextEngine = brainIndex.map { ContextEngine(search: KBSearch(dbQueue: $0.dbQueue), index: $0) }
+        // Hybrid retrieval (feat/hybrid-rag): inject a dense-embedding client pointed at the
+        // aux embedding server. ContextEngine falls back to BM25 if the server is down or the
+        // vault is unembedded, so injecting unconditionally is safe.
+        let contextEngine = brainIndex.map {
+            ContextEngine(search: KBSearch(dbQueue: $0.dbQueue), index: $0,
+                          embeddingService: EmbeddingService(port: server.embeddingPort))
+        }
 
         // Curation (ADR 0015): the hot-path stash + the high-judgment suggestion queue.
         // Both are Localpen-private dirs; harmless if they fail to open (nil ⇒ no curation).
@@ -200,8 +206,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 try await server.start(modelPath: modelPath, contextSize: descriptor.contextSize)
                 self.log.info("llama-server ready on port \(server.port)")
                 self.warmUpModel(port: server.port)
+                self.startEmbeddingServerAndBackfill(server: server)
             } catch {
                 self.log.error("llama-server failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Bring up the aux embedding server (EmbeddingGemma) and backfill page vectors so
+    /// asks get hybrid retrieval. Entirely best-effort: a missing model, a down server, or
+    /// brain-off all leave the vault unembedded, and ContextEngine falls back to BM25.
+    private func startEmbeddingServerAndBackfill(server: LlamaServerController) {
+        guard let brainIndex, BrainAccess.isActive else { return }
+        Task { @MainActor in
+            do {
+                try await server.startEmbeddingServer(modelPath: LlamaServerController.embeddingModelPath.path)
+                let store = EmbeddingStore(dbQueue: brainIndex.dbQueue)
+                let service = EmbeddingService(port: server.embeddingPort)
+                await brainIndex.backfillEmbeddings(service: service, store: store)
+                self.log.info("embedding backfill complete on port \(server.embeddingPort)")
+            } catch {
+                self.log.error("embedding server/backfill skipped: \(error.localizedDescription) (BM25-only)")
             }
         }
     }
