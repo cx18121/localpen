@@ -425,18 +425,18 @@ git commit -m "feat(brain): EmbeddingService — llama.cpp embedding client + AD
 
 ```bash
 mkdir -p ~/Library/Application\ Support/Localpen/models
-# Confirm the exact GGUF filename on HF first (embeddinggemma is gemma3-embedding arch).
-huggingface-cli download unsloth/embeddinggemma-300m-GGUF \
-  embeddinggemma-300m-Q8_0.gguf \
+# Source: ggml-org (the llama.cpp org) — safest compat. Filename has a CAPITAL M.
+huggingface-cli download ggml-org/embeddinggemma-300M-GGUF \
+  embeddinggemma-300M-Q8_0.gguf \
   --local-dir ~/Library/Application\ Support/Localpen/models
 ```
 
-- Add the default model-path constant the launcher reads:
+- Add the default model-path constant the launcher reads (filename matches the download exactly — capital M):
 
 ```swift
 // EmbeddingGemma GGUF, hand-placed for now (real first-run download is deferred).
 static let embeddingModelPath = AppSupport.root()
-    .appendingPathComponent("models/embeddinggemma-300m-Q8_0.gguf")
+    .appendingPathComponent("models/embeddinggemma-300M-Q8_0.gguf")
 ```
 
 - `startEmbeddingServer` reads that path; **if the file is missing, log and skip** — search falls back to BM25-only, never crashes.
