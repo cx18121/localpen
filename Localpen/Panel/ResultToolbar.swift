@@ -7,6 +7,8 @@ struct ResultToolbar: View {
     let mode: Mode
     var justCopied: Bool = false
     var isCreate: Bool = false
+    var canDiff: Bool = false
+    var diffOn: Bool = false
     var onAccept: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
 
@@ -31,6 +33,7 @@ struct ResultToolbar: View {
                     if justCopied { copiedLabel } else { KbdHint("⌘↩", "copy reply") }
                     KbdHint("esc", "back")
                 } else {
+                    if canDiff { KbdHint("⌥D", diffOn ? "clean" : "changes") }
                     KbdHint("⌘↩", "accept")
                     if justCopied { copiedLabel } else { KbdHint("⌘C", "copy") }
                     KbdHint("esc", "back")

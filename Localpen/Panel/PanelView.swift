@@ -55,6 +55,7 @@ struct PanelView: View {
                     ResultPhaseView(
                         controller: controller,
                         action: ctx.action,
+                        selection: ctx.selection,
                         finalText: finalText,
                         isEditing: isEditing
                     )
@@ -129,12 +130,16 @@ struct PanelView: View {
 private struct ResultPhaseView: View {
     @Bindable var controller: PanelController
     let action: Action?
+    let selection: Selection?
     let finalText: String
     let isEditing: Bool
 
     @State private var replyText: String = ""
 
     var body: some View {
+        // Diff applies only to in-place transforms that have an original to compare.
+        let canDiff = (action?.operationClass == .revise) && selection != nil
+        let diffAgainst = (canDiff && controller.showDiff && !isEditing) ? selection?.text : nil
         ResultView(
             text: Binding(
                 get: { finalText },
@@ -142,6 +147,7 @@ private struct ResultPhaseView: View {
             ),
             isStreaming: false,
             isEditing: isEditing,
+            diffAgainst: diffAgainst,
             onClickToEdit: { controller.setEditing(true) }
         )
 
@@ -162,6 +168,8 @@ private struct ResultPhaseView: View {
                 mode: isEditing ? .editing : .result,
                 justCopied: controller.justCopied,
                 isCreate: action.operationClass == .create,
+                canDiff: canDiff,
+                diffOn: controller.showDiff,
                 onAccept: { controller.acceptResult() },
                 onBack: { controller.backToMenu() }
             )
