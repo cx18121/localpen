@@ -85,6 +85,12 @@ targets:
       - path: Localpen/Services/Brain/KBSearch.swift
       - path: Localpen/Services/Brain/MCPServer.swift
       - path: Localpen/Services/Brain/ProjectMatcher.swift
+      # Hybrid-retrieval units BrainIndex/KBSearch now reference — the CLI compiles
+      # those files, so it needs these to keep building (feat/hybrid-rag).
+      - path: Localpen/Services/Brain/VectorMath.swift
+      - path: Localpen/Services/Brain/RankFusion.swift
+      - path: Localpen/Services/Brain/EmbeddingService.swift
+      - path: Localpen/Services/Brain/EmbeddingStore.swift
       - path: Localpen/Services/BrainAccess.swift
       - path: Localpen/Services/AppSupport.swift
     settings:

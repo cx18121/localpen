@@ -139,6 +139,22 @@ final class BrainIndex {
         }) ?? []
     }
 
+    // MARK: - Embeddings (hybrid retrieval)
+
+    /// Embed any page lacking a vector (incremental). Best-effort: if the embedding
+    /// server is down, pages stay unembedded and search falls back to BM25-only.
+    func backfillEmbeddings(service: EmbeddingService, store: EmbeddingStore) async {
+        guard let paths = try? await store.unembeddedPaths() else { return }
+        for path in paths {
+            guard let row = try? await dbQueue.read({ db in
+                try Row.fetchOne(db, sql: "SELECT title, body FROM pages WHERE path = ?", arguments: [path])
+            }) ?? nil else { continue }
+            let text = "\(row["title"] as String? ?? "")\n\((row["body"] as String? ?? "").prefix(2000))"
+            guard let vec = try? await service.embed(text, kind: .document) else { continue }
+            try? await store.upsert(path: path, vector: vec, model: EmbeddingService.modelID)
+        }
+    }
+
     // MARK: - Internals
 
     /// Keep `pages` and the contentless-external `pages_fts` in lockstep, then rewrite
