@@ -414,12 +414,33 @@ git commit -m "feat(brain): EmbeddingService — llama.cpp embedding client + AD
 
 ---
 
-## Task 5: Embedding server + model acquisition  ⚠️ OPEN DECISION
+## Task 5: Embedding server + model (decision: hand-placed GGUF for now)
 
 **Files:**
 - Modify: `Localpen/Panel/LlamaServerController.swift`
 
-**Open decision (resolve before this task):** where the EmbeddingGemma GGUF comes from. Per ADR 0002 Localpen downloads models on first run. Recommended: download `embeddinggemma-300m` Q8_0 GGUF on first run alongside the main model (reuse the existing main-model download/registry flow — read `ModelRegistry` + the first-run downloader and mirror it). Until that's wired, an agent can point at a hand-placed GGUF path via a debug default so Tasks 6–8 are testable. **Flag to the human; do not invent a download UI.**
+**Model acquisition (DECIDED — option b):** the EmbeddingGemma GGUF is **hand-placed** at a known path for now; the real first-run download (ADR 0002 pattern) is a deferred follow-up — do **not** build a download UI in this branch.
+
+- One-time placement (done by the human before this task):
+
+```bash
+mkdir -p ~/Library/Application\ Support/Localpen/models
+# Confirm the exact GGUF filename on HF first (embeddinggemma is gemma3-embedding arch).
+huggingface-cli download unsloth/embeddinggemma-300m-GGUF \
+  embeddinggemma-300m-Q8_0.gguf \
+  --local-dir ~/Library/Application\ Support/Localpen/models
+```
+
+- Add the default model-path constant the launcher reads:
+
+```swift
+// EmbeddingGemma GGUF, hand-placed for now (real first-run download is deferred).
+static let embeddingModelPath = AppSupport.root()
+    .appendingPathComponent("models/embeddinggemma-300m-Q8_0.gguf")
+```
+
+- `startEmbeddingServer` reads that path; **if the file is missing, log and skip** — search falls back to BM25-only, never crashes.
+- ⚠️ Verify the **bundled `llama-server` is recent enough to support EmbeddingGemma** (gemma-embedding architecture). If `--embeddings` rejects the model, the bundled binary needs updating — flag to the human, don't work around it.
 
 - [ ] **Step 1: Add an embedding-server launcher** — add to `LlamaServerController`:
 
