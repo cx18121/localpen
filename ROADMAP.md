@@ -68,3 +68,9 @@ Commitments that survive the narrowing — do not relitigate without an ADR:
   sharpens the thing already reached for most.
 - **Brain retrieval quality (W2/W3).** Brain-grounded writing is only as good as what retrieval
   surfaces about the mentioned people/projects. W3 exists to backstop W2 here.
+- **Qwen code-switches to Chinese on transform actions.** The default Proofread/Polish model
+  (Qwen 2.5 7B, [ADR 0005](./docs/adr/0005-model-agnostic-architecture.md)) sometimes returns the
+  rewrite *translated into Chinese* instead of edited in place — reproduced on meta/self-referential
+  English prose. The W1 diff view makes this loudly visible (whole result struck + replaced) but
+  doesn't cause it. Likely fixes live in the action prompt (assert "reply in the same language as
+  the input; do not translate") and/or model choice — a writing-quality workstream, not a diff bug.
