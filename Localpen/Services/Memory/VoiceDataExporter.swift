@@ -46,4 +46,26 @@ enum VoiceDataExporter {
             return TrainingExample(instruction: instr, input: input, output: output)
         }
     }
+
+    /// Raw-prose samples from the vault: frontmatter-stripped bodies, paragraph-packed
+    /// into ~`maxChars` chunks. Excludes the usual non-content dirs (.obsidian/.git/raw).
+    static func proseChunks(vaultRoot: URL, maxChars: Int = 1500) -> [String] {
+        let excluded: Set<String> = [".obsidian", ".git", "raw"]
+        var out: [String] = []
+        for url in BrainIndex.enumerateMarkdown(root: vaultRoot, excluding: excluded) {
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let body = MarkdownParser.splitFrontmatter(raw).body
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty else { continue }
+            var buf = ""
+            for para in body.components(separatedBy: "\n\n") {
+                let p = para.trimmingCharacters(in: .whitespacesAndNewlines)
+                if p.isEmpty { continue }
+                if buf.count + p.count > maxChars, !buf.isEmpty { out.append(buf); buf = "" }
+                buf += buf.isEmpty ? p : "\n\n" + p
+            }
+            if !buf.isEmpty { out.append(buf) }
+        }
+        return out
+    }
 }
