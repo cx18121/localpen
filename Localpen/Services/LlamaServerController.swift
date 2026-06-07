@@ -58,7 +58,7 @@ final class LlamaServerController {
             // screen OCR): Flash Attention (off by default), a bigger prompt ubatch so the
             // GPU eats the prompt in fewer passes, and KV prefix reuse so the stable
             // system-prompt prefix isn't re-evaluated on every ask.
-            "--flash-attn",
+            "--flash-attn", "on",
             "--ubatch-size", "1024",
             "--cache-reuse", "256"
         ]
