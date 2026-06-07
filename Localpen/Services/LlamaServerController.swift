@@ -16,6 +16,16 @@ final class LlamaServerController {
     private var process: Process?
     private let log = Logger(subsystem: "app.localpen.Localpen", category: "LlamaServer")
 
+    /// Port for the auxiliary embedding server (EmbeddingGemma), separate from the
+    /// main chat server on `port`.
+    let embeddingPort: Int = 11435
+    private var embeddingProcess: Process?
+
+    /// EmbeddingGemma GGUF, hand-placed for now (real first-run download is deferred).
+    /// Filename matches the ggml-org download exactly — capital M.
+    static let embeddingModelPath = AppSupport.root()
+        .appendingPathComponent("models/embeddinggemma-300M-Q8_0.gguf")
+
     func start(modelPath: String, contextSize: Int = 4096) async throws {
         guard FileManager.default.fileExists(atPath: modelPath) else {
             throw NSError(domain: "Localpen", code: 100,
@@ -32,7 +42,8 @@ final class LlamaServerController {
         // bind, leaving `state` non-ready and every hotkey beeping via
         // AppDelegate's isReady guard. Done here (not just at launch) so a restart
         // also starts from a clean port.
-        await reapOrphanedServers(binaryPath: binaryURL.path)
+        await reapOrphanedServers(matching: "\(binaryURL.path).*--port \(port)",
+                                  ownPID: process?.processIdentifier)
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -90,10 +101,83 @@ final class LlamaServerController {
                       userInfo: [NSLocalizedDescriptionKey: "llama-server didn't become healthy in 20s"])
     }
 
-    func stop() {
+    /// Spawn a second llama-server in embedding mode (EmbeddingGemma), separate from the
+    /// main chat server. Mirrors `start()`'s spawn + health-wait + orphan-reap with
+    /// `--embeddings --pooling mean`. Best-effort: if the model file is absent it logs and
+    /// returns WITHOUT throwing, so retrieval falls back to BM25-only (callers also treat a
+    /// thrown spawn/health error as non-fatal). Safe to call after the main server is ready.
+    func startEmbeddingServer(modelPath: String) async throws {
+        guard FileManager.default.fileExists(atPath: modelPath) else {
+            log.info("embedding model absent at \(modelPath, privacy: .public); skipping embedding server (BM25-only)")
+            return
+        }
+        guard let binaryURL = Bundle.main.url(forResource: "llama-server", withExtension: nil) else {
+            log.error("llama-server binary not in bundle Resources; skipping embedding server")
+            return
+        }
+
+        // Reap only orphaned EMBEDDING servers — scope by the embedding port so we never
+        // kill the chat server, which is spawned from this same bundled binary path.
+        await reapOrphanedServers(matching: "\(binaryURL.path).*--port \(embeddingPort)",
+                                  ownPID: embeddingProcess?.processIdentifier)
+
+        let proc = Process()
+        proc.executableURL = binaryURL
+        proc.arguments = [
+            "--model", modelPath,
+            "--host", "127.0.0.1",
+            "--port", "\(embeddingPort)",
+            "--embeddings",
+            "--pooling", "mean",        // ADR-0023 contract: mean pooling
+            "--ubatch-size", "8192",
+            "--n-gpu-layers", "999"
+        ]
+
+        let logDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs/Localpen", isDirectory: true)
+        try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+        let logFile = logDir.appendingPathComponent("llama-embed.log")
+        if !FileManager.default.fileExists(atPath: logFile.path) {
+            FileManager.default.createFile(atPath: logFile.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: logFile)
+        try handle.seekToEnd()
+        proc.standardOutput = handle
+        proc.standardError = handle
+
+        try proc.run()
+        embeddingProcess = proc
+        log.info("llama-server (embeddings) pid=\(proc.processIdentifier) starting on port \(self.embeddingPort)")
+
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(250))
+            if !proc.isRunning {
+                throw NSError(domain: "Localpen", code: 112,
+                              userInfo: [NSLocalizedDescriptionKey: "embedding server exited before becoming healthy"])
+            }
+            if await isHealthy(port: embeddingPort, process: proc) {
+                log.info("embedding server ready on port \(self.embeddingPort)")
+                return
+            }
+        }
+        throw NSError(domain: "Localpen", code: 113,
+                      userInfo: [NSLocalizedDescriptionKey: "embedding server didn't become healthy in 20s"])
+    }
+
+    /// Stop the CHAT server only, leaving the (model-independent) embedding server up.
+    /// A chat-model switch / crash-restart must not take hybrid retrieval down with it.
+    func stopChat() {
         process?.terminate()
         process = nil
         state = .stopped
+    }
+
+    /// Full teardown — chat + embedding. For app termination.
+    func stop() {
+        stopChat()
+        embeddingProcess?.terminate()
+        embeddingProcess = nil
     }
 
     /// Whether the server is currently in the `.ready` state.
@@ -107,12 +191,11 @@ final class LlamaServerController {
     /// so the port is free before we bind. Matching on the full bundled path
     /// means a foreign server (Ollama, a different-location dev build) is never
     /// touched; excluding our own pid means a restart never kills its successor.
-    private func reapOrphanedServers(binaryPath: String) async {
-        let ownPID = process?.processIdentifier
+    private func reapOrphanedServers(matching pattern: String, ownPID: pid_t?) async {
         // pgrep is a synchronous subprocess; run it off the main actor so launch /
         // error-retry restart don't hitch the UI. (start() runs on @MainActor.)
         func orphans() async -> [pid_t] {
-            await Task.detached { Self.pgrepPIDs(matching: binaryPath) }.value
+            await Task.detached { Self.pgrepPIDs(matching: pattern) }.value
                 .filter { $0 != ownPID }
         }
 
@@ -157,12 +240,17 @@ final class LlamaServerController {
     }
 
     private func isHealthy() async -> Bool {
+        await isHealthy(port: port, process: process)
+    }
+
+    /// Health-check a given port, trusting the 200 only if `proc` (the server we spawned
+    /// for it) is still alive — so a foreign service squatting the port is never accepted.
+    private func isHealthy(port: Int, process proc: Process?) async -> Bool {
         guard let url = URL(string: "http://127.0.0.1:\(port)/health") else { return false }
         do {
             let (_, response) = try await URLSession.shared.data(from: url)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
-            // Defence-in-depth: only trust the health response if our spawned process is still alive.
-            return process?.isRunning == true
+            return proc?.isRunning == true
         } catch {
             return false
         }

@@ -715,7 +715,7 @@ final class PanelController {
 
     private func restartServer() async {
         guard let server = llamaServer, let descriptor = registry.activeModel else { return }
-        server.stop()
+        server.stopChat()   // recover the chat server without dropping the embedding server
         let modelPath = registry.modelPath(for: descriptor).path
         try? await server.start(modelPath: modelPath, contextSize: descriptor.contextSize)
     }
