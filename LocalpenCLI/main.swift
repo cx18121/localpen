@@ -114,11 +114,23 @@ case "export-voice-data":
     guard let hq = try? DatabaseQueue(path: historyURL.path, configuration: cfg) else {
         fail("could not open history.sqlite at \(historyURL.path)")
     }
-    let pairs = (try? await VoiceDataExporter.instructionPairs(db: hq)) ?? []
+    let pairs: [VoiceDataExporter.TrainingExample]
+    do {
+        pairs = try await VoiceDataExporter.instructionPairs(db: hq)
+    } catch {
+        fail("could not read interactions from \(historyURL.path): \(error.localizedDescription)")
+    }
     let prose = VoiceDataExporter.proseChunks(vaultRoot: vaultRoot)
     let (train, held) = VoiceDataExporter.jsonl(pairs: pairs, prose: prose)
-    try? train.write(to: outDir.appendingPathComponent("voice_train.jsonl"), atomically: true, encoding: .utf8)
-    try? held.write(to: outDir.appendingPathComponent("voice_heldout.jsonl"), atomically: true, encoding: .utf8)
+    // Create the output dir and let write errors surface — String.write does NOT make
+    // parent dirs, and a swallowed failure would print "exported …" having written nothing.
+    do {
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        try train.write(to: outDir.appendingPathComponent("voice_train.jsonl"), atomically: true, encoding: .utf8)
+        try held.write(to: outDir.appendingPathComponent("voice_heldout.jsonl"), atomically: true, encoding: .utf8)
+    } catch {
+        fail("could not write JSONL to \(outDir.path): \(error.localizedDescription)")
+    }
     warn("exported \(pairs.count) edit pairs + \(prose.count) prose chunks → \(outDir.path)")
 
 case "serve":

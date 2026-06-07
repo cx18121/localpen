@@ -37,6 +37,7 @@ enum VoiceDataExporter {
                 FROM interactions
                 WHERE accepted = 1
                   AND selection IS NOT NULL AND length(selection) > 0
+                ORDER BY id
                 """)
         }
         return rows.compactMap { row in
@@ -52,7 +53,11 @@ enum VoiceDataExporter {
     static func proseChunks(vaultRoot: URL, maxChars: Int = 1500) -> [String] {
         let excluded: Set<String> = [".obsidian", ".git", "raw"]
         var out: [String] = []
-        for url in BrainIndex.enumerateMarkdown(root: vaultRoot, excluding: excluded) {
+        // Sort by path: FileManager enumeration order isn't stable across runs, and the
+        // positional train/heldout split downstream needs a reproducible chunk order.
+        let files = BrainIndex.enumerateMarkdown(root: vaultRoot, excluding: excluded)
+            .sorted { $0.path < $1.path }
+        for url in files {
             guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let body = MarkdownParser.splitFrontmatter(raw).body
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -70,13 +75,17 @@ enum VoiceDataExporter {
     }
 
     /// Blend instruction pairs + prose (as empty-input examples) into one list, then
-    /// split deterministically (every Nth row → holdout). Deterministic on purpose:
-    /// Math.random/Date are unavailable in some contexts and reproducibility matters.
+    /// split deterministically (every Nth row → holdout). Positional rather than random
+    /// so the same input (pairs come from an `ORDER BY id` query) always yields the same
+    /// train/heldout partition — reproducible dataset builds.
     static func jsonl(pairs: [TrainingExample], prose: [String],
                       holdoutEvery: Int = 8) -> (train: String, heldout: String) {
         let proseExamples = prose.map { TrainingExample(instruction: "Continue in the user's voice.", input: "", output: $0) }
         let all = pairs + proseExamples
-        let enc = JSONEncoder(); enc.outputFormatting = [.withoutEscapingSlashes]
+        // .sortedKeys makes each line byte-stable: JSONEncoder's key order is otherwise
+        // unspecified and varies run-to-run, which would make "reproducible" output differ
+        // on disk even when the examples and split are identical.
+        let enc = JSONEncoder(); enc.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
         var train: [String] = [], held: [String] = []
         for (i, ex) in all.enumerated() {
             guard let data = try? enc.encode(ex), let line = String(data: data, encoding: .utf8) else { continue }
