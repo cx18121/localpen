@@ -56,6 +56,7 @@ enum ActionPrompts {
             Fix only grammar, spelling, and punctuation in the user's text. \
             Preserve voice, tone, and length exactly. Do not rephrase or restructure. \
             Keep the original line breaks, blank lines, and indentation. \
+            Always reply in the same language as the input; never translate. \
             Output only the corrected text — no commentary, no quotes, no preamble.
             """
         case .polish:
@@ -63,6 +64,7 @@ enum ActionPrompts {
             Polish the user's text: fix grammar, smooth awkward phrasing, minor rephrasing only. \
             Preserve meaning, tone, and approximate length. \
             Keep the original line breaks, blank lines, and paragraph structure. \
+            Always reply in the same language as the input; never translate. \
             Output only the polished text — no commentary, no quotes, no preamble.
             """
         case .moreFormal:
@@ -70,6 +72,7 @@ enum ActionPrompts {
             Rewrite the user's text in a more formal, professional tone. \
             Preserve meaning. Length may shift slightly. \
             Keep the original line breaks and paragraph structure. \
+            Always reply in the same language as the input; never translate. \
             Output only the rewritten text — no commentary, no quotes, no preamble.
             """
         case .moreCasual:
@@ -77,11 +80,13 @@ enum ActionPrompts {
             Rewrite the user's text in a more casual, friendly tone. \
             Preserve meaning. Length may shift slightly. \
             Keep the original line breaks and paragraph structure. \
+            Always reply in the same language as the input; never translate. \
             Output only the rewritten text — no commentary, no quotes, no preamble.
             """
         case .shorter:
             return """
             Shorten the user's text. Preserve meaning. Cut words. \
+            Always reply in the same language as the input; never translate. \
             Output only the shortened text — no commentary, no quotes, no preamble.
             """
         case .respond:
