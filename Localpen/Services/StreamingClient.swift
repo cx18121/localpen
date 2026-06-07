@@ -57,11 +57,12 @@ final class StreamingClient {
                     }
 
                     var latestTimings: ServerTimings?
+                    var sawDone = false
                     for try await line in bytes.lines {
                         if Task.isCancelled { break }
                         guard line.hasPrefix("data: ") else { continue }
                         let payload = String(line.dropFirst(6))
-                        if payload == "[DONE]" { break }
+                        if payload == "[DONE]" { sawDone = true; break }
                         guard let data = payload.data(using: .utf8),
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                         else { continue }
@@ -72,7 +73,7 @@ final class StreamingClient {
                             continuation.yield(content)
                         }
                     }
-                    if !Task.isCancelled, let t = latestTimings { onTimings?(t) }
+                    if sawDone, !Task.isCancelled, let t = latestTimings { onTimings?(t) }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()

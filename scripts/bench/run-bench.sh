@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 
 LLAMA_DIR="${LLAMA_DIR:-/Users/charliexue/School/clones/llama.cpp/build/bin}"
 BENCH="${LLAMA_BENCH:-$LLAMA_DIR/llama-bench}"
-SERVER="${LLAMA_SERVER:-Localpen/Resources/llama-server}"
+SERVER="${SERVER:-${LLAMA_SERVER:-Localpen/Resources/llama-server}}"
 MODEL="${MODEL:-$HOME/Library/Application Support/Localpen/models/qwen-2.5-7b-instruct-q4-km.gguf}"
 # Two real-workload-ish shapes: rewrite (short prompt, short gen) and ask (long prompt, longer gen).
 PROMPTS="${PROMPTS:-128,1024}"
@@ -21,7 +21,12 @@ NGL="${NGL:-999}"
 [ -x "$BENCH" ] || { echo "✗ llama-bench not found/executable at $BENCH (set LLAMA_BENCH=)"; exit 1; }
 [ -f "$MODEL" ] || { echo "✗ model not found at $MODEL (set MODEL=)"; exit 1; }
 
-BUILD="$("$SERVER" --version 2>&1 | awk '/^version:/{print $2}' || echo unknown)"
+if [ -x "$SERVER" ]; then
+  BUILD="$("$SERVER" --version 2>&1 | awk '/^version:/{print $2}' || echo unknown)"
+else
+  BUILD=unknown
+fi
+BUILD="${BUILD:-unknown}"
 OUTDIR="docs/superpowers/bench-results"
 mkdir -p "$OUTDIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"

@@ -1649,7 +1649,8 @@ final class PanelController {
         armConversationWatchdog(convo, session: session, epoch: epoch, timeout: Self.firstTokenTimeout)
         var partial = ""
         do {
-            for try await token in streaming.complete(messages: messages, sampling: sampling) {
+            for try await token in streaming.complete(messages: messages, sampling: sampling,
+                                                       onTimings: { InferenceMetrics.shared.record(.ask, $0) }) {
                 if Task.isCancelled { return }
                 partial += token
                 convo.streamingText = partial

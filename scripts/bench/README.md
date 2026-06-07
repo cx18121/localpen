@@ -11,7 +11,8 @@ and writes a build-stamped table to `docs/superpowers/bench-results/bench-<ts>.t
 `pp<N>` rows = prompt-eval throughput (TTFT driver); `tg<N>` rows = decode tok/s.
 
 Override anything via env: `MODEL=`, `PROMPTS=128,1024`, `GENS=64,256`, `REPS=5`,
-`FA=1`, `LLAMA_BENCH=`. Use this to A/B a config change (e.g. KV q8_0) on the
+`FA=1`, `LLAMA_BENCH=`, `SERVER=` (the llama-server binary used only for the build
+stamp). Use this to A/B a config change (e.g. KV q8_0) on the
 `inference-quickwins` branch — run before, run after, diff the tables.
 
 > Note: the vendored `llama-bench` prints a stale `build:` line (4500) but loads the

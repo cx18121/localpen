@@ -53,6 +53,7 @@ final class InferenceMetrics: @unchecked Sendable {
             log.info("\(workload.rawValue, privacy: .public): \(timings.predictedPerSecond, format: .fixed(precision: 1)) tok/s, TTFT \(timings.promptMs, format: .fixed(precision: 0))ms")
         }
         queue.async { [fileURL, row] in
+            try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             guard let line = (row + "\n").data(using: .utf8) else { return }
             if let h = try? FileHandle(forWritingTo: fileURL) {
                 defer { try? h.close() }
