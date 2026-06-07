@@ -34,6 +34,40 @@ final class KBSearch {
         return Array(hits.sorted { $0.score > $1.score }.prefix(limit))
     }
 
+    /// Hybrid retrieval: fuse the BM25 ranking with a dense cosine ranking via RRF.
+    /// `vectors` is the in-memory path→vector map (EmbeddingStore.loadAll); `queryVector`
+    /// is the embedded query. If `vectors` is empty this degrades to BM25-only.
+    func hybridSearch(_ query: String, queryVector: [Float],
+                      vectors: [String: [Float]], limit: Int) async -> [KBHit] {
+        // 1. BM25 ranked paths (reuse existing FTS path; take a generous candidate depth).
+        let bmHits = await search(query, limit: 50)
+        let bmRanked = bmHits.map(\.page.path)
+
+        // 2. Dense ranked paths by cosine to the query vector.
+        let denseRanked = vectors
+            .map { (path: $0.key, sim: VectorMath.cosine(queryVector, $0.value)) }
+            .sorted { $0.sim > $1.sim }
+            .prefix(50)
+            .map(\.path)
+
+        // 3. RRF fuse; if there are no vectors, RRF over [bmRanked] == BM25 order.
+        let fused = RankFusion.rrf([bmRanked, Array(denseRanked)], k: 60)
+
+        // 4. Re-hydrate KBPage for the fused top-`limit` (load from pages by path).
+        let top = Array(fused.prefix(limit))
+        let pages: [String: KBPage] = (try? await dbQueue.read { db -> [String: KBPage] in
+            guard !top.isEmpty else { return [:] }
+            let qs = top.map { _ in "?" }.joined(separator: ",")
+            return try Row.fetchAll(db, sql: "SELECT * FROM pages WHERE path IN (\(qs))",
+                                    arguments: StatementArguments(top))
+                .reduce(into: [:]) { $0[$1["path"] as String] = KBPage(brainRow: $1) }
+        }) ?? [:]
+        // Preserve fused order; score is the reciprocal-rank position (descending).
+        return top.enumerated().compactMap { idx, path in
+            pages[path].map { KBHit(page: $0, score: 1.0 / Double(idx + 1)) }
+        }
+    }
+
     /// Pure ranking. bm25 is negative-better, so negate; the additive log boost means a
     /// hub with 40 backlinks doesn't swamp a tightly-relevant page with 2.
     static func score(bm: Double, indegree: Int) -> Double {
