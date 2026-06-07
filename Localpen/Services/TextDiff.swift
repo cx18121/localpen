@@ -11,9 +11,23 @@ enum TextDiff {
         spans.contains { if case .equal = $0 { return false } else { return true } }
     }
 
+    /// Cap on the LCS table size (`tokens(original) · tokens(revised)`). The matrix is
+    /// O(n·m) in both time and memory; past this a very long rewrite would spike memory
+    /// and stall the panel, so we degrade to a coarse whole-text replace instead. ~2M
+    /// keeps word-level diffing for any realistic selection (hundreds of words) while
+    /// bounding the pathological case.
+    static let maxLCSProduct = 2_000_000
+
     /// Word-granular spans from `original` → `revised`.
     static func spans(original: String, revised: String) -> [Span] {
         let a = tokenize(original), b = tokenize(revised)
+        // Too large for the word-level matrix → coarse "all old struck, all new added".
+        if a.count * b.count > maxLCSProduct {
+            var coarse: [Span] = []
+            if !original.isEmpty { coarse.append(.delete(original)) }
+            if !revised.isEmpty  { coarse.append(.insert(revised)) }
+            return coarse
+        }
         let ops = lcsDiff(a, b)
         // Merge adjacent same-kind ops into single spans for clean rendering.
         var out: [Span] = []

@@ -1,7 +1,10 @@
 import SwiftUI
 
 /// Renders TextDiff spans inline: equal = normal, insertions = accent, deletions =
-/// muted + strikethrough. One AttributedString so it wraps/selects like normal text.
+/// muted + strikethrough — one AttributedString so it wraps like the normal result.
+/// Selection is intentionally disabled: the deletions are real characters under their
+/// strikethrough, so a drag-select would copy struck-out text mixed into the result.
+/// The clean revised text stays reachable via ⌘C / Accept (which never read this view).
 struct DiffText: View {
     let original: String
     let revised: String
@@ -9,7 +12,7 @@ struct DiffText: View {
     var body: some View {
         Text(attributed)
             .font(Typography.result)
-            .textSelection(.enabled)
+            .lineSpacing(Spacing.s1)   // match the plain result renderer's line spacing
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
     }

@@ -675,7 +675,14 @@ final class PanelController {
         state = .visible(ctx, .result(finalResult: text, isEditing: editing))
     }
 
-    func toggleDiffView() { showDiff.toggle() }
+    func toggleDiffView() {
+        // ⌥D only means something for an in-place transform result with an original to
+        // compare. Ignoring it elsewhere keeps a create result (or empty selection) from
+        // silently flipping the default that the *next* revise result will inherit.
+        guard case .visible(let ctx, .result) = state,
+              ctx.action?.operationClass == .revise, ctx.selection != nil else { return }
+        showDiff.toggle()
+    }
 
     func updateEditedResult(_ newText: String) {
         guard case .visible(let ctx, .result(_, let editing)) = state else { return }
@@ -938,6 +945,7 @@ final class PanelController {
         guard let session = current else { return }
         let sel = explicitSel ?? currentSelection()
         streamingText = ""
+        showDiff = true   // every new rewrite defaults to showing changes (don't carry over a prior ⌥D-to-clean)
         state = .visible(PanelContext(selection: sel, action: action), .generating)
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
