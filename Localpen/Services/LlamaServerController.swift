@@ -42,7 +42,8 @@ final class LlamaServerController {
         // bind, leaving `state` non-ready and every hotkey beeping via
         // AppDelegate's isReady guard. Done here (not just at launch) so a restart
         // also starts from a clean port.
-        await reapOrphanedServers(matching: binaryURL.path, ownPID: process?.processIdentifier)
+        await reapOrphanedServers(matching: "\(binaryURL.path).*--port \(port)",
+                                  ownPID: process?.processIdentifier)
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -117,7 +118,7 @@ final class LlamaServerController {
 
         // Reap only orphaned EMBEDDING servers — scope by the embedding port so we never
         // kill the chat server, which is spawned from this same bundled binary path.
-        await reapOrphanedServers(matching: "llama-server.*--port \(embeddingPort)",
+        await reapOrphanedServers(matching: "\(binaryURL.path).*--port \(embeddingPort)",
                                   ownPID: embeddingProcess?.processIdentifier)
 
         let proc = Process()
@@ -164,12 +165,19 @@ final class LlamaServerController {
                       userInfo: [NSLocalizedDescriptionKey: "embedding server didn't become healthy in 20s"])
     }
 
-    func stop() {
+    /// Stop the CHAT server only, leaving the (model-independent) embedding server up.
+    /// A chat-model switch / crash-restart must not take hybrid retrieval down with it.
+    func stopChat() {
         process?.terminate()
         process = nil
+        state = .stopped
+    }
+
+    /// Full teardown — chat + embedding. For app termination.
+    func stop() {
+        stopChat()
         embeddingProcess?.terminate()
         embeddingProcess = nil
-        state = .stopped
     }
 
     /// Whether the server is currently in the `.ready` state.

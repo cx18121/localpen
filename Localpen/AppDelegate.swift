@@ -258,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         let switcher = ModelSwitcher(
             start: { path, ctx in try await server.start(modelPath: path, contextSize: ctx) },
-            stop: { server.stop() },
+            stop: { server.stopChat() },   // switch the chat model only; leave embeddings up
             commit: { [weak self] newID in self?.registry.setActiveModel(id: newID) }
         )
 
