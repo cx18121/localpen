@@ -6,6 +6,9 @@ struct ResultView: View {
     @Binding var text: String
     let isStreaming: Bool
     let isEditing: Bool
+    /// When non-nil (and not editing/streaming), the display branch renders an inline
+    /// diff of `diffAgainst` (the original) → `text` (the revision) instead of plain text.
+    var diffAgainst: String? = nil
     var onClickToEdit: (() -> Void)? = nil
 
     @FocusState private var editorFocused: Bool
@@ -41,13 +44,17 @@ struct ResultView: View {
                     ScrollView {
                         VStack(spacing: 0) {
                             HStack(alignment: .top, spacing: 0) {
-                                Text(text)
-                                    .font(Typography.result)
-                                    .foregroundStyle(Tokens.text)
-                                    .lineSpacing(Self.bodyLineSpacing)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                if let original = diffAgainst, !isStreaming {
+                                    DiffText(original: original, revised: text)
+                                } else {
+                                    Text(text)
+                                        .font(Typography.result)
+                                        .foregroundStyle(Tokens.text)
+                                        .lineSpacing(Self.bodyLineSpacing)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                                 if isStreaming {
                                     StreamingCaret()
                                         .padding(.top, 3)

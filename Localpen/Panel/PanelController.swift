@@ -13,6 +13,10 @@ final class PanelController {
     /// hotkey; bound to the input TextEditor in .empty/.captured states so
     /// the user can fix typos / rewrite before picking an action.
     var inputText: String = ""
+    /// Whether the result panel shows the inline change-view (diff) vs the clean
+    /// rewrite. Only meaningful for in-place transform results; defaults on so the
+    /// user sees what changed. Toggled with ⌥D.
+    var showDiff: Bool = true
     /// The text streamed so far during `.generating`. Kept separate from
     /// PanelState so each token re-renders only the result region (via
     /// StreamingResultView) rather than the whole panel.
@@ -457,6 +461,9 @@ final class PanelController {
                 case kVK_ANSI_C where cmd:
                     copyResult()       // ⌘C copies the result to the clipboard
                     return true
+                case kVK_ANSI_D where mods.contains(.option):
+                    toggleDiffView()   // ⌥D flips changes/clean (no-op visually for create actions)
+                    return true
                 default:
                     return false
                 }
@@ -666,6 +673,15 @@ final class PanelController {
     func setEditing(_ editing: Bool) {
         guard case .visible(let ctx, .result(let text, _)) = state else { return }
         state = .visible(ctx, .result(finalResult: text, isEditing: editing))
+    }
+
+    func toggleDiffView() {
+        // ⌥D only means something for an in-place transform result with an original to
+        // compare. Ignoring it elsewhere keeps a create result (or empty selection) from
+        // silently flipping the default that the *next* revise result will inherit.
+        guard case .visible(let ctx, .result) = state,
+              ctx.action?.operationClass == .revise, ctx.selection != nil else { return }
+        showDiff.toggle()
     }
 
     func updateEditedResult(_ newText: String) {
@@ -929,6 +945,7 @@ final class PanelController {
         guard let session = current else { return }
         let sel = explicitSel ?? currentSelection()
         streamingText = ""
+        showDiff = true   // every new rewrite defaults to showing changes (don't carry over a prior ⌥D-to-clean)
         state = .visible(PanelContext(selection: sel, action: action), .generating)
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
