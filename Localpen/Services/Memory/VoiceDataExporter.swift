@@ -28,6 +28,9 @@ enum VoiceDataExporter {
         }
     }
 
+    /// Accepted in-place edits as instruction→output pairs. Excludes rows older than the
+    /// Forget tombstone (`style_profile.forgotten_before`) so forgotten history never leaks
+    /// into the training set — same durability guarantee as `Persistence.exportInteractionsJSON`.
     static func instructionPairs(db: DatabaseQueue) async throws -> [TrainingExample] {
         let rows = try await db.read { db in
             try Row.fetchAll(db, sql: """
@@ -37,6 +40,7 @@ enum VoiceDataExporter {
                 FROM interactions
                 WHERE accepted = 1
                   AND selection IS NOT NULL AND length(selection) > 0
+                  AND timestamp >= (SELECT forgotten_before FROM style_profile WHERE id = 1)
                 ORDER BY id
                 """)
         }
