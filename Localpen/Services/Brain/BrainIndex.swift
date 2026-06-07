@@ -256,6 +256,15 @@ final class BrainIndex {
                 t.column("indegree", .integer).notNull().defaults(to: 0)
             }
         }
+        m.registerMigration("v2.page_embeddings") { db in
+            try db.create(table: "page_embeddings") { t in
+                t.column("path", .text).primaryKey()
+                    .references("pages", column: "path", onDelete: .cascade)
+                t.column("vector", .blob).notNull()
+                t.column("dim", .integer).notNull()
+                t.column("model", .text).notNull()
+            }
+        }
         try m.migrate(queue)
     }
 }
