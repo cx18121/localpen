@@ -13,6 +13,10 @@ final class PanelController {
     /// hotkey; bound to the input TextEditor in .empty/.captured states so
     /// the user can fix typos / rewrite before picking an action.
     var inputText: String = ""
+    /// Whether the result panel shows the inline change-view (diff) vs the clean
+    /// rewrite. Only meaningful for in-place transform results; defaults on so the
+    /// user sees what changed. Toggled with ⌥D.
+    var showDiff: Bool = true
     /// The text streamed so far during `.generating`. Kept separate from
     /// PanelState so each token re-renders only the result region (via
     /// StreamingResultView) rather than the whole panel.
@@ -457,6 +461,9 @@ final class PanelController {
                 case kVK_ANSI_C where cmd:
                     copyResult()       // ⌘C copies the result to the clipboard
                     return true
+                case kVK_ANSI_D where mods.contains(.option):
+                    toggleDiffView()   // ⌥D flips changes/clean (no-op visually for create actions)
+                    return true
                 default:
                     return false
                 }
@@ -667,6 +674,8 @@ final class PanelController {
         guard case .visible(let ctx, .result(let text, _)) = state else { return }
         state = .visible(ctx, .result(finalResult: text, isEditing: editing))
     }
+
+    func toggleDiffView() { showDiff.toggle() }
 
     func updateEditedResult(_ newText: String) {
         guard case .visible(let ctx, .result(_, let editing)) = state else { return }
