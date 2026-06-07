@@ -15,7 +15,8 @@ final class StreamingClient {
             "stream": true,
             "temperature": sampling?.temperature ?? 0.4,
             "top_p": sampling?.topP ?? 0.9,
-            "repeat_penalty": sampling?.repeatPenalty ?? 1.05
+            "repeat_penalty": sampling?.repeatPenalty ?? 1.05,
+            "timings_per_token": true        // surface llama-server timings on each SSE chunk
         ]
     }
 
@@ -23,17 +24,19 @@ final class StreamingClient {
         systemPrompt: String,
         userText: String,
         sampling: ModelDescriptor.Sampling? = nil,
-        timeout: TimeInterval = 60
+        timeout: TimeInterval = 60,
+        onTimings: (@Sendable (ServerTimings) -> Void)? = nil
     ) -> AsyncThrowingStream<String, Error> {
         complete(messages: [("system", systemPrompt), ("user", userText)],
-                 sampling: sampling, timeout: timeout)
+                 sampling: sampling, timeout: timeout, onTimings: onTimings)
     }
 
     /// `timeout` is the time-to-first-byte budget. Default 60s suits interactive transforms;
     /// the curation 14B doing heavy prompt-eval needs much longer (the dream cycle passes 600).
     func complete(messages: [(role: String, content: String)],
                   sampling: ModelDescriptor.Sampling? = nil,
-                  timeout: TimeInterval = 60) -> AsyncThrowingStream<String, Error> {
+                  timeout: TimeInterval = 60,
+                  onTimings: (@Sendable (ServerTimings) -> Void)? = nil) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             // Capture producer task so consumer cancellation tears down the
             // underlying URLSession request (otherwise llama-server keeps
@@ -53,18 +56,23 @@ final class StreamingClient {
                                       userInfo: [NSLocalizedDescriptionKey: "llama-server returned HTTP \(http.statusCode)"])
                     }
 
+                    var latestTimings: ServerTimings?
                     for try await line in bytes.lines {
                         if Task.isCancelled { break }
                         guard line.hasPrefix("data: ") else { continue }
                         let payload = String(line.dropFirst(6))
                         if payload == "[DONE]" { break }
                         guard let data = payload.data(using: .utf8),
-                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              let choices = json["choices"] as? [[String: Any]],
-                              let delta = choices.first?["delta"] as? [String: Any],
-                              let content = delta["content"] as? String else { continue }
-                        continuation.yield(content)
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                        else { continue }
+                        if let t = ServerTimings.parse(sseChunkJSON: json) { latestTimings = t }
+                        if let choices = json["choices"] as? [[String: Any]],
+                           let delta = choices.first?["delta"] as? [String: Any],
+                           let content = delta["content"] as? String {
+                            continuation.yield(content)
+                        }
                     }
+                    if let t = latestTimings { onTimings?(t) }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
