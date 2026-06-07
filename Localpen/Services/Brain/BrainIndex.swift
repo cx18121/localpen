@@ -141,17 +141,19 @@ final class BrainIndex {
 
     // MARK: - Embeddings (hybrid retrieval)
 
-    /// Embed any page lacking a vector (incremental). Best-effort: if the embedding
-    /// server is down, pages stay unembedded and search falls back to BM25-only.
+    /// Embed any page that's never been embedded OR whose vector is stale (the file was
+    /// edited since). Best-effort: if the embedding server is down, pages stay un/under-
+    /// embedded and search falls back to BM25-only.
     func backfillEmbeddings(service: EmbeddingService, store: EmbeddingStore) async {
-        guard let paths = try? await store.unembeddedPaths() else { return }
+        guard let paths = try? await store.staleOrUnembeddedPaths() else { return }
         for path in paths {
             guard let row = try? await dbQueue.read({ db in
-                try Row.fetchOne(db, sql: "SELECT title, body FROM pages WHERE path = ?", arguments: [path])
+                try Row.fetchOne(db, sql: "SELECT title, body, mtime FROM pages WHERE path = ?", arguments: [path])
             }) ?? nil else { continue }
             let text = "\(row["title"] as String? ?? "")\n\((row["body"] as String? ?? "").prefix(2000))"
             guard let vec = try? await service.embed(text, kind: .document) else { continue }
-            try? await store.upsert(path: path, vector: vec, model: EmbeddingService.modelID)
+            try? await store.upsert(path: path, vector: vec, model: EmbeddingService.modelID,
+                                    mtime: row["mtime"] as Double? ?? 0)
         }
     }
 
@@ -279,6 +281,14 @@ final class BrainIndex {
                 t.column("vector", .blob).notNull()
                 t.column("dim", .integer).notNull()
                 t.column("model", .text).notNull()
+            }
+        }
+        m.registerMigration("v3.embedding_mtime") { db in
+            // Track the page mtime each vector was computed from so an edited page's
+            // stale vector can be detected + re-embedded. Existing rows get 0 (≠ any real
+            // page mtime), so they re-embed once on the next backfill — correct, not lossy.
+            try db.alter(table: "page_embeddings") { t in
+                t.add(column: "mtime", .double).notNull().defaults(to: 0)
             }
         }
         try m.migrate(queue)

@@ -6,13 +6,16 @@ import GRDB
 struct EmbeddingStore {
     let dbQueue: DatabaseQueue
 
-    func upsert(path: String, vector: [Float], model: String) async throws {
+    /// `mtime` is the page mtime this vector was computed from — stored so a later edit
+    /// (which bumps `pages.mtime`) marks the vector stale for re-embedding.
+    func upsert(path: String, vector: [Float], model: String, mtime: Double) async throws {
         let blob = VectorMath.data(from: vector)
         try await dbQueue.write { db in
             try db.execute(sql: """
-                INSERT INTO page_embeddings(path, vector, dim, model) VALUES(?,?,?,?)
-                ON CONFLICT(path) DO UPDATE SET vector=excluded.vector, dim=excluded.dim, model=excluded.model
-                """, arguments: [path, blob, vector.count, model])
+                INSERT INTO page_embeddings(path, vector, dim, model, mtime) VALUES(?,?,?,?,?)
+                ON CONFLICT(path) DO UPDATE SET vector=excluded.vector, dim=excluded.dim,
+                    model=excluded.model, mtime=excluded.mtime
+                """, arguments: [path, blob, vector.count, model, mtime])
         }
     }
 
@@ -25,13 +28,14 @@ struct EmbeddingStore {
         }
     }
 
-    /// Paths that have no embedding yet (drives incremental backfill).
-    func unembeddedPaths() async throws -> [String] {
+    /// Paths needing (re)embedding: never embedded, OR embedded against an older page
+    /// mtime (the file changed since). Drives incremental + invalidating backfill.
+    func staleOrUnembeddedPaths() async throws -> [String] {
         try await dbQueue.read { db in
             try String.fetchAll(db, sql: """
                 SELECT p.path FROM pages p
                 LEFT JOIN page_embeddings e ON e.path = p.path
-                WHERE e.path IS NULL
+                WHERE e.path IS NULL OR e.mtime <> p.mtime
                 """)
         }
     }
