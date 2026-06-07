@@ -68,4 +68,20 @@ enum VoiceDataExporter {
         }
         return out
     }
+
+    /// Blend instruction pairs + prose (as empty-input examples) into one list, then
+    /// split deterministically (every Nth row → holdout). Deterministic on purpose:
+    /// Math.random/Date are unavailable in some contexts and reproducibility matters.
+    static func jsonl(pairs: [TrainingExample], prose: [String],
+                      holdoutEvery: Int = 8) -> (train: String, heldout: String) {
+        let proseExamples = prose.map { TrainingExample(instruction: "Continue in the user's voice.", input: "", output: $0) }
+        let all = pairs + proseExamples
+        let enc = JSONEncoder(); enc.outputFormatting = [.withoutEscapingSlashes]
+        var train: [String] = [], held: [String] = []
+        for (i, ex) in all.enumerated() {
+            guard let data = try? enc.encode(ex), let line = String(data: data, encoding: .utf8) else { continue }
+            if holdoutEvery > 0 && i % holdoutEvery == (holdoutEvery - 1) { held.append(line) } else { train.append(line) }
+        }
+        return (train.joined(separator: "\n"), held.joined(separator: "\n"))
+    }
 }
