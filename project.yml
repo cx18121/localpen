@@ -87,6 +87,7 @@ targets:
       - path: Localpen/Services/Brain/ProjectMatcher.swift
       - path: Localpen/Services/BrainAccess.swift
       - path: Localpen/Services/AppSupport.swift
+      - path: Localpen/Services/Memory/VoiceDataExporter.swift
     settings:
       base:
         PRODUCT_NAME: localpen

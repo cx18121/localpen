@@ -103,6 +103,24 @@ case "project":
     let repo = ProjectMatcher.repoName(fromPath: argument)
     print(await LiveKBBackend(index: index).projectContext(repoName: repo))
 
+case "export-voice-data":
+    // Read interactions from history.sqlite (read-only) + prose from the vault;
+    // write train.jsonl + heldout.jsonl to the output dir (arg, else cwd).
+    let outDir = argument.isEmpty
+        ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        : URL(fileURLWithPath: (argument as NSString).expandingTildeInPath)
+    let historyURL = AppSupport.root().appendingPathComponent("history.sqlite")
+    var cfg = Configuration(); cfg.readonly = true
+    guard let hq = try? DatabaseQueue(path: historyURL.path, configuration: cfg) else {
+        fail("could not open history.sqlite at \(historyURL.path)")
+    }
+    let pairs = (try? await VoiceDataExporter.instructionPairs(db: hq)) ?? []
+    let prose = VoiceDataExporter.proseChunks(vaultRoot: vaultRoot)
+    let (train, held) = VoiceDataExporter.jsonl(pairs: pairs, prose: prose)
+    try? train.write(to: outDir.appendingPathComponent("voice_train.jsonl"), atomically: true, encoding: .utf8)
+    try? held.write(to: outDir.appendingPathComponent("voice_heldout.jsonl"), atomically: true, encoding: .utf8)
+    warn("exported \(pairs.count) edit pairs + \(prose.count) prose chunks → \(outDir.path)")
+
 case "serve":
     // MCP stdio server: speak JSON-RPC over stdin/stdout so agent clients (Claude Code,
     // Cursor) can query the brain as tools. All diagnostics go to stderr (warn) — stdout
@@ -215,6 +233,7 @@ func printUsage() {
       localpen backlinks "<title>" [--json]
       localpen project [<path>]   (repo → its cxkb project page + related; default cwd)
       localpen reindex            [--json]
+      localpen export-voice-data [<out-dir>]   (voice fine-tuning JSONL from edits + cxkb)
       localpen serve              (MCP stdio server for Claude Code / Cursor)
 
     OPTIONS:
