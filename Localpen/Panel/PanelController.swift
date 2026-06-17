@@ -305,7 +305,8 @@ final class PanelController {
             await textIO.captureSelection()
         }
         self.askStreamProvider = askStreamProvider ?? { [streaming] sys, user, sampling in
-            streaming.complete(systemPrompt: sys, userText: user, sampling: sampling)
+            streaming.complete(systemPrompt: sys, userText: user, sampling: sampling,
+                               onTimings: { InferenceMetrics.shared.record(.ask, $0) })
         }
         self.isAccessibilityTrusted = isAccessibilityTrusted ?? { AXIsProcessTrusted() }
         self.openSettings = openSettings
@@ -1007,7 +1008,9 @@ final class PanelController {
         var firstTokenLogged = false
         do {
             let sampling = registry.activeModel?.sampling
-            for try await token in streaming.complete(systemPrompt: systemPrompt, userText: userPrompt, sampling: sampling) {
+            for try await token in streaming.complete(
+                systemPrompt: systemPrompt, userText: userPrompt, sampling: sampling,
+                onTimings: { InferenceMetrics.shared.record(.rewrite, $0) }) {
                 if Task.isCancelled { return }
                 if !firstTokenLogged, let t = current?.hotkeyTime {
                     let elapsed = ContinuousClock.now - t
@@ -1646,7 +1649,8 @@ final class PanelController {
         armConversationWatchdog(convo, session: session, epoch: epoch, timeout: Self.firstTokenTimeout)
         var partial = ""
         do {
-            for try await token in streaming.complete(messages: messages, sampling: sampling) {
+            for try await token in streaming.complete(messages: messages, sampling: sampling,
+                                                       onTimings: { InferenceMetrics.shared.record(.ask, $0) }) {
                 if Task.isCancelled { return }
                 partial += token
                 convo.streamingText = partial
