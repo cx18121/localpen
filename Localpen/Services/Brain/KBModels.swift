@@ -55,7 +55,7 @@ struct ContextBundle: Sendable, Equatable {
         let title: String
         let path: String
         let reason: Reason
-        enum Reason: String, Sendable, Codable { case always, query }
+        enum Reason: String, Sendable, Codable { case always, query, mention }
     }
 
     static let empty = ContextBundle(text: "", sources: [], approxTokens: 0)
