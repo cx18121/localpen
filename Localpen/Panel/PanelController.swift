@@ -137,6 +137,28 @@ final class PanelController {
     /// asks carry their own `conversation.provenance` instead.
     var resultProvenance: [ContextBundle.Provenance] = []
 
+    /// People/projects detected in the live ask question (W2), shown as a pre-generation chip
+    /// row so grounding is visible + removable before you submit. `removedAskMentionTitles` are
+    /// the ones you dropped; `activeAskMentions` is what actually grounds the ask.
+    var askMentions: [DetectedMention] = []
+    var removedAskMentionTitles: Set<String> = []
+    var activeAskMentions: [DetectedMention] {
+        askMentions.filter { !removedAskMentionTitles.contains($0.title) }
+    }
+
+    /// Recompute detected mentions from the current ask text (called as the user types). Brain
+    /// off / no engine ⇒ cleared. Removing a chip persists across refreshes via the dropped set.
+    func refreshAskMentions(for text: String) async {
+        guard let engine = contextEngine else { askMentions = []; return }
+        askMentions = await engine.detectMentions(in: text)
+    }
+
+    /// Drop a detected mention so it won't ground the ask (the × on its chip).
+    func removeAskMention(_ title: String) { removedAskMentionTitles.insert(title) }
+
+    /// Reset the mention chip row (new ask session).
+    func clearAskMentions() { askMentions = []; removedAskMentionTitles = [] }
+
     // MARK: - Hub + Profile (ADR 0016 / memory)
     /// The hub surface's state + data loading. Views bind `controller.hub.*`; the panel
     /// transition into the hub stays here (`enterHub` sets `state`). `var` (not `let`) so the
@@ -566,6 +588,7 @@ final class PanelController {
                 askContext = .empty
             }
             beginAskContext()   // opt-in tray; the summon pid carries over from the original capture (ADR 0020)
+            clearAskMentions()  // fresh mention chip row for this ask session (W2)
             state = .visible(PanelContext(), .ask)
             return
         case .custom, .respond:
@@ -1392,6 +1415,11 @@ final class PanelController {
         let baseSystemPrompt = registry.systemPrompt(for: action)
         let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
 
+        // W2: honor the pre-generation chip row. If it was populated, pass the user-confirmed
+        // set (which may be empty if they dropped every chip ⇒ no grounding); if it was never
+        // populated, nil lets bundle() auto-detect from the question.
+        let confirmedMentions: [DetectedMention]? = askMentions.isEmpty ? nil : activeAskMentions
+
         session.streamingTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -1401,7 +1429,7 @@ final class PanelController {
             var ctx = context
             var provenance: [ContextBundle.Provenance] = []
             if let engine = self.contextEngine {
-                let kb = await engine.bundle(for: question)
+                let kb = await engine.bundle(for: question, mentions: confirmedMentions)
                 if !kb.text.isEmpty { ctx.knowledge = kb.text }
                 provenance = kb.sources
             }

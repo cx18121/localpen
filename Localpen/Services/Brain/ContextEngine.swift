@@ -54,7 +54,7 @@ final class ContextEngine {
         // user named never gets crowded out. nil ⇒ auto-detect from the query (Plan B passes a
         // user-confirmed list).
         let resolved: [DetectedMention]
-        if let mentions { resolved = mentions } else { resolved = await autoDetect(in: query) }
+        if let mentions { resolved = mentions } else { resolved = await detectMentions(in: query) }
         await groundMentions(resolved, query: query, used: &used, budget: &budget, lines: &lines, sources: &sources)
 
         // Generic query hits fill whatever budget remains.
@@ -66,9 +66,11 @@ final class ContextEngine {
                              approxTokens: config.maxContextTokens - budget)
     }
 
-    /// Detect mentions from the brain's people/project pages when the caller didn't pass an
-    /// explicit (user-confirmed) set. Plan B passes a confirmed list and skips this.
-    private func autoDetect(in query: String) async -> [DetectedMention] {
+    /// Detect mentions from the brain's people/project pages. Used internally by `bundle` when
+    /// the caller passes no explicit set, and by the UI (Plan B) to show a pre-generation chip
+    /// row. Brain off ⇒ no candidates ⇒ []. Order: explicit before auto (MentionResolver).
+    func detectMentions(in query: String) async -> [DetectedMention] {
+        guard isBrainEnabled() else { return [] }
         let candidates = await index.pages(ofType: .person) + index.pages(ofType: .project)
         return MentionResolver.detect(instruction: query, selection: nil, candidates: candidates).mentions
     }
