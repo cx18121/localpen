@@ -291,6 +291,24 @@ final class BrainIndex {
                 t.add(column: "mtime", .double).notNull().defaults(to: 0)
             }
         }
+        m.registerMigration("v4.page_chunks") { db in
+            // Chunk-level embeddings for W2 mention grounding (paragraph-precise). Parallel
+            // to page_embeddings, which is kept intact for the page-level ask path. `text` is
+            // stored so grounding emits a snippet without re-reading the file; `mtime` is the
+            // page mtime the chunks were computed from (drives staleness like page_embeddings).
+            try db.create(table: "page_chunks") { t in
+                t.column("path", .text).notNull()
+                    .references("pages", column: "path", onDelete: .cascade)
+                t.column("chunk_index", .integer).notNull()
+                t.column("heading", .text)
+                t.column("text", .text).notNull()
+                t.column("vector", .blob).notNull()
+                t.column("dim", .integer).notNull()
+                t.column("model", .text).notNull()
+                t.column("mtime", .double).notNull().defaults(to: 0)
+                t.primaryKey(["path", "chunk_index"])
+            }
+        }
         try m.migrate(queue)
     }
 }
