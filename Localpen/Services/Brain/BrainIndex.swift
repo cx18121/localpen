@@ -157,6 +157,31 @@ final class BrainIndex {
         }
     }
 
+    /// Re-chunk + re-embed every stale/unchunked page (W2 grounding). Best-effort and
+    /// idempotent: a down embedding server or a page that fails to embed is skipped, leaving
+    /// it stale for the next backfill. Runs after `backfillEmbeddings` at startup.
+    func backfillChunks(service: EmbeddingService, store: ChunkStore) async {
+        guard let paths = try? await store.staleOrUnchunkedPaths() else { return }
+        for path in paths {
+            guard let row = try? await dbQueue.read({ db in
+                try Row.fetchOne(db, sql: "SELECT body, mtime FROM pages WHERE path = ?", arguments: [path])
+            }) ?? nil else { continue }
+            let body = row["body"] as String? ?? ""
+            let mtime = row["mtime"] as Double? ?? 0
+            var inserts: [ChunkStore.Insert] = []
+            for (i, ch) in Chunker.chunk(body).enumerated() {
+                guard let vec = try? await service.embed(ch.text, kind: .document) else { continue }
+                inserts.append(.init(index: i, heading: ch.heading, text: ch.text, vector: vec))
+            }
+            // A page that produced zero embedded chunks stays stale (mtime -1 ≠ any real page
+            // mtime) so a later run with a live server retries it; a genuinely empty-body page
+            // harmlessly re-checks each startup (no embed calls).
+            try? await store.replace(path: path, chunks: inserts,
+                                     model: EmbeddingService.modelID,
+                                     mtime: inserts.isEmpty ? -1 : mtime)
+        }
+    }
+
     // MARK: - Internals
 
     /// Keep `pages` and the contentless-external `pages_fts` in lockstep, then rewrite

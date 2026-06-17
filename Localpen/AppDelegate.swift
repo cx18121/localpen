@@ -224,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 let store = EmbeddingStore(dbQueue: brainIndex.dbQueue)
                 let service = EmbeddingService(port: server.embeddingPort)
                 await brainIndex.backfillEmbeddings(service: service, store: store)
+                await brainIndex.backfillChunks(service: service, store: ChunkStore(dbQueue: brainIndex.dbQueue))
                 self.log.info("embedding backfill complete on port \(server.embeddingPort)")
             } catch {
                 self.log.error("embedding server/backfill skipped: \(error.localizedDescription) (BM25-only)")
