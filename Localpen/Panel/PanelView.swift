@@ -151,6 +151,13 @@ private struct ResultPhaseView: View {
             onClickToEdit: { controller.setEditing(true) }
         )
 
+        // W2: the KB pages this grounded transform drew on. Pinned below the result so you
+        // can see (and open) what informed the draft. Empty for ungrounded actions / brain off.
+        if !isEditing && !controller.resultProvenance.isEmpty {
+            Hairline()
+            SourceChips(sources: controller.resultProvenance) { controller.openProvenanceSource($0) }
+        }
+
         // Only offer the promote-to-conversation reply box once the result is
         // settled (not while the user is editing it inline).
         if !isEditing {

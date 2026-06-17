@@ -132,6 +132,11 @@ final class PanelController {
     /// Context attached to the current free-form ask session.
     var askContext: AskContext = .empty
 
+    /// KB pages a one-shot grounded transform (respond/custom) drew on (W2). Shown as Source
+    /// chips below the result; empty ⇒ no chips (ungrounded action or brain off). Conversation
+    /// asks carry their own `conversation.provenance` instead.
+    var resultProvenance: [ContextBundle.Provenance] = []
+
     // MARK: - Hub + Profile (ADR 0016 / memory)
     /// The hub surface's state + data loading. Views bind `controller.hub.*`; the panel
     /// transition into the hub stays here (`enterHub` sets `state`). `var` (not `let`) so the
@@ -1003,10 +1008,12 @@ final class PanelController {
         // W2: ground respond/custom in the people/projects named in the instruction. Fixed
         // quick-actions carry no instruction (groundsInBrain == false), so this no-ops for them.
         var knowledge: String? = nil
+        resultProvenance = []
         if let engine = contextEngine, action.groundsInBrain {
             let selText = selection?.text ?? ""
             let kb = await engine.bundle(for: "\(action.steerText ?? "") \(selText)")
             if !kb.text.isEmpty { knowledge = kb.text }
+            resultProvenance = kb.sources   // shown as Source chips below the result
         }
         let userPrompt = ActionPrompts.userMessage(
             for: action,
