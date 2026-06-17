@@ -26,27 +26,31 @@ enum ActionPrompts {
         marks. Keep the user's meaning and voice; change only what they ask for.
         """ + styleContext
 
-    static func userMessage(for action: Action, text: String) -> String {
+    static func userMessage(for action: Action, text: String, knowledge: String? = nil) -> String {
+        let body: String
         switch action {
         case .custom(let instruction):
-            if text.isEmpty { return instruction }
-            return "Instruction: \(instruction)\n\nText:\n\(text)"
+            body = text.isEmpty ? instruction : "Instruction: \(instruction)\n\nText:\n\(text)"
         case .respond(let steer):
             let base = "Message to reply to:\n\(text)"
-            return steer.isEmpty ? base : "\(base)\n\nHow to reply: \(steer)"
+            body = steer.isEmpty ? base : "\(base)\n\nHow to reply: \(steer)"
         case .ask(let question, _):
-            // Legacy text-only shape: callers that route through here pass
-            // selection in `text`. PanelController's askSubmitted uses the
-            // richer askUserMessage(question:context:) directly so the app
-            // chip is included; this branch handles any indirect caller.
+            // Legacy text-only shape: callers that route through here pass selection in `text`.
+            // PanelController's ask path uses askUserMessage(question:context:) directly (so the
+            // app chip + knowledge are included); knowledge is injected there via AskContext, so
+            // return early here.
             return askUserMessage(
                 question: question,
                 context: AskContext(appLabel: nil,
                                     selection: text.isEmpty ? nil : text)
             )
         default:
-            return text
+            body = text
         }
+        // W2: prepend a <context> block for respond/custom (and any default action) when the
+        // brain grounded the instruction. nil/empty ⇒ byte-identical to the pre-W2 message.
+        guard let kb = knowledge, !kb.isEmpty else { return body }
+        return "<context>\n\(kb)\n</context>\n\n\(body)"
     }
 
     static func systemPrompt(for action: Action) -> String {

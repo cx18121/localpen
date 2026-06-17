@@ -999,7 +999,19 @@ final class PanelController {
     private func runStream(action: Action, selection: Selection?) async {
         let baseSystemPrompt = registry.systemPrompt(for: action)
         let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
-        let userPrompt = ActionPrompts.userMessage(for: action, text: selection?.text ?? "")
+
+        // W2: ground respond/custom in the people/projects named in the instruction. Fixed
+        // quick-actions carry no instruction (groundsInBrain == false), so this no-ops for them.
+        var knowledge: String? = nil
+        if let engine = contextEngine, action.groundsInBrain {
+            let selText = selection?.text ?? ""
+            let kb = await engine.bundle(for: "\(action.steerText ?? "") \(selText)")
+            if !kb.text.isEmpty { knowledge = kb.text }
+        }
+        let userPrompt = ActionPrompts.userMessage(
+            for: action,
+            text: MentionResolver.stripMarkup(selection?.text ?? ""),
+            knowledge: knowledge)
 
         armWatchdog(action: action, selection: selection, timeout: Self.firstTokenTimeout)
         defer { current?.watchdogTask?.cancel() }
@@ -1388,7 +1400,10 @@ final class PanelController {
             }
             liveConvo.provenance = provenance   // show source chips while the answer streams
             guard self.stillCurrent(epoch, session) else { return }
-            let userMessage = ActionPrompts.askUserMessage(question: question, context: ctx)
+            // W2: the model reads plain prose ("…about Ana"); the [[ ]]/@ markup was only an
+            // input gesture (bundle() above still detected mentions from the raw question).
+            let strippedQuestion = MentionResolver.stripMarkup(question)
+            let userMessage = ActionPrompts.askUserMessage(question: strippedQuestion, context: ctx)
 
             self.armWatchdog(action: action, selection: nil,
                              timeout: PanelController.firstTokenTimeout)

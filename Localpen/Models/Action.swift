@@ -105,6 +105,15 @@ enum Action: Hashable, Identifiable {
         }
     }
 
+    /// Actions whose user-supplied instruction can name a person/project to ground on (W2).
+    /// The 6 fixed quick-actions carry no instruction, so they never ground.
+    var groundsInBrain: Bool {
+        switch self {
+        case .respond, .custom, .ask: return true
+        default:                      return false
+        }
+    }
+
     /// The free-text the user supplied for the actions that carry one
     /// (the Custom instruction, the Respond steer, the Ask question).
     /// Persisted in `Interaction.customPrompt`.
