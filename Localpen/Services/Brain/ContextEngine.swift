@@ -87,37 +87,53 @@ final class ContextEngine {
             queryVector = try? await embeddingService.embed(query, kind: .query)
         }
 
+        // Build each entity's grounding material (header + ranked own chunks + ranked backlink
+        // neighborhood), deduping pages against what's already in the bundle, then let
+        // MentionGrounding.assemble pack it into the budget primary-slice-first.
+        var entities: [MentionGrounding.EntityContent] = []
+        var seen = used   // dedup entity + neighbor pages against always-pages and each other
         for m in ordered {
-            guard let page = await index.pageByTitle(m.title), used.insert(page.path).inserted else { continue }
+            guard let page = await index.pageByTitle(m.title), !seen.contains(page.path) else { continue }
+            seen.insert(page.path)
             let header: String? = page.type == .person
                 ? MentionGrounding.personHeader(PeopleInsights.person(from: page, today: Date()))
                 : MentionGrounding.projectHeader(page)
 
-            var emittedBody = false
-            if let qv = queryVector,
-               let chunks = try? await chunkStore.loadChunks(forPaths: [page.path]), !chunks.isEmpty {
-                for ch in MentionGrounding.rankChunks(chunks, queryVector: qv, limit: 2) {
-                    let label = ch.heading.map { "\(page.title) › \($0)" } ?? page.title
-                    let snippet = emittedBody ? ch.text : [header, ch.text].compactMap { $0 }.joined(separator: " — ")
-                    let cost = Self.approxTokens(snippet)
-                    guard cost <= budget else { break }
-                    lines.append("kb [\(label)]: \(snippet)")
-                    sources.append(.init(title: page.title, path: page.path, reason: .mention))
-                    budget -= cost
-                    emittedBody = true
+            var ownChunks: [ChunkStore.ChunkRow] = []
+            var neighborChunks: [MentionGrounding.NeighborChunk] = []
+            if let qv = queryVector {
+                if let chunks = try? await chunkStore.loadChunks(forPaths: [page.path]), !chunks.isEmpty {
+                    ownChunks = MentionGrounding.rankChunks(chunks, queryVector: qv, limit: 3)
+                }
+                // Neighborhood: pages that link TO this entity (meetings/projects it appears in).
+                let neighbors = await index.backlinks(toTitle: page.title)
+                let titleByPath = Dictionary(neighbors.map { ($0.path, $0.title) }, uniquingKeysWith: { a, _ in a })
+                let neighborPaths = Array(neighbors.map(\.path).filter { !seen.contains($0) }.prefix(8))
+                if !neighborPaths.isEmpty,
+                   let nChunks = try? await chunkStore.loadChunks(forPaths: neighborPaths), !nChunks.isEmpty {
+                    neighborChunks = MentionGrounding.rankChunks(nChunks, queryVector: qv, limit: 3).map {
+                        .init(neighborTitle: titleByPath[$0.path] ?? "", chunk: $0)
+                    }
+                    neighborPaths.forEach { seen.insert($0) }
                 }
             }
-            // Degradation: no chunks/embeddings ⇒ header + condensed page head as one line.
-            if !emittedBody {
-                let body = [header, Self.condense(page.body, charCap: config.perPageCharCap)]
-                    .compactMap { $0 }.joined(separator: " — ")
-                let cost = Self.approxTokens(body)
-                if !body.isEmpty, cost <= budget {
-                    lines.append("kb [\(page.title)]: \(body)")
-                    sources.append(.init(title: page.title, path: page.path, reason: .mention))
-                    budget -= cost
+            // Degradation (or empty embeddings): a single condensed-body pseudo-chunk so
+            // assemble still emits the header + page head. An explicit mention is never dropped.
+            if ownChunks.isEmpty {
+                let condensed = Self.condense(page.body, charCap: config.perPageCharCap)
+                if !condensed.isEmpty {
+                    ownChunks = [ChunkStore.ChunkRow(path: page.path, index: 0, heading: nil, text: condensed, vector: [])]
                 }
             }
+            entities.append(.init(title: page.title, path: page.path, header: header,
+                                  ownChunks: ownChunks, neighborChunks: neighborChunks))
+        }
+
+        for g in MentionGrounding.assemble(entities, budget: budget) {
+            lines.append(g.text)
+            sources.append(.init(title: g.title, path: g.path, reason: .mention))
+            budget -= g.tokens
+            used.insert(g.path)
         }
     }
 
