@@ -24,12 +24,16 @@ struct GrowingTextEditor: NSViewRepresentable {
     /// panel (for "back") instead of blurring. When nil (the default), Esc/Tab
     /// blur focus back to the menu.
     var onSubmit: ((String) -> Void)? = nil
+    /// When set, typing `[[` or `@` shows a completion list of these titles, inserted as
+    /// `[[Title]]` (W2 mention input). nil ⇒ no autocomplete.
+    var mentionTitles: (() -> [String])? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> GrowingNSTextView {
         let tv = GrowingNSTextView()
         tv.delegate = context.coordinator
+        tv.mentionTitles = mentionTitles
         tv.isRichText = false
         tv.allowsUndo = true
         tv.drawsBackground = false
@@ -107,12 +111,74 @@ struct GrowingTextEditor: NSViewRepresentable {
                 return false
             }
         }
+
+        /// Feed the `[[`/`@` completion list (W2). Returns the brain titles matching the active
+        /// token's query; the system draws + key-handles the list, and `insertCompletion` wraps
+        /// the pick as `[[Title]]`.
+        func textView(_ textView: NSTextView, completions words: [String],
+                      forPartialWordRange charRange: NSRange,
+                      indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
+            guard let tv = textView as? GrowingNSTextView,
+                  let provider = tv.mentionTitles,
+                  let token = tv.activeMentionToken else { return [] }
+            index?.pointee = 0
+            return MentionAutocomplete.filter(provider(), query: token.query, limit: 8)
+        }
     }
 }
 
 final class GrowingNSTextView: NSTextView {
     var onFocusChange: ((Bool) -> Void)?
     private var lastWidth: CGFloat = -1
+
+    // MARK: - Mention autocomplete (W2)
+    /// Provider of brain titles; nil ⇒ autocomplete disabled. The active token under the caret
+    /// is recomputed on every text change and read by the completion delegate + insertion.
+    var mentionTitles: (() -> [String])?
+    fileprivate(set) var activeMentionToken: MentionAutocomplete.Token?
+
+    /// Recompute the active `[[`/`@` token and show/hide the completion list accordingly.
+    private func refreshMentionCompletion() {
+        guard let provider = mentionTitles else { activeMentionToken = nil; return }
+        let sel = selectedRange()
+        if sel.length == 0,
+           let token = MentionAutocomplete.activeToken(in: string as NSString, caret: sel.location),
+           !MentionAutocomplete.filter(provider(), query: token.query, limit: 8).isEmpty {
+            activeMentionToken = token
+            DispatchQueue.main.async { [weak self] in self?.complete(nil) }   // show/refresh list
+        } else if activeMentionToken != nil {
+            activeMentionToken = nil
+            DispatchQueue.main.async { [weak self] in self?.complete(nil) }   // dismiss stale list
+        }
+    }
+
+    /// Complete against the query AFTER the trigger (`[[`/`@`), so the system prefix-matches
+    /// titles, not the brackets.
+    override var rangeForUserCompletion: NSRange {
+        if let t = activeMentionToken {
+            let tl = MentionAutocomplete.triggerLength(t.trigger)
+            return NSRange(location: t.range.location + tl, length: t.range.length - tl)
+        }
+        return super.rangeForUserCompletion
+    }
+
+    /// Insert a picked title as `[[Title]]`, replacing the whole trigger token. Skips inline
+    /// previews (non-final) so navigating the list doesn't mangle the text.
+    override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange,
+                                   movement: Int, isFinal: Bool) {
+        guard isFinal else { return }
+        guard let t = activeMentionToken else {
+            super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: isFinal)
+            return
+        }
+        let replacement = MentionAutocomplete.replacement(for: word)
+        if shouldChangeText(in: t.range, replacementString: replacement) {
+            textStorage?.replaceCharacters(in: t.range, with: replacement)
+            didChangeText()
+            setSelectedRange(NSRange(location: t.range.location + (replacement as NSString).length, length: 0))
+        }
+        activeMentionToken = nil
+    }
 
     override var intrinsicContentSize: NSSize {
         guard let lm = layoutManager, let tc = textContainer else {
@@ -126,6 +192,7 @@ final class GrowingNSTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         invalidateIntrinsicContentSize()
+        refreshMentionCompletion()
     }
 
     override func setFrameSize(_ newSize: NSSize) {

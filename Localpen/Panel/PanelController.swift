@@ -142,6 +142,9 @@ final class PanelController {
     /// the ones you dropped; `activeAskMentions` is what actually grounds the ask.
     var askMentions: [DetectedMention] = []
     var removedAskMentionTitles: Set<String> = []
+    /// Brain people/project titles for the `[[`/`@` autocomplete in the ask field; loaded when
+    /// the ask surface opens so the completion list reads synchronously.
+    var brainEntityTitles: [String] = []
     var activeAskMentions: [DetectedMention] {
         askMentions.filter { !removedAskMentionTitles.contains($0.title) }
     }
@@ -589,6 +592,7 @@ final class PanelController {
             }
             beginAskContext()   // opt-in tray; the summon pid carries over from the original capture (ADR 0020)
             clearAskMentions()  // fresh mention chip row for this ask session (W2)
+            Task { brainEntityTitles = await contextEngine?.candidateTitles() ?? [] }   // [[/@ autocomplete source
             state = .visible(PanelContext(), .ask)
             return
         case .custom, .respond:

@@ -66,6 +66,14 @@ final class ContextEngine {
                              approxTokens: config.maxContextTokens - budget)
     }
 
+    /// People + project page titles, for the `[[`/`@` autocomplete (W2). Brain off ⇒ [].
+    func candidateTitles() async -> [String] {
+        guard isBrainEnabled() else { return [] }
+        let people = await index.pages(ofType: .person)
+        let projects = await index.pages(ofType: .project)
+        return (people + projects).map(\.title)
+    }
+
     /// Detect mentions from the brain's people/project pages. Used internally by `bundle` when
     /// the caller passes no explicit set, and by the UI (Plan B) to show a pre-generation chip
     /// row. Brain off ⇒ no candidates ⇒ []. Order: explicit before auto (MentionResolver).

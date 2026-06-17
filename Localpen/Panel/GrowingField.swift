@@ -14,6 +14,8 @@ struct GrowingField: View {
     var autoFocus: Bool = false
     var focusTick: Int = 0
     var onSubmit: ((String) -> Void)? = nil
+    /// When set, typing `[[` or `@` offers a completion list of these titles (W2 mention input).
+    var mentionTitles: (() -> [String])? = nil
 
     @State private var isFocused = false
 
@@ -31,7 +33,8 @@ struct GrowingField: View {
                 isFocused: $isFocused,
                 autoFocus: autoFocus,
                 focusTick: focusTick,
-                onSubmit: onSubmit
+                onSubmit: onSubmit,
+                mentionTitles: mentionTitles
             )
         }
     }

@@ -113,7 +113,8 @@ struct AskInput: View {
             onSubmit: { raw in
                 controller.askSubmitted(raw)
                 question = ""
-            }
+            },
+            mentionTitles: { controller.brainEntityTitles }   // [[/@ autocomplete (W2)
         )
         .frame(minHeight: 60, maxHeight: 240)
     }
