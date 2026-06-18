@@ -26,7 +26,7 @@ struct ProjectActivityPass {
     func run() async -> Report {
         var report = Report()
         for page in await index.pages(ofType: .project) {
-            guard let rawPath = page.frontmatter["local_path"], !rawPath.isEmpty else { continue }
+            guard let rawPath = page.frontmatter["local_path"], !rawPath.isEmpty else { report.skipped += 1; continue }
             let repoPath = (rawPath as NSString).expandingTildeInPath
             guard FileManager.default.fileExists(atPath: repoPath) else { report.skipped += 1; continue }
             report.projects += 1
