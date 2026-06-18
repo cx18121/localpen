@@ -81,6 +81,14 @@ struct VaultWriter {
             try commit([rel], "now: update")
             return rel
 
+        case .appendActivity(let projectTitle, let entry):
+            let name = try safeName(projectTitle)
+            let rel = "projects/\(name).md"
+            guard exists(rel) else { throw WriteError.targetMissing(rel) }
+            try prependUnderSection(rel, header: "## Activity", entry: entry)
+            try commit([rel], "activity: \(name)")
+            return rel
+
         case .rewriteCuratedPage, .promoteTopic, .resolveContradiction,
              .createPerson, .mergeIdentities:
             // Unreachable (guarded above), but keep the switch total + explicit.
@@ -119,7 +127,7 @@ struct VaultWriter {
             return rel
         case .resolveContradiction, .mergeIdentities:
             throw WriteError.notApplicable("this proposal needs manual editing — open the page in Obsidian or hand it to a Claude Code session")
-        case .captureToInbox, .appendTimeline, .createSource, .nominateLink, .updateNow:
+        case .captureToInbox, .appendTimeline, .appendActivity, .createSource, .nominateLink, .updateNow:
             return try apply(write, nowMillis: nowMillis)
         }
     }
@@ -213,6 +221,25 @@ struct VaultWriter {
         } catch {
             throw WriteError.io("append \(rel): \(error.localizedDescription)")
         }
+    }
+
+    /// Insert `entry` directly under `header`, creating the section at end-of-file if absent.
+    /// Newest-first: a new entry goes immediately below the header, above older entries.
+    private func prependUnderSection(_ rel: String, header: String, entry: String) throws {
+        try guardWritable(rel)
+        let url = absolute(rel)
+        var text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let block = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let hRange = text.range(of: header) {
+            // Find the end of the header line, insert the block right after it.
+            let afterHeaderLine = text[hRange.upperBound...].firstIndex(of: "\n").map { text.index(after: $0) } ?? text.endIndex
+            text.insert(contentsOf: "\n" + block + "\n", at: afterHeaderLine)
+        } else {
+            if !text.hasSuffix("\n") { text += "\n" }
+            text += "\n\(header)\n\n\(block)\n"
+        }
+        do { try text.write(to: url, atomically: true, encoding: .utf8) }
+        catch { throw WriteError.io("activity \(rel): \(error.localizedDescription)") }
     }
 
     /// raw/ is immutable except the inbox capture target.

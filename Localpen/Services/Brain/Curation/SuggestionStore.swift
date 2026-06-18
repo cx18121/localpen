@@ -57,7 +57,7 @@ extension Suggestion {
             return ("createPerson", "Add a new person: \(name)", .init(kind: "createPerson", name: name))
         case .mergeIdentities(let into, let from):
             return ("mergeIdentities", "Merge “\(from)” into “\(into)”", .init(kind: "mergeIdentities", into: into, from: from))
-        case .captureToInbox, .appendTimeline, .createSource, .nominateLink, .updateNow:
+        case .captureToInbox, .appendTimeline, .appendActivity, .createSource, .nominateLink, .updateNow:
             // Additive — never reached (the init guards on disposition), but keep total.
             return ("additive", "", .init(kind: "additive"))
         }

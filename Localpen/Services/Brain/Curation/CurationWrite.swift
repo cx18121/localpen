@@ -12,6 +12,9 @@ enum CurationWrite: Equatable, Sendable {
     case captureToInbox(text: String)
     /// A Timeline entry appended to an *existing* `people/` page (never creates one).
     case appendTimeline(person: String, entry: String)
+    /// Append a dated entry to a project page's tool-owned `## Activity` log (project-activity
+    /// freshness). Additive — auto-applied.
+    case appendActivity(projectTitle: String, entry: String)
     /// A new `sources/` page synthesized from template.
     case createSource(title: String, body: String)
     /// Nominating a dangling `[[link]]` target so the graph self-wires.
@@ -85,7 +88,7 @@ enum WriteDisposition: Equatable, Sendable {
 enum WriteClassifier {
     static func disposition(for write: CurationWrite) -> WriteDisposition {
         switch write {
-        case .captureToInbox, .appendTimeline, .createSource, .nominateLink, .updateNow:
+        case .captureToInbox, .appendTimeline, .appendActivity, .createSource, .nominateLink, .updateNow:
             return .autoApply
         case .rewriteCuratedPage, .promoteTopic, .resolveContradiction,
              .createPerson, .mergeIdentities:
