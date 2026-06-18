@@ -147,7 +147,10 @@ final class ContextEngine {
             lines.append(g.text)
             sources.append(.init(title: g.title, path: g.path, reason: .mention))
             budget -= g.tokens
-            used.insert(g.path)
+            // Mark the REAL source note used (neighbor notes included), so the generic layer
+            // can't re-emit a note this grounding already covered. Unemitted neighbors are not
+            // marked, so they can still surface generically.
+            used.insert(g.sourcePath)
         }
     }
 
