@@ -15,6 +15,10 @@ enum CurationWrite: Equatable, Sendable {
     /// Append a dated entry to a project page's tool-owned `## Activity` log (project-activity
     /// freshness). Additive — auto-applied.
     case appendActivity(projectTitle: String, entry: String)
+    /// Distill a person page's own raw facts into its `## Compiled Truth` (synthesized summary)
+    /// + a deduped/merged `## Connections` (people-synthesis pass). Auto-applied — it only
+    /// restates/condenses facts already on the page, and git is the backstop.
+    case synthesizePerson(name: String, compiledTruth: String, connections: [String])
     /// A new `sources/` page synthesized from template.
     case createSource(title: String, body: String)
     /// Nominating a dangling `[[link]]` target so the graph self-wires.
@@ -88,7 +92,8 @@ enum WriteDisposition: Equatable, Sendable {
 enum WriteClassifier {
     static func disposition(for write: CurationWrite) -> WriteDisposition {
         switch write {
-        case .captureToInbox, .appendTimeline, .appendActivity, .createSource, .nominateLink, .updateNow:
+        case .captureToInbox, .appendTimeline, .appendActivity, .synthesizePerson,
+             .createSource, .nominateLink, .updateNow:
             return .autoApply
         case .rewriteCuratedPage, .promoteTopic, .resolveContradiction,
              .createPerson, .mergeIdentities:

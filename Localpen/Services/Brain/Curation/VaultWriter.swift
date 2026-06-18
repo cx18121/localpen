@@ -91,6 +91,16 @@ struct VaultWriter {
             try commit([rel], "activity: \(name)")
             return rel
 
+        case .synthesizePerson(let name, let compiledTruth, let connections):
+            let safe = try safeName(name)
+            let rel = "people/\(safe).md"
+            guard exists(rel) else { throw WriteError.targetMissing(rel) }
+            try replaceSection(rel, header: "## Compiled Truth", body: compiledTruth)
+            let connBody = connections.map { "- \($0)" }.joined(separator: "\n")
+            try replaceSection(rel, header: "## Connections", body: connBody)
+            try commit([rel], "people: synthesize \(safe)")
+            return rel
+
         case .rewriteCuratedPage, .promoteTopic, .resolveContradiction,
              .createPerson, .mergeIdentities:
             // Unreachable (guarded above), but keep the switch total + explicit.
@@ -129,7 +139,8 @@ struct VaultWriter {
             return rel
         case .resolveContradiction, .mergeIdentities:
             throw WriteError.notApplicable("this proposal needs manual editing — open the page in Obsidian or hand it to a Claude Code session")
-        case .captureToInbox, .appendTimeline, .appendActivity, .createSource, .nominateLink, .updateNow:
+        case .captureToInbox, .appendTimeline, .appendActivity, .synthesizePerson,
+             .createSource, .nominateLink, .updateNow:
             return try apply(write, nowMillis: nowMillis)
         }
     }
@@ -262,6 +273,37 @@ struct VaultWriter {
         }
         do { try result.write(to: url, atomically: true, encoding: .utf8) }
         catch { throw WriteError.io("activity \(rel): \(error.localizedDescription)") }
+    }
+
+    /// Replace a section's body in place: everything from the `header` line up to the next
+    /// section boundary (a `## ` heading OR a `---` rule) — exclusive — becomes `header` + body.
+    /// Stopping at `---` preserves the person-schema rule that separates Compiled Truth (above)
+    /// from Timeline/Connections (below). Section absent → appended at EOF. Throwing read so an
+    /// I/O failure can't zero the page.
+    private func replaceSection(_ rel: String, header: String, body: String) throws {
+        try guardWritable(rel)
+        let url = absolute(rel)
+        let text: String
+        do { text = try String(contentsOf: url, encoding: .utf8) }
+        catch { throw WriteError.io("synthesize \(rel): \(error.localizedDescription)") }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        var lines = text.components(separatedBy: "\n")
+        let result: String
+        if let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == header }) {
+            var end = lines.count
+            for i in (start + 1)..<lines.count {
+                let t = lines[i].trimmingCharacters(in: .whitespaces)
+                if t.hasPrefix("## ") || t == "---" { end = i; break }
+            }
+            lines.replaceSubrange(start..<end, with: [header, "", trimmed, ""])
+            result = lines.joined(separator: "\n")
+        } else {
+            var base = text
+            if !base.hasSuffix("\n") { base += "\n" }
+            result = base + "\n\(header)\n\n\(trimmed)\n"
+        }
+        do { try result.write(to: url, atomically: true, encoding: .utf8) }
+        catch { throw WriteError.io("synthesize \(rel): \(error.localizedDescription)") }
     }
 
     /// raw/ is immutable except the inbox capture target.
