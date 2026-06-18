@@ -15,16 +15,20 @@ final class ContextEngine {
     private let isBrainEnabled: @Sendable () -> Bool
     /// Optional dense-retrieval client. `nil` (or a down server / unembedded vault) ⇒
     /// BM25-only, byte-identical to before hybrid existed.
-    private let embeddingService: EmbeddingService?
+    private let embeddingService: (any QueryEmbedder)?
+    private let vectorCache: PageVectorCache
+    private let candidates: CandidatePagesCache
 
     init(search: KBSearch, index: BrainIndex, config: BrainConfig = .default,
-         embeddingService: EmbeddingService? = nil,
+         embeddingService: (any QueryEmbedder)? = nil,
          isBrainEnabled: @escaping @Sendable () -> Bool = { BrainAccess.isActive }) {
         self.search = search
         self.index = index
         self.config = config
         self.embeddingService = embeddingService
         self.isBrainEnabled = isBrainEnabled
+        self.vectorCache = PageVectorCache(dbQueue: index.dbQueue)
+        self.candidates = CandidatePagesCache(dbQueue: index.dbQueue)
     }
 
     func bundle(for query: String, mentions: [DetectedMention]? = nil) async -> ContextBundle {
@@ -50,15 +54,20 @@ final class ContextEngine {
             emit(Self.condense(page.body, charCap: config.perPageCharCap), page: page, reason: .always)
         }
 
+        // Embed the query once; share it across the mention layer and the generic layer.
+        var queryVector: [Float]? = nil
+        if let embeddingService { queryVector = try? await embeddingService.embed(query, kind: .query) }
+
         // W2: ground the named people/projects before generic query hits, so an entity the
         // user named never gets crowded out. nil ⇒ auto-detect from the query (Plan B passes a
         // user-confirmed list).
         let resolved: [DetectedMention]
         if let mentions { resolved = mentions } else { resolved = await detectMentions(in: query) }
-        await groundMentions(resolved, query: query, used: &used, budget: &budget, lines: &lines, sources: &sources)
+        await groundMentions(resolved, query: query, queryVector: queryVector,
+                             used: &used, budget: &budget, lines: &lines, sources: &sources)
 
         // Generic query hits fill whatever budget remains.
-        for hit in await queryHits(for: query) where used.insert(hit.page.path).inserted {
+        for hit in await queryHits(for: query, queryVector: queryVector) where used.insert(hit.page.path).inserted {
             emit(Self.condense(hit.page.body, charCap: config.perPageCharCap), page: hit.page, reason: .query)
         }
 
@@ -69,9 +78,7 @@ final class ContextEngine {
     /// People + project page titles, for the `[[`/`@` autocomplete (W2). Brain off ⇒ [].
     func candidateTitles() async -> [String] {
         guard isBrainEnabled() else { return [] }
-        let people = await index.pages(ofType: .person)
-        let projects = await index.pages(ofType: .project)
-        return (people + projects).map(\.title)
+        return await candidates.pages().map(\.title)
     }
 
     /// Detect mentions from the brain's people/project pages. Used internally by `bundle` when
@@ -79,23 +86,21 @@ final class ContextEngine {
     /// row. Brain off ⇒ no candidates ⇒ []. Order: explicit before auto (MentionResolver).
     func detectMentions(in query: String) async -> [DetectedMention] {
         guard isBrainEnabled() else { return [] }
-        let candidates = await index.pages(ofType: .person) + index.pages(ofType: .project)
-        return MentionResolver.detect(instruction: query, selection: nil, candidates: candidates).mentions
+        let candidatePages = await candidates.pages()
+        return MentionResolver.detect(instruction: query, selection: nil, candidates: candidatePages).mentions
     }
 
     /// Ground each resolved mention: a header line + cosine-ranked chunks of the entity page,
     /// explicit before auto. Degrades to a condensed page snippet when chunks/embeddings are
     /// unavailable, so an explicit mention is never silently dropped.
-    private func groundMentions(_ mentions: [DetectedMention], query: String, used: inout Set<String>,
+    private func groundMentions(_ mentions: [DetectedMention], query: String, queryVector: [Float]?,
+                                used: inout Set<String>,
                                 budget: inout Int, lines: inout [String], sources: inout [ContextBundle.Provenance]) async {
         let ordered = mentions.sorted { ($0.origin == .explicit ? 0 : 1) < ($1.origin == .explicit ? 0 : 1) }
         guard !ordered.isEmpty else { return }
 
         let chunkStore = ChunkStore(dbQueue: index.dbQueue)
-        var queryVector: [Float]? = nil
-        if let embeddingService {
-            queryVector = try? await embeddingService.embed(query, kind: .query)
-        }
+        // (no embed here anymore — use the passed-in queryVector)
 
         // Build each entity's grounding material (header + ranked own chunks + ranked backlink
         // neighborhood), deduping pages against what's already in the bundle, then let
@@ -151,13 +156,10 @@ final class ContextEngine {
     /// is configured AND the vault has vectors AND the query embeds; otherwise BM25-only.
     /// A down embedding server, an unembedded vault, or no service is a silent, correct
     /// fallback — never an error in the ask path.
-    private func queryHits(for query: String) async -> [KBHit] {
-        guard let embeddingService else { return await search.search(query, limit: config.topK) }
-        let store = EmbeddingStore(dbQueue: index.dbQueue)
-        guard let vectors = try? await store.loadAll(), !vectors.isEmpty,
-              let queryVector = try? await embeddingService.embed(query, kind: .query) else {
-            return await search.search(query, limit: config.topK)
-        }
+    private func queryHits(for query: String, queryVector: [Float]?) async -> [KBHit] {
+        guard embeddingService != nil, let queryVector else { return await search.search(query, limit: config.topK) }
+        let vectors = await vectorCache.vectors()
+        guard !vectors.isEmpty else { return await search.search(query, limit: config.topK) }
         return await search.hybridSearch(query, queryVector: queryVector,
                                          vectors: vectors, limit: config.topK)
     }

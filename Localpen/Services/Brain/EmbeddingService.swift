@@ -64,3 +64,11 @@ struct EmbeddingService {
         return try Self.decode(data)
     }
 }
+
+/// The query-embedding capability `ContextEngine` depends on — a seam so the ask path is
+/// testable with a deterministic fake (no live server). `EmbeddingService` is the production
+/// conformer.
+protocol QueryEmbedder: Sendable {
+    func embed(_ text: String, kind: EmbeddingService.Kind) async throws -> [Float]
+}
+extension EmbeddingService: QueryEmbedder {}
