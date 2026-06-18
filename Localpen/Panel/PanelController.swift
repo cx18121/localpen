@@ -137,30 +137,31 @@ final class PanelController {
     /// asks carry their own `conversation.provenance` instead.
     var resultProvenance: [ContextBundle.Provenance] = []
 
-    /// People/projects detected in the live ask question (W2), shown as a pre-generation chip
-    /// row so grounding is visible + removable before you submit. `removedAskMentionTitles` are
-    /// the ones you dropped; `activeAskMentions` is what actually grounds the ask.
-    var askMentions: [DetectedMention] = []
-    var removedAskMentionTitles: Set<String> = []
-    /// Brain people/project titles for the `[[`/`@` autocomplete in the ask field; loaded when
-    /// the ask surface opens so the completion list reads synchronously.
+    /// People/projects detected in the live compose text (W2), shown as a pre-generation chip
+    /// row so grounding is visible + removable before you submit. Shared by the Ask and the
+    /// Custom/Respond surfaces (mutually exclusive phases, so one set serves both).
+    /// `removedMentionTitles` are the ones you dropped; `activeMentions` is what actually grounds.
+    var inputMentions: [DetectedMention] = []
+    var removedMentionTitles: Set<String> = []
+    /// Brain people/project titles for the `[[`/`@` autocomplete in the compose fields; loaded
+    /// when a compose surface opens so the completion list reads synchronously.
     var brainEntityTitles: [String] = []
-    var activeAskMentions: [DetectedMention] {
-        askMentions.filter { !removedAskMentionTitles.contains($0.title) }
+    var activeMentions: [DetectedMention] {
+        inputMentions.filter { !removedMentionTitles.contains($0.title) }
     }
 
-    /// Recompute detected mentions from the current ask text (called as the user types). Brain
-    /// off / no engine ⇒ cleared. Removing a chip persists across refreshes via the dropped set.
-    func refreshAskMentions(for text: String) async {
-        guard let engine = contextEngine else { askMentions = []; return }
-        askMentions = await engine.detectMentions(in: text)
+    /// Recompute detected mentions from the current compose text (called as the user types).
+    /// Brain off / no engine ⇒ cleared. A dropped chip persists across refreshes via the drop set.
+    func refreshMentions(for text: String) async {
+        guard let engine = contextEngine else { inputMentions = []; return }
+        inputMentions = await engine.detectMentions(in: text)
     }
 
-    /// Drop a detected mention so it won't ground the ask (the × on its chip).
-    func removeAskMention(_ title: String) { removedAskMentionTitles.insert(title) }
+    /// Drop a detected mention so it won't ground the request (the × on its chip).
+    func removeMention(_ title: String) { removedMentionTitles.insert(title) }
 
-    /// Reset the mention chip row (new ask session).
-    func clearAskMentions() { askMentions = []; removedAskMentionTitles = [] }
+    /// Reset the mention chip row (new compose session).
+    func clearMentions() { inputMentions = []; removedMentionTitles = [] }
 
     /// Load brain titles for the `[[`/`@` autocomplete. Called from AskInput.onAppear so it
     /// covers every path that shows the ask field (standalone `.ask` AND the hub's ask mode).
@@ -595,13 +596,14 @@ final class PanelController {
                 askContext = .empty
             }
             beginAskContext()   // opt-in tray; the summon pid carries over from the original capture (ADR 0020)
-            clearAskMentions()  // fresh mention chip row for this ask session (W2)
+            clearMentions()     // fresh mention chip row for this ask session (W2)
             state = .visible(PanelContext(), .ask)
             return
         case .custom, .respond:
             // Compose phase always carries its action in the context so submit,
             // the toolbar, accept, and persistence can all read it. Without this
             // the Respond flow silently runs as Custom.
+            clearMentions()     // fresh mention chip row for this compose session (W2)
             state = .visible(PanelContext(selection: selectionWithCurrentInput(), action: action), .customPrompt)
         default:
             startGeneration(action: action, selection: selectionWithCurrentInput())
@@ -615,7 +617,10 @@ final class PanelController {
     func submitCompose(_ text: String) {
         guard case .visible(let ctx, .customPrompt) = state, let base = ctx.action else { return }
         guard let action = Action.fromCompose(base: base, text: text) else { return }
-        startGeneration(action: action, selection: ctx.selection)
+        // W2: honor the compose chip row — pass the confirmed set (which may be empty if every
+        // chip was dropped ⇒ no grounding); never populated ⇒ nil lets bundle() auto-detect.
+        let mentions: [DetectedMention]? = inputMentions.isEmpty ? nil : activeMentions
+        startGeneration(action: action, selection: ctx.selection, mentions: mentions)
     }
 
     func backToMenu() {
@@ -977,7 +982,8 @@ final class PanelController {
         }
     }
 
-    private func startGeneration(action: Action, selection explicitSel: Selection? = nil) {
+    private func startGeneration(action: Action, selection explicitSel: Selection? = nil,
+                                 mentions: [DetectedMention]? = nil) {
         guard let session = current else { return }
         let sel = explicitSel ?? currentSelection()
         streamingText = ""
@@ -985,7 +991,7 @@ final class PanelController {
         state = .visible(PanelContext(selection: sel, action: action), .generating)
         session.cancelStreaming()
         session.streamingTask = Task { @MainActor [weak self] in
-            await self?.runStream(action: action, selection: sel)
+            await self?.runStream(action: action, selection: sel, mentions: mentions)
         }
     }
 
@@ -1031,17 +1037,18 @@ final class PanelController {
         }
     }
 
-    private func runStream(action: Action, selection: Selection?) async {
+    private func runStream(action: Action, selection: Selection?, mentions: [DetectedMention]? = nil) async {
         let baseSystemPrompt = registry.systemPrompt(for: action)
         let systemPrompt = memory?.compose(base: baseSystemPrompt, for: action) ?? baseSystemPrompt
 
-        // W2: ground respond/custom in the people/projects named in the instruction. Fixed
-        // quick-actions carry no instruction (groundsInBrain == false), so this no-ops for them.
+        // W2: ground respond/custom in the people/projects named in the instruction. The compose
+        // chip row passes confirmed `mentions` (drops honored); nil lets bundle() auto-detect from
+        // the text. Fixed quick-actions carry no instruction (groundsInBrain == false) ⇒ no-op.
         var knowledge: String? = nil
         resultProvenance = []
         if let engine = contextEngine, action.groundsInBrain {
             let selText = selection?.text ?? ""
-            let kb = await engine.bundle(for: "\(action.steerText ?? "") \(selText)")
+            let kb = await engine.bundle(for: "\(action.steerText ?? "") \(selText)", mentions: mentions)
             if !kb.text.isEmpty { knowledge = kb.text }
             resultProvenance = kb.sources   // shown as Source chips below the result
         }
@@ -1425,7 +1432,7 @@ final class PanelController {
         // W2: honor the pre-generation chip row. If it was populated, pass the user-confirmed
         // set (which may be empty if they dropped every chip ⇒ no grounding); if it was never
         // populated, nil lets bundle() auto-detect from the question.
-        let confirmedMentions: [DetectedMention]? = askMentions.isEmpty ? nil : activeAskMentions
+        let confirmedMentions: [DetectedMention]? = inputMentions.isEmpty ? nil : activeMentions
 
         session.streamingTask = Task { @MainActor [weak self] in
             guard let self else { return }

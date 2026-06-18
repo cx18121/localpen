@@ -24,29 +24,14 @@ struct AskInput: View {
             .onChange(of: question) { _, newValue in
                 // Detect named people/projects as you type so grounding is visible + removable
                 // before you submit (W2). Cheap (in-memory title match); brain off ⇒ no chips.
-                Task { await controller.refreshAskMentions(for: newValue) }
+                Task { await controller.refreshMentions(for: newValue) }
             }
         }
     }
 
-    /// The pre-generation mention chip row (W2): the people/projects this ask will ground on,
-    /// each removable. Hidden when nothing is detected (or every chip was dropped).
-    @ViewBuilder
+    /// The pre-generation mention chip row (W2), shared with the Custom/Respond compose surface.
     private var mentionRow: some View {
-        let mentions = controller.activeAskMentions
-        if !mentions.isEmpty {
-            HStack(spacing: Spacing.s2) {
-                Image(systemName: "book.closed")
-                    .font(Typography.microGlyph)
-                    .foregroundStyle(Tokens.accent)
-                ForEach(mentions, id: \.title) { m in
-                    MentionChip(title: m.title, isPerson: m.type == .person) {
-                        controller.removeAskMention(m.title)
-                    }
-                }
-                Spacer()
-            }
-        }
+        MentionRow(mentions: controller.activeMentions, onRemove: controller.removeMention)
     }
 
     @ViewBuilder
@@ -152,37 +137,6 @@ struct AskInput: View {
         let limit = 40
         if collapsed.count <= limit { return collapsed }
         return collapsed.prefix(limit).trimmingCharacters(in: .whitespaces) + "…"
-    }
-}
-
-/// A detected brain entity that will ground the ask (W2). Accent-tinted (KB-derived, like the
-/// Source/calendar chips) with a person/project glyph and a × to drop it from grounding.
-private struct MentionChip: View {
-    let title: String
-    let isPerson: Bool
-    let onRemove: () -> Void
-    var body: some View {
-        HStack(spacing: Spacing.s1) {
-            Image(systemName: isPerson ? "person.fill" : "folder.fill")
-                .font(Typography.microGlyph)
-            Text(title)
-                .font(Typography.subhead)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 160, alignment: .leading)
-            Button(action: onRemove) {
-                Image(systemName: "xmark").font(Typography.microGlyph)
-            }
-            .buttonStyle(.plain)
-        }
-        .foregroundStyle(Tokens.accent)
-        .padding(.horizontal, Spacing.s3)
-        .padding(.vertical, Spacing.s1)
-        .background(
-            RoundedRectangle(cornerRadius: Spacing.innerRadius, style: .continuous)
-                .fill(Tokens.accentTint)
-        )
-        .help("Grounding this ask in your “\(title)” note — × to drop it")
     }
 }
 

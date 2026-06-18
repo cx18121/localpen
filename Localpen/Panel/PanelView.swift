@@ -32,6 +32,7 @@ struct PanelView: View {
                         Hairline()
                     }
                     CustomPromptView(
+                        controller: controller,
                         action: ctx.action ?? .custom(""),
                         onSubmit: { controller.submitCompose($0) }
                     )
