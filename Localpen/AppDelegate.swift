@@ -376,30 +376,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 Task.detached { await brainIndex.reindexAll(root: root) }
             }
 
-            // Sibling pass (project-activity freshness): summarize git activity into project
-            // pages. Shares the nightly trigger + a synthesize closure over the same server.
+            // Sibling curation passes: share the nightly trigger + one synthesize closure over
+            // the same server (faithful temp-0.3). Each is hash/SHA-gated and best-effort.
             if let brainIndex = self.brainIndex {
-                let pass = ProjectActivityPass(
-                    index: brainIndex,
-                    writer: VaultWriter(vaultRoot: BrainAccess.vaultRoot),
+                let vaultRoot = BrainAccess.vaultRoot
+                let synthesize: (String, String) async -> CurationOutcome = { system, user in
+                    do {
+                        let client = StreamingClient(port: port)
+                        var acc = ""
+                        for try await tok in client.complete(systemPrompt: system, userText: user,
+                                                             sampling: .init(temperature: 0.3, topP: 0.9, repeatPenalty: 1.05),
+                                                             timeout: 600) { acc += tok }
+                        return .completed(acc)
+                    } catch { return .failed(error.localizedDescription) }
+                }
+
+                // Project-activity freshness: summarize git commits into project `## Activity` logs.
+                let activity = ProjectActivityPass(
+                    index: brainIndex, writer: VaultWriter(vaultRoot: vaultRoot),
                     sync: ProjectSyncStore(fileURL: ProjectSyncStore.defaultURL()),
-                    synthesize: { system, user in
-                        do {
-                            let client = StreamingClient(port: port)
-                            var acc = ""
-                            for try await tok in client.complete(systemPrompt: system, userText: user,
-                                                                 sampling: .init(temperature: 0.3, topP: 0.9, repeatPenalty: 1.05),
-                                                                 timeout: 600) { acc += tok }
-                            return .completed(acc)
-                        } catch { return .failed(error.localizedDescription) }
-                    },
-                    now: { Date() }
-                )
-                let aReport = await pass.run()
+                    synthesize: synthesize, now: { Date() })
+                let aReport = await activity.run()
                 self.log.info("activity pass: \(aReport.projects) projects, \(aReport.entries) entries")
-                if aReport.entries > 0 {
-                    let root = BrainAccess.vaultRoot
-                    Task.detached { await brainIndex.reindexAll(root: root) }
+
+                // People synthesis: distill each person page's raw facts into Compiled Truth +
+                // a deduped Connections (only when the facts changed since last run).
+                let people = PeopleSynthesisPass(
+                    index: brainIndex, writer: VaultWriter(vaultRoot: vaultRoot),
+                    store: PeopleSynthStore(fileURL: PeopleSynthStore.defaultURL()),
+                    synthesize: synthesize, now: { Date() })
+                let pReport = await people.run()
+                self.log.info("people synthesis: \(pReport.people) people, \(pReport.synthesized) synthesized")
+
+                if aReport.entries > 0 || pReport.synthesized > 0 {
+                    Task.detached { await brainIndex.reindexAll(root: vaultRoot) }
                 }
             }
 
