@@ -354,6 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             nowMillis: { Int64(Date().timeIntervalSince1970 * 1000) }
         )
 
+        let port = server.port
         Task { @MainActor in
             let report = await runner.run()
             self.dreamCycleRunning = false
@@ -364,6 +365,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 let root = BrainAccess.vaultRoot
                 Task.detached { await brainIndex.reindexAll(root: root) }
             }
+
+            // Sibling pass (project-activity freshness): summarize git activity into project
+            // pages. Shares the nightly trigger + a synthesize closure over the same server.
+            if let brainIndex = self.brainIndex {
+                let pass = ProjectActivityPass(
+                    index: brainIndex,
+                    writer: VaultWriter(vaultRoot: BrainAccess.vaultRoot),
+                    sync: ProjectSyncStore(fileURL: ProjectSyncStore.defaultURL()),
+                    synthesize: { system, user in
+                        do {
+                            let client = StreamingClient(port: port)
+                            var acc = ""
+                            for try await tok in client.complete(systemPrompt: system, userText: user,
+                                                                 sampling: .init(temperature: 0.3, topP: 0.9, repeatPenalty: 1.05),
+                                                                 timeout: 600) { acc += tok }
+                            return .completed(acc)
+                        } catch { return .failed(error.localizedDescription) }
+                    },
+                    now: { Date() }
+                )
+                let aReport = await pass.run()
+                self.log.info("activity pass: \(aReport.projects) projects, \(aReport.entries) entries")
+                if aReport.entries > 0 {
+                    let root = BrainAccess.vaultRoot
+                    Task.detached { await brainIndex.reindexAll(root: root) }
+                }
+            }
+
             self.dreamFinished(force, report.summaryLine)
         }
     }
