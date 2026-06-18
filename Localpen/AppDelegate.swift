@@ -309,8 +309,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private static let dreamCycleLastRunKey = "curation.lastRunMillis"
 
-    /// Poll every 30 min; `maybeRunDreamCycle` self-gates on the off-peak window + a
-    /// once-a-day floor, so the cycle only fires while the user is likely asleep.
+    /// Poll every 30 min; `maybeRunDreamCycle` self-gates via `shouldRunDreamCycle` — a
+    /// nightly off-peak run plus a daytime catch-up when the cycle goes overdue.
     private func scheduleDreamCycle() {
         let timer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.maybeRunDreamCycle() }
@@ -323,11 +323,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private func maybeRunDreamCycle() {
         let hour = Calendar.current.component(.hour, from: Date())
-        guard (2..<6).contains(hour) else { return }                       // off-peak only
         let last = UserDefaults.standard.double(forKey: Self.dreamCycleLastRunKey)
         let nowMs = Date().timeIntervalSince1970 * 1000
-        guard nowMs - last > 18 * 3600 * 1000 else { return }              // at most ~once/day
+        guard Self.shouldRunDreamCycle(hour: hour, lastRunMillis: last, nowMillis: nowMs) else { return }
         runDreamCycle(force: false)
+    }
+
+    /// Whether an automatic curation cycle should fire now (pure, for testing). The cycle
+    /// prefers the off-peak 2–6am window and runs there ~once a day. But a laptop asleep at
+    /// night would never hit that window, so once the cycle goes overdue (>24h since the last
+    /// run) it also fires during the day — a catch-up so the brain still stays fresh. Machines
+    /// awake at night keep getting the quiet nightly run and never trip the daytime path.
+    nonisolated static func shouldRunDreamCycle(hour: Int, lastRunMillis: Double, nowMillis: Double) -> Bool {
+        let elapsedHours = (nowMillis - lastRunMillis) / 3_600_000
+        if (2..<6).contains(hour) { return elapsedHours > 18 }   // nightly, ~once/day
+        return elapsedHours > 24                                 // daytime catch-up when overdue
     }
 
     /// Build + run one dream cycle. `force` (the manual Settings trigger) bypasses the
