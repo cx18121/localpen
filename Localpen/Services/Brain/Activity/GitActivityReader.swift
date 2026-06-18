@@ -83,3 +83,39 @@ enum GitActivityReader {
         return (num(#"\d+ files? changed"#), num(#"\d+ insertions?\(\+\)"#), num(#"\d+ deletions?\(-\)"#))
     }
 }
+
+extension GitActivityReader {
+    struct ReadResult: Equatable { let commits: [Commit]; let head: String }
+
+    static func read(repoPath: String, sinceSHA: String?, sinceDate: Date?) throws -> ReadResult {
+        guard runGit(repoPath, ["rev-parse", "--git-dir"]) != nil else { throw GitError.notARepo }
+        guard let head = runGit(repoPath, ["rev-parse", "--short", "HEAD"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !head.isEmpty else {
+            throw GitError.git("no HEAD")
+        }
+        var args = ["log", "--no-merges", "--date=short", "--shortstat", "--reverse",
+                    "--pretty=format:@@C@@\u{1f}%h\u{1f}%aI\u{1f}%s\u{1f}%b\u{1f}@@E@@"]
+        if let sinceSHA { args.append("\(sinceSHA)..HEAD") }
+        else if let sinceDate {
+            let iso = ISO8601DateFormatter(); iso.formatOptions = [.withFullDate]
+            args.append("--since=\(iso.string(from: sinceDate))")
+        }
+        guard let raw = runGit(repoPath, args) else { throw GitError.git("log failed") }
+        return ReadResult(commits: parse(raw), head: head)
+    }
+
+    /// Run git in `repoPath`; returns stdout on success, nil on failure (incl. non-repo).
+    private static func runGit(_ repoPath: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        p.arguments = ["-C", repoPath] + args
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+}
+
+enum GitError: Error, Equatable { case notARepo, git(String) }
