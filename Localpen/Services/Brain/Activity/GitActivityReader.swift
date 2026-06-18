@@ -23,8 +23,6 @@ enum GitActivityReader {
         // Each commit: "@@C@@\u{1f}sha\u{1f}date\u{1f}subject\u{1f}body…\u{1f}@@E@@" then a
         // --shortstat line. Split on the "@@C@@\u{1f}" record opener.
         let records = rawLog.components(separatedBy: "@@C@@\u{1f}").dropFirst()
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withFullDate]
         var out: [Commit] = []
         for rec in records {
             guard let endRange = rec.range(of: "\u{1f}@@E@@") else { continue }
@@ -32,7 +30,7 @@ enum GitActivityReader {
             let fields = head.components(separatedBy: "\u{1f}")
             guard fields.count >= 4 else { continue }
             let sha = fields[0]
-            let date = iso.date(from: fields[1]) ?? Date(timeIntervalSince1970: 0)
+            let date = parseDate(fields[1])
             let rawSubject = fields[2]
             let body = fields[3...].joined(separator: "\u{1f}").trimmingCharacters(in: .whitespacesAndNewlines)
             let after = String(rec[endRange.upperBound...])
@@ -46,6 +44,18 @@ enum GitActivityReader {
 
     static func substantive(_ commits: [Commit]) -> [Commit] {
         commits.filter { !trivialTypes.contains($0.type) }
+    }
+
+    /// Parses a date from either a full ISO 8601 datetime (real `git log %aI`,
+    /// e.g. "2026-06-17T14:22:11+05:30") or a date-only string ("2026-06-17").
+    /// Returns epoch on complete parse failure.
+    private static func parseDate(_ s: String) -> Date {
+        let full = ISO8601DateFormatter()          // default options handle full datetimes
+        if let d = full.date(from: s) { return d }
+        let dateOnly = ISO8601DateFormatter()
+        dateOnly.formatOptions = [.withFullDate]
+        if let d = dateOnly.date(from: s) { return d }
+        return Date(timeIntervalSince1970: 0)
     }
 
     /// "feat(w2): text" → ("feat","w2","text"); "fix: text" → ("fix",nil,"text");
