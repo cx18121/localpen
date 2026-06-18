@@ -60,8 +60,9 @@ struct VaultWriter {
             // A NEW person is high-judgment (queued) — the writer only appends to one
             // that already exists.
             guard exists(rel) else { throw WriteError.targetMissing(rel) }
-            try appendLine(rel, "- \(entry)")
-            try commit([rel], "people: timeline \(name)")
+            if try appendLine(rel, "- \(entry)") {
+                try commit([rel], "people: timeline \(name)")
+            }
             return rel
 
         case .nominateLink(let fromPage, let toTitle):
@@ -70,8 +71,9 @@ struct VaultWriter {
             guard let rel = resolvePage(titled: fromName) else {
                 throw WriteError.targetMissing("\(fromName).md")
             }
-            try appendLine(rel, "- [[\(toName)]]")
-            try commit([rel], "link: \(fromName) -> \(toName)")
+            if try appendLine(rel, "- [[\(toName)]]") {
+                try commit([rel], "link: \(fromName) -> \(toName)")
+            }
             return rel
 
         case .updateNow(let text):
@@ -211,16 +213,28 @@ struct VaultWriter {
         }
     }
 
-    private func appendLine(_ rel: String, _ line: String) throws {
+    /// Append `line` to the file end, unless an identical line (trimmed) is already present.
+    /// Returns whether it actually wrote, so callers skip the commit on a no-op. The curation
+    /// re-reads un-cleared inbox texts every cycle, so the same fact arrives repeatedly; an
+    /// exact match must be an idempotent no-op, never a duplicate line (and never an empty
+    /// commit, which git rejects).
+    @discardableResult
+    private func appendLine(_ rel: String, _ line: String) throws -> Bool {
         try guardWritable(rel)
         let url = absolute(rel)
         let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let target = line.trimmingCharacters(in: .whitespaces)
+        if existing.components(separatedBy: "\n")
+            .contains(where: { $0.trimmingCharacters(in: .whitespaces) == target }) {
+            return false
+        }
         let sep = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
         do {
             try (existing + sep + line + "\n").write(to: url, atomically: true, encoding: .utf8)
         } catch {
             throw WriteError.io("append \(rel): \(error.localizedDescription)")
         }
+        return true
     }
 
     /// Insert `entry` directly under `header`, creating the section at end-of-file if absent.
