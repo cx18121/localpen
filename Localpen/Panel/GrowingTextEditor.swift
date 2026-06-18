@@ -24,9 +24,10 @@ struct GrowingTextEditor: NSViewRepresentable {
     /// panel (for "back") instead of blurring. When nil (the default), Esc/Tab
     /// blur focus back to the menu.
     var onSubmit: ((String) -> Void)? = nil
-    /// When set, typing `[[` or `@` shows a completion list of these titles, inserted as
-    /// `[[Title]]` (W2 mention input). nil ⇒ no autocomplete.
+    /// When set, typing `[[` or `@` shows a dropdown of these titles, inserted as `[[Title]]`
+    /// (W2 mention input). Paired with `mentionModel` (the dropdown's state). nil ⇒ no autocomplete.
     var mentionTitles: (() -> [String])? = nil
+    var mentionModel: MentionCompletionModel? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -34,6 +35,7 @@ struct GrowingTextEditor: NSViewRepresentable {
         let tv = GrowingNSTextView()
         tv.delegate = context.coordinator
         tv.mentionTitles = mentionTitles
+        tv.mentionModel = mentionModel
         tv.isRichText = false
         tv.allowsUndo = true
         tv.drawsBackground = false
@@ -60,6 +62,8 @@ struct GrowingTextEditor: NSViewRepresentable {
 
     func updateNSView(_ tv: GrowingNSTextView, context: Context) {
         context.coordinator.parent = self
+        tv.mentionTitles = mentionTitles
+        tv.mentionModel = mentionModel
         if tv.string != text {
             tv.string = text
             tv.invalidateIntrinsicContentSize()
@@ -89,7 +93,26 @@ struct GrowingTextEditor: NSViewRepresentable {
             parent.text = tv.string
         }
 
+        func textViewDidChangeSelection(_ notification: Notification) {
+            // Caret moved (click / arrow without edit) — re-evaluate the dropdown so it doesn't
+            // linger when the caret leaves a `[[`/`@` token.
+            (notification.object as? GrowingNSTextView)?.updateMentionModel()
+        }
+
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // Mention dropdown is open: arrow keys move the selection, Return/Tab accept the
+            // highlighted title, Esc dismisses the list (not "back"). Takes priority over submit.
+            if let model = parent.mentionModel, model.isActive {
+                switch commandSelector {
+                case #selector(NSResponder.moveUp(_:)):   model.moveUp(); return true
+                case #selector(NSResponder.moveDown(_:)): model.moveDown(); return true
+                case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+                    (textView as? GrowingNSTextView)?.acceptMention(); return true
+                case #selector(NSResponder.cancelOperation(_:)):
+                    model.clear(); return true
+                default: break
+                }
+            }
             // Submit mode: Return submits, Shift+Return inserts a newline, and
             // Esc/Tab fall through to the panel (Esc → back).
             if let onSubmit = parent.onSubmit {
@@ -112,18 +135,6 @@ struct GrowingTextEditor: NSViewRepresentable {
             }
         }
 
-        /// Feed the `[[`/`@` completion list (W2). Returns the brain titles matching the active
-        /// token's query; the system draws + key-handles the list, and `insertCompletion` wraps
-        /// the pick as `[[Title]]`.
-        func textView(_ textView: NSTextView, completions words: [String],
-                      forPartialWordRange charRange: NSRange,
-                      indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
-            guard let tv = textView as? GrowingNSTextView,
-                  let provider = tv.mentionTitles,
-                  let token = tv.activeMentionToken else { return [] }
-            index?.pointee = 0
-            return MentionAutocomplete.filter(provider(), query: token.query, limit: 8)
-        }
     }
 }
 
@@ -132,52 +143,32 @@ final class GrowingNSTextView: NSTextView {
     private var lastWidth: CGFloat = -1
 
     // MARK: - Mention autocomplete (W2)
-    /// Provider of brain titles; nil ⇒ autocomplete disabled. The active token under the caret
-    /// is recomputed on every text change and read by the completion delegate + insertion.
+    /// Brain titles + the dropdown model; both nil ⇒ autocomplete disabled. Recomputed on every
+    /// edit; the model drives the SwiftUI dropdown and `acceptMention` inserts the pick.
     var mentionTitles: (() -> [String])?
-    fileprivate(set) var activeMentionToken: MentionAutocomplete.Token?
+    var mentionModel: MentionCompletionModel?
 
-    /// Recompute the active `[[`/`@` token and show/hide the completion list accordingly.
-    private func refreshMentionCompletion() {
-        guard let provider = mentionTitles else { activeMentionToken = nil; return }
+    /// Recompute the active `[[`/`@` token + matches into the dropdown model.
+    func updateMentionModel() {
+        guard let model = mentionModel, let titles = mentionTitles else { return }
         let sel = selectedRange()
-        if sel.length == 0,
-           let token = MentionAutocomplete.activeToken(in: string as NSString, caret: sel.location),
-           !MentionAutocomplete.filter(provider(), query: token.query, limit: 8).isEmpty {
-            activeMentionToken = token
-            DispatchQueue.main.async { [weak self] in self?.complete(nil) }   // show/refresh list
-        } else if activeMentionToken != nil {
-            activeMentionToken = nil
-            DispatchQueue.main.async { [weak self] in self?.complete(nil) }   // dismiss stale list
+        if sel.length == 0 {
+            model.update(text: string as NSString, caret: sel.location, titles: titles())
+        } else {
+            model.clear()
         }
     }
 
-    /// Complete against the query AFTER the trigger (`[[`/`@`), so the system prefix-matches
-    /// titles, not the brackets.
-    override var rangeForUserCompletion: NSRange {
-        if let t = activeMentionToken {
-            let tl = MentionAutocomplete.triggerLength(t.trigger)
-            return NSRange(location: t.range.location + tl, length: t.range.length - tl)
-        }
-        return super.rangeForUserCompletion
-    }
-
-    /// Insert a picked title as `[[Title]]`, replacing the whole trigger token. Skips inline
-    /// previews (non-final) so navigating the list doesn't mangle the text.
-    override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange,
-                                   movement: Int, isFinal: Bool) {
-        guard isFinal else { return }
-        guard let t = activeMentionToken else {
-            super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: isFinal)
-            return
-        }
-        let replacement = MentionAutocomplete.replacement(for: word)
+    /// Insert the highlighted title as `[[Title]]`, replacing the whole trigger token.
+    func acceptMention() {
+        guard let model = mentionModel, let t = model.token, let title = model.current else { return }
+        let replacement = MentionAutocomplete.replacement(for: title)
         if shouldChangeText(in: t.range, replacementString: replacement) {
             textStorage?.replaceCharacters(in: t.range, with: replacement)
             didChangeText()
             setSelectedRange(NSRange(location: t.range.location + (replacement as NSString).length, length: 0))
         }
-        activeMentionToken = nil
+        model.clear()
     }
 
     override var intrinsicContentSize: NSSize {
@@ -192,7 +183,7 @@ final class GrowingNSTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         invalidateIntrinsicContentSize()
-        refreshMentionCompletion()
+        updateMentionModel()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
