@@ -124,6 +124,18 @@ final class BrainIndex {
         }) ?? []
     }
 
+    /// Pages this page links *to* (its resolved outbound wikilinks). Unresolved/dangling
+    /// links (`dst_path IS NULL`) are skipped. Mirror of `backlinks(toTitle:)`.
+    func outboundLinks(fromPath path: String) async -> [KBPage] {
+        (try? await dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT p.* FROM pages p
+                JOIN links l ON l.dst_path = p.path
+                WHERE l.src_path = ?
+                """, arguments: [path]).map(KBPage.init(brainRow:))
+        }) ?? []
+    }
+
     func recentPages(limit: Int) async -> [KBPage] {
         (try? await dbQueue.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM pages ORDER BY mtime DESC LIMIT ?",
