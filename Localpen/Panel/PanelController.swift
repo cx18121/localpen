@@ -162,6 +162,10 @@ final class PanelController {
     /// Reset the mention chip row (new ask session).
     func clearAskMentions() { askMentions = []; removedAskMentionTitles = [] }
 
+    /// Load brain titles for the `[[`/`@` autocomplete. Called from AskInput.onAppear so it
+    /// covers every path that shows the ask field (standalone `.ask` AND the hub's ask mode).
+    func loadBrainTitles() async { brainEntityTitles = await contextEngine?.candidateTitles() ?? [] }
+
     // MARK: - Hub + Profile (ADR 0016 / memory)
     /// The hub surface's state + data loading. Views bind `controller.hub.*`; the panel
     /// transition into the hub stays here (`enterHub` sets `state`). `var` (not `let`) so the
@@ -592,7 +596,6 @@ final class PanelController {
             }
             beginAskContext()   // opt-in tray; the summon pid carries over from the original capture (ADR 0020)
             clearAskMentions()  // fresh mention chip row for this ask session (W2)
-            Task { brainEntityTitles = await contextEngine?.candidateTitles() ?? [] }   // [[/@ autocomplete source
             state = .visible(PanelContext(), .ask)
             return
         case .custom, .respond:

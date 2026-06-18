@@ -16,6 +16,11 @@ struct AskInput: View {
                 footer
             }
             .padding(Spacing.s5)
+            .onAppear {
+                // Load brain titles for the [[/@ autocomplete (covers the hub's ask mode too,
+                // which doesn't route through pick(.ask)).
+                Task { await controller.loadBrainTitles() }
+            }
             .onChange(of: question) { _, newValue in
                 // Detect named people/projects as you type so grounding is visible + removable
                 // before you submit (W2). Cheap (in-memory title match); brain off ⇒ no chips.
