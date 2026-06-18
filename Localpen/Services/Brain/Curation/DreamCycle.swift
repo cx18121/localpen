@@ -24,6 +24,9 @@ final class DreamCycle {
     let stash: ConversationStash
     /// Extra raw inputs beyond the stash (e.g. raw/inbox/ texts). Empty is fine.
     let loadInboxTexts: () -> [String]
+    /// Move consumed inbox files out of raw/inbox/ once curated, so the same captures aren't
+    /// re-synthesized every cycle. Called ONLY on the success path (mirrors `stash.clear()`).
+    let archiveInbox: () -> Void
     let writer: VaultWriter
     let suggestions: SuggestionStore
     let nowMillis: () -> Int64
@@ -35,12 +38,14 @@ final class DreamCycle {
          writer: VaultWriter,
          suggestions: SuggestionStore,
          loadInboxTexts: @escaping () -> [String] = { [] },
+         archiveInbox: @escaping () -> Void = {},
          nowMillis: @escaping () -> Int64) {
         self.synthesize = synthesize
         self.stash = stash
         self.writer = writer
         self.suggestions = suggestions
         self.loadInboxTexts = loadInboxTexts
+        self.archiveInbox = archiveInbox
         self.nowMillis = nowMillis
     }
 
@@ -87,8 +92,10 @@ final class DreamCycle {
             route(CurationSynthesis.parse(text), into: &report)
         }
 
-        // 3. Clear the processed stash (idempotent — a re-run won't double-file).
+        // 3. Clear the processed stash + archive the consumed inbox (idempotent — a re-run
+        // won't double-file, and the inbox won't be re-synthesized next cycle).
         stash.clear()
+        archiveInbox()
         log.info("dream cycle: applied \(report.applied) queued \(report.queued) failed \(report.failed)")
         return report
     }

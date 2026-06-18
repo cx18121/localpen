@@ -10,6 +10,9 @@ struct DreamCycleRunner {
     let server: LlamaServerController
     let stash: ConversationStash
     let suggestions: SuggestionStore
+    /// Archive the consumed inbox on a successful cycle (set by AppDelegate from a pre-run
+    /// snapshot). Default no-op keeps tests + other callers unchanged.
+    var archiveInbox: () -> Void = {}
     let nowMillis: () -> Int64
 
     /// Faithful, less-inventive synthesis: lower temperature than the interactive transform.
@@ -37,6 +40,7 @@ struct DreamCycleRunner {
             writer: VaultWriter(vaultRoot: BrainAccess.vaultRoot),
             suggestions: suggestions,
             loadInboxTexts: { InboxStore(vaultRoot: BrainAccess.vaultRoot).bodies() },
+            archiveInbox: archiveInbox,
             nowMillis: nowMillis
         )
         return await cycle.run()

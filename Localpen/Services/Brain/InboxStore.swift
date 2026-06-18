@@ -69,6 +69,33 @@ struct InboxStore {
             .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
     }
 
+    /// The current top-level inbox `.md` files (the `.archive/` subdir is excluded — it's a
+    /// directory, not a `.md`). Snapshotted before a dream cycle so exactly the consumed files
+    /// are archived afterward, never a capture that arrived mid-run.
+    func itemURLs() -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "md" }
+    }
+
+    /// Move curated inbox files into `raw/inbox/.archive/` so the dream cycle doesn't
+    /// re-synthesize them every run. Best-effort (a failed move stays in place → retried next
+    /// cycle). `.archive/` is under `raw/`, which the brain index excludes, so archived
+    /// captures stay out of retrieval. `bodies()`/`itemURLs()` skip the subdir.
+    func archive(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let archiveDir = directory.appendingPathComponent(".archive", isDirectory: true)
+        try? FileManager.default.createDirectory(at: archiveDir, withIntermediateDirectories: true)
+        for url in urls {
+            var dest = archiveDir.appendingPathComponent(url.lastPathComponent)
+            let base = url.deletingPathExtension().lastPathComponent
+            var n = 2
+            while FileManager.default.fileExists(atPath: dest.path) {
+                dest = archiveDir.appendingPathComponent("\(base)-\(n).md"); n += 1
+            }
+            try? FileManager.default.moveItem(at: url, to: dest)
+        }
+    }
+
     /// The first `# heading` of an inbox file, else its filename — a readable label.
     static func title(_ url: URL) -> String {
         if let text = try? String(contentsOf: url, encoding: .utf8),

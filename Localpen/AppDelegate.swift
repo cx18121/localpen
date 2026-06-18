@@ -359,8 +359,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // ADR 0017: synthesis runs against the already-loaded transform model. The runner
         // owns the synthesis policy; this method owns only the run flag, the timestamp, the
         // reindex, and reporting back to Settings.
+        // Snapshot the inbox BEFORE the run so exactly the consumed captures are archived on
+        // success — never one that arrives mid-cycle (root-cause fix for nightly re-synthesis).
+        let inboxSnapshot = InboxStore(vaultRoot: BrainAccess.vaultRoot).itemURLs()
         let runner = DreamCycleRunner(
             server: server, stash: stash, suggestions: suggestions,
+            archiveInbox: { InboxStore(vaultRoot: BrainAccess.vaultRoot).archive(inboxSnapshot) },
             nowMillis: { Int64(Date().timeIntervalSince1970 * 1000) }
         )
 
