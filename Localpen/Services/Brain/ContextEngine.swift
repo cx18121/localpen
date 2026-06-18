@@ -176,14 +176,15 @@ final class ContextEngine {
                                      uniquingKeysWith: { a, _ in a })
 
         // 2. 1-hop graph expansion from the top seeds (inbound + outbound), relevance-gated later.
-        // linkedPaths tracks every neighbor of a top hit — whether or not it was already a hybrid
-        // candidate — so provenance stays honest (the graph connection is real regardless).
+        // linkedPaths tracks ONLY neighbors that are not already hybrid candidates: a page that was
+        // independently a strong query hit keeps its .query reason; .linked means entered exclusively
+        // via graph expansion (not already in titleByPath from the candidate step).
         var linkedPaths = Set<String>()
         for hit in candidatePages.prefix(config.graphSeedCount) {
             let neighbors = await index.backlinks(toTitle: hit.page.title)
                           + index.outboundLinks(fromPath: hit.page.path)
-            for n in neighbors where !used.contains(n.path) {
-                if titleByPath[n.path] == nil { titleByPath[n.path] = n.title }
+            for n in neighbors where titleByPath[n.path] == nil && !used.contains(n.path) {
+                titleByPath[n.path] = n.title
                 linkedPaths.insert(n.path)
             }
         }
