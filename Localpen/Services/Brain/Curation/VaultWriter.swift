@@ -228,17 +228,25 @@ struct VaultWriter {
     private func prependUnderSection(_ rel: String, header: String, entry: String) throws {
         try guardWritable(rel)
         let url = absolute(rel)
-        var text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        // Throwing read: the caller confirmed the file exists, so nil here means a real
+        // I/O failure (permissions, encoding) — fall-back to "" would zero the page.
+        let text: String
+        do { text = try String(contentsOf: url, encoding: .utf8) }
+        catch { throw WriteError.io("activity \(rel): \(error.localizedDescription)") }
         let block = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let hRange = text.range(of: header) {
-            // Find the end of the header line, insert the block right after it.
-            let afterHeaderLine = text[hRange.upperBound...].firstIndex(of: "\n").map { text.index(after: $0) } ?? text.endIndex
-            text.insert(contentsOf: "\n" + block + "\n", at: afterHeaderLine)
+        // Line-anchored match: only accept a line whose trimmed content equals `header`
+        // exactly, preventing "## Activity" from matching "## Activity Log" etc.
+        var lines = text.components(separatedBy: "\n")
+        let result: String
+        if let idx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == header }) {
+            lines.insert(contentsOf: ["", block], at: idx + 1)
+            result = lines.joined(separator: "\n")
         } else {
-            if !text.hasSuffix("\n") { text += "\n" }
-            text += "\n\(header)\n\n\(block)\n"
+            var base = text
+            if !base.hasSuffix("\n") { base += "\n" }
+            result = base + "\n\(header)\n\n\(block)\n"
         }
-        do { try text.write(to: url, atomically: true, encoding: .utf8) }
+        do { try result.write(to: url, atomically: true, encoding: .utf8) }
         catch { throw WriteError.io("activity \(rel): \(error.localizedDescription)") }
     }
 
