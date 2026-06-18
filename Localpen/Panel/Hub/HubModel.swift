@@ -60,26 +60,27 @@ final class HubModel {
         loadCurrentMode()
     }
 
-    /// Load the active mode's data. No-op for Ask/Capture (they're editors).
+    /// Load the active mode's data. Ask is an editor (no load). Today loads everything it now
+    /// rolls up (ADR 0024): schedule, now.md, follow-ups, suggestions, inbox.
     private func loadCurrentMode() {
         switch mode {
-        case .today:       loadToday()
-        case .kb:          searchNotes()
-        case .people:      loadPeople()
-        case .now:         loadNow()
-        case .suggestions: loadSuggestions()
-        case .ask, .capture: break
+        case .today:   loadToday()
+        case .kb:      searchNotes()
+        case .people:  loadPeople()
+        case .ask:     break
         }
     }
 
-    /// Daily briefing (ADR 0016): compose the cached schedule, due follow-ups, the now.md
-    /// excerpt, and recent inbox items — a morning glance over already-assembled signals.
+    /// Daily briefing (ADR 0024): the cached schedule, the now.md focus, due follow-ups, the
+    /// suggestion queue, and recent inbox items — a morning glance over already-assembled
+    /// signals, now the single home that absorbed Now / Capture / Suggestions.
     func loadToday() {
         // Schedule: the same cached 7-day window the ask chip uses (warms in background).
         let schedule = ICSCalendarReader().upcomingContext()
         todaySchedule = (schedule?.isEmpty == false) ? schedule : nil
-        loadNow()        // populates nowText
-        loadPeople()     // populates peopleInsights (follow-ups)
+        loadNow()          // populates nowText (Focus glance)
+        loadPeople()       // populates peopleInsights (follow-ups teaser → People)
+        loadSuggestions()  // populates suggestions (To review section)
         todayInbox = InboxStore(vaultRoot: BrainAccess.vaultRoot).recentTitles()
     }
 

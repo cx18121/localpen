@@ -20,11 +20,8 @@ struct HubShell: View {
         switch controller.hub.mode {
         case .today:   TodayModeView(controller: controller)
         case .ask:     AskInput(controller: controller)        // existing view, reused verbatim
-        case .kb:      KBModeView(controller: controller)
+        case .kb:      KBModeView(controller: controller)      // "Notes"
         case .people:  PeopleModeView(controller: controller)
-        case .capture: CaptureModeView(controller: controller)
-        case .now:     NowModeView(controller: controller)
-        case .suggestions: SuggestionsModeView(controller: controller)
         }
     }
 
