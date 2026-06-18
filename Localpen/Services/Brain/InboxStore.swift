@@ -48,6 +48,19 @@ struct InboxStore {
         return candidate
     }
 
+    /// Most-recent inbox items as (title, file URL) — so the hub can show them AND open each
+    /// in Obsidian for review/triage. Same ordering as `recentTitles`.
+    func recentItems(limit: Int = 6) -> [(title: String, url: URL)] {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey]))?
+            .filter { $0.pathExtension == "md" } ?? []
+        return urls.sorted {
+            let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return a > b
+        }.prefix(limit).map { (Self.title($0), $0) }
+    }
+
     /// The full text of every inbox item — the dream cycle's raw input alongside the stash.
     func bodies() -> [String] {
         let urls = (try? FileManager.default.contentsOfDirectory(

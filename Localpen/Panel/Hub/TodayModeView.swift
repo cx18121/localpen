@@ -67,21 +67,13 @@ struct TodayModeView: View {
     private var focusBlock: some View {
         VStack(alignment: .leading, spacing: Spacing.s2) {
             header("Focus", action: ("Open", { hub.openNow() }))
-            Text(nowExcerpt)
-                .font(Typography.body)
-                .foregroundStyle(Tokens.textSoft)
-                .fixedSize(horizontal: false, vertical: true)
+            // Render now.md as real markdown (headings, bullets, wikilinks), not raw text.
+            // "Open" edits it in Obsidian; the panel re-reads on reopen.
+            MarkdownText(hub.nowText)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Spacing.s7)
         }
-    }
-
-    /// First ~6 non-empty lines of now.md — a glance; "Open" for the rest in the editor.
-    private var nowExcerpt: String {
-        hub.nowText
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .prefix(6)
-            .joined(separator: "\n")
     }
 
     // MARK: - Follow-ups (teaser → People, no longer duplicates the full list)
@@ -151,9 +143,11 @@ struct TodayModeView: View {
 
     private var inboxBlock: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header("Inbox", trailing: "\(hub.todayInbox.count)")
-            ForEach(hub.todayInbox, id: \.self) { title in
-                MenuRow(icon: "tray", title: title)   // glance-only: captures have no detail view
+            header("Recently captured", trailing: "\(hub.todayInbox.count)")
+            ForEach(hub.todayInbox) { item in
+                MenuRow(icon: "tray", title: item.title, trailing: .chevron) {
+                    hub.openInboxItem(item)   // open the jot in Obsidian to flesh out / file
+                }
             }
         }
     }

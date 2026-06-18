@@ -24,7 +24,10 @@ final class HubModel {
     /// Today-mode (daily briefing): the cached upcoming schedule + recent inbox items.
     /// Follow-ups reuse `peopleInsights`; the now excerpt reuses `nowText`.
     var todaySchedule: String? = nil
-    var todayInbox: [String] = []   // titles of recent raw/inbox/ items awaiting triage
+    var todayInbox: [InboxItem] = []   // recent raw/inbox/ captures (openable in Obsidian)
+
+    /// A recent capture shown on Today: a readable title + the file to open for review.
+    struct InboxItem: Identifiable, Equatable { let title: String; let url: URL; var id: URL { url } }
     /// Transient confirmation after a Capture write ("Saved to inbox").
     var captureStatus: String? = nil
     /// Suggestions-mode: the queued high-judgment proposals (ADR 0015).
@@ -81,8 +84,12 @@ final class HubModel {
         loadNow()          // populates nowText (Focus glance)
         loadPeople()       // populates peopleInsights (follow-ups teaser → People)
         loadSuggestions()  // populates suggestions (To review section)
-        todayInbox = InboxStore(vaultRoot: BrainAccess.vaultRoot).recentTitles()
+        todayInbox = InboxStore(vaultRoot: BrainAccess.vaultRoot).recentItems()
+            .map { InboxItem(title: $0.title, url: $0.url) }
     }
+
+    /// Open a recent capture in its default editor (Obsidian) for review/triage.
+    func openInboxItem(_ item: InboxItem) { NSWorkspace.shared.open(item.url) }
 
     /// KB results: recent notes when the query is empty, search hits otherwise.
     func searchNotes() {
