@@ -66,10 +66,9 @@ final class ContextEngine {
         await groundMentions(resolved, query: query, queryVector: queryVector,
                              used: &used, budget: &budget, lines: &lines, sources: &sources)
 
-        // Generic query hits fill whatever budget remains.
-        for hit in await queryHits(for: query, queryVector: queryVector) where used.insert(hit.page.path).inserted {
-            emit(Self.condense(hit.page.body, charCap: config.perPageCharCap), page: hit.page, reason: .query)
-        }
+        // Generic layer: passage-level retrieval + 1-hop graph expansion (W3).
+        await fillGenericPassages(query: query, queryVector: queryVector,
+                                  used: &used, budget: &budget, lines: &lines, sources: &sources)
 
         return ContextBundle(text: lines.joined(separator: "\n"), sources: sources,
                              approxTokens: config.maxContextTokens - budget)
@@ -152,16 +151,76 @@ final class ContextEngine {
         }
     }
 
-    /// Top-K query hits for the ask. Hybrid (BM25 ⊕ dense RRF) when an embedding service
-    /// is configured AND the vault has vectors AND the query embeds; otherwise BM25-only.
-    /// A down embedding server, an unembedded vault, or no service is a silent, correct
-    /// fallback — never an error in the ask path.
-    private func queryHits(for query: String, queryVector: [Float]?) async -> [KBHit] {
-        guard embeddingService != nil, let queryVector else { return await search.search(query, limit: config.topK) }
+    /// Generic ask layer (W3): chunk-level retrieval over the hybrid candidate pages plus the
+    /// 1-hop link-neighbors (inbound + outbound) of the top hits, ranked against the query and
+    /// packed per-page-capped into the remaining budget. No query vector / no embeddings ⇒
+    /// today's page-level BM25 emit (byte-identical fallback).
+    private func fillGenericPassages(query: String, queryVector: [Float]?, used: inout Set<String>,
+                                     budget: inout Int, lines: inout [String],
+                                     sources: inout [ContextBundle.Provenance]) async {
+        // Fallback: no service / no query vector / unembedded vault → page-level BM25 (unchanged).
+        guard embeddingService != nil, let qv = queryVector else {
+            await fillGenericPagesBM25(query: query, used: &used, budget: &budget, lines: &lines, sources: &sources)
+            return
+        }
         let vectors = await vectorCache.vectors()
-        guard !vectors.isEmpty else { return await search.search(query, limit: config.topK) }
-        return await search.hybridSearch(query, queryVector: queryVector,
-                                         vectors: vectors, limit: config.topK)
+        guard !vectors.isEmpty else {
+            await fillGenericPagesBM25(query: query, used: &used, budget: &budget, lines: &lines, sources: &sources)
+            return
+        }
+
+        // 1. Candidate pages (hybrid), wider net than topK since chunk ranking trims it.
+        let candidatePages = await search.hybridSearch(query, queryVector: qv,
+                                                       vectors: vectors, limit: config.kCandidatePages)
+        var titleByPath = Dictionary(candidatePages.map { ($0.page.path, $0.page.title) },
+                                     uniquingKeysWith: { a, _ in a })
+
+        // 2. 1-hop graph expansion from the top seeds (inbound + outbound), relevance-gated later.
+        // linkedPaths tracks every neighbor of a top hit — whether or not it was already a hybrid
+        // candidate — so provenance stays honest (the graph connection is real regardless).
+        var linkedPaths = Set<String>()
+        for hit in candidatePages.prefix(config.graphSeedCount) {
+            let neighbors = await index.backlinks(toTitle: hit.page.title)
+                          + index.outboundLinks(fromPath: hit.page.path)
+            for n in neighbors where !used.contains(n.path) {
+                if titleByPath[n.path] == nil { titleByPath[n.path] = n.title }
+                linkedPaths.insert(n.path)
+            }
+        }
+
+        // 3. Candidate paths = hybrid pages + neighbors, minus what the always/mention layers used.
+        let candidatePaths = titleByPath.keys.filter { !used.contains($0) }
+        guard !candidatePaths.isEmpty,
+              let chunks = try? await ChunkStore(dbQueue: index.dbQueue).loadChunks(forPaths: Array(candidatePaths)),
+              !chunks.isEmpty else {
+            await fillGenericPagesBM25(query: query, used: &used, budget: &budget, lines: &lines, sources: &sources)
+            return
+        }
+
+        // 4. Rank ALL candidate chunks against the query; 5. per-page-capped budget fill.
+        let ranked = MentionGrounding.rankChunks(chunks, queryVector: qv, limit: chunks.count)
+        for pick in PassageSelection.fill(ranked: ranked, titleByPath: titleByPath,
+                                          linkedPaths: linkedPaths, budget: budget,
+                                          perPageCap: config.perPageChunkCap) {
+            lines.append(pick.line)
+            sources.append(.init(title: pick.title, path: pick.path, reason: pick.isLinked ? .linked : .query))
+            budget -= pick.tokens
+            used.insert(pick.path)
+        }
+    }
+
+    /// Page-level BM25 emit — the pre-W3 generic path, kept as the no-embeddings fallback.
+    private func fillGenericPagesBM25(query: String, used: inout Set<String>, budget: inout Int,
+                                      lines: inout [String], sources: inout [ContextBundle.Provenance]) async {
+        for hit in await search.search(query, limit: config.topK) where used.insert(hit.page.path).inserted {
+            let snippet = Self.condense(hit.page.body, charCap: config.perPageCharCap)
+            guard !snippet.isEmpty else { continue }
+            let cost = Self.approxTokens(snippet)
+            guard cost <= budget else { continue }
+            lines.append("kb [\(hit.page.title)]: \(snippet)")
+            sources.append(.init(title: hit.page.title, path: hit.page.path, reason: .query))
+            budget -= cost
+        }
     }
 
     /// Strip heading markers, collapse blank lines/runs to single spaces, head-cap with `…`.

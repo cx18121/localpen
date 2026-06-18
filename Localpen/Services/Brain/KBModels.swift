@@ -37,6 +37,9 @@ struct BrainConfig: Sendable {
     var topK: Int = 6
     var maxContextTokens: Int = 1200
     var perPageCharCap: Int = 800
+    var kCandidatePages: Int = 10     // hybrid candidate pages before chunk ranking trims
+    var graphSeedCount: Int = 2       // top hits whose 1-hop neighbors are pulled in
+    var perPageChunkCap: Int = 2      // max passages emitted per page in the generic slice
 
     static var `default`: BrainConfig { BrainConfig(vaultRoot: BrainAccess.vaultRoot) }
 }
@@ -55,7 +58,7 @@ struct ContextBundle: Sendable, Equatable {
         let title: String
         let path: String
         let reason: Reason
-        enum Reason: String, Sendable, Codable { case always, query, mention }
+        enum Reason: String, Sendable, Codable { case always, query, mention, linked }
     }
 
     static let empty = ContextBundle(text: "", sources: [], approxTokens: 0)
