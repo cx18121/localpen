@@ -976,7 +976,7 @@ struct ProjectActivityPass {
 }
 ```
 
-> The sync-advance rule is deliberately simple: advance on success. A batch whose model call failed leaves `wroteAny` possibly true for earlier batches but the failed batch's commits are *older* than HEAD, so they'd be re-read next run and could double-write. Acceptable for v1 (a rare model failure → at most a duplicate entry, a one-line fix); a stricter "advance only to the last successfully-written batch's SHA" is a future refinement noted here, not built.
+> The sync-advance rule stops at the first failed batch and advances sync only past batches actually written: to `result.head` if all batches wrote successfully, otherwise to the last successfully-written batch's SHA, otherwise not at all. A failed batch leaves sync unadvanced past it, so its commits fall inside the next run's `sinceSHA..HEAD` window and are retried — no loss. No post-gap batch is written before the gap is filled, so there is no duplicate either.
 
 - [ ] **Step 4: Run to verify pass**
 

@@ -42,18 +42,34 @@ struct ProjectActivityPass {
             let commits = GitActivityReader.substantive(result.commits)
             guard !commits.isEmpty else { sync.record(repo: repoPath, sha: result.head); continue }
 
-            var wroteAny = false
+            // Write batches oldest→newest, stopping at the first batch that fails to synthesize
+            // or write. Advance sync only past batches actually written — never past a failed
+            // batch (that would silently drop its commits). Breaking before any post-gap batch
+            // is written means a retry re-reads only unwritten commits: no loss, no duplicate.
+            var advanceSHA: String? = nil
+            var allWritten = true
             for batch in ProjectActivityBatcher.batch(commits) {
-                guard let entry = await ProjectActivitySynthesis.entry(for: batch, synthesize: synthesize) else { continue }
+                guard let entry = await ProjectActivitySynthesis.entry(for: batch, synthesize: synthesize) else {
+                    allWritten = false; break
+                }
                 do {
                     try writer.apply(.appendActivity(projectTitle: page.title, entry: entry),
                                      nowMillis: Int64(now().timeIntervalSince1970 * 1000))
-                    report.entries += 1; wroteAny = true
-                } catch { log.info("activity: write failed \(page.title, privacy: .public): \(error.localizedDescription)") }
+                    report.entries += 1
+                    advanceSHA = batch.commits.last?.sha
+                } catch {
+                    log.info("activity: write failed \(page.title, privacy: .public): \(error.localizedDescription)")
+                    allWritten = false; break
+                }
             }
-            // Advance sync to HEAD only if we got through the batches without a write failure
-            // mid-way; otherwise leave it so the unwritten commits are retried next run.
-            if wroteAny || commits.isEmpty { sync.record(repo: repoPath, sha: result.head) }
+            // All batches written → advance fully to HEAD (covers any trailing trivia commits
+            // filtered out of the batches). Partial → advance only past the last written batch.
+            // Nothing written → leave sync untouched so the whole window is retried next run.
+            if allWritten {
+                sync.record(repo: repoPath, sha: result.head)
+            } else if let advanceSHA {
+                sync.record(repo: repoPath, sha: advanceSHA)
+            }
         }
         log.info("activity pass: \(report.projects) projects, \(report.entries) entries, \(report.skipped) skipped")
         return report
