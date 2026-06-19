@@ -395,6 +395,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                     } catch { return .failed(error.localizedDescription) }
                 }
 
+                // People synthesis FIRST: ~6 quick calls distilling Compiled Truth + deduped
+                // Connections — the user-visible win. Runs before the activity pass so a fresh
+                // install's person pages fill promptly instead of waiting behind the activity
+                // backfill (a 90-day first-run window across every repo can take many minutes).
+                let people = PeopleSynthesisPass(
+                    index: brainIndex, writer: VaultWriter(vaultRoot: vaultRoot),
+                    store: PeopleSynthStore(fileURL: PeopleSynthStore.defaultURL()),
+                    synthesize: synthesize, now: { Date() })
+                let pReport = await people.run()
+                self.log.info("people synthesis: \(pReport.people) people, \(pReport.synthesized) synthesized")
+
                 // Project-activity freshness: summarize git commits into project `## Activity` logs.
                 let activity = ProjectActivityPass(
                     index: brainIndex, writer: VaultWriter(vaultRoot: vaultRoot),
@@ -402,15 +413,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                     synthesize: synthesize, now: { Date() })
                 let aReport = await activity.run()
                 self.log.info("activity pass: \(aReport.projects) projects, \(aReport.entries) entries")
-
-                // People synthesis: distill each person page's raw facts into Compiled Truth +
-                // a deduped Connections (only when the facts changed since last run).
-                let people = PeopleSynthesisPass(
-                    index: brainIndex, writer: VaultWriter(vaultRoot: vaultRoot),
-                    store: PeopleSynthStore(fileURL: PeopleSynthStore.defaultURL()),
-                    synthesize: synthesize, now: { Date() })
-                let pReport = await people.run()
-                self.log.info("people synthesis: \(pReport.people) people, \(pReport.synthesized) synthesized")
 
                 if aReport.entries > 0 || pReport.synthesized > 0 {
                     Task.detached { await brainIndex.reindexAll(root: vaultRoot) }
