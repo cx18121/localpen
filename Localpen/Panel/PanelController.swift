@@ -1102,7 +1102,7 @@ final class PanelController {
     /// Open an answer's source page (provenance chip, ADR 0014) in Obsidian. Lives here (not on
     /// HubModel) because it serves the ask/conversation surface, not the hub.
     func openProvenanceSource(_ source: ContextBundle.Provenance) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: source.path))
+        VaultOpen.open(URL(fileURLWithPath: source.path))
     }
 
     // MARK: - Ask flow

@@ -89,7 +89,7 @@ final class HubModel {
     }
 
     /// Open a recent capture in its default editor (Obsidian) for review/triage.
-    func openInboxItem(_ item: InboxItem) { NSWorkspace.shared.open(item.url) }
+    func openInboxItem(_ item: InboxItem) { VaultOpen.open(item.url) }
 
     /// KB results: recent notes when the query is empty, search hits otherwise.
     func searchNotes() {
@@ -121,13 +121,13 @@ final class HubModel {
 
     /// Open a KB page in its default app — Obsidian registers as the `.md` handler.
     func openNote(_ page: KBPage) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: page.path))
+        VaultOpen.open(URL(fileURLWithPath: page.path))
     }
 
     /// Open `now.md` in its default editor — the edit door for the read-only Now glance
     /// surface. Editing happens in Obsidian (the `.md` handler); the panel re-reads on reopen.
     func openNow() {
-        NSWorkspace.shared.open(BrainAccess.vaultRoot.appendingPathComponent("now.md"))
+        VaultOpen.open(BrainAccess.vaultRoot.appendingPathComponent("now.md"))
     }
 
     /// Capture free text into the vault's `raw/inbox/` (ADR 0015 additive write).
