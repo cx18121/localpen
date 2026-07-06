@@ -12,14 +12,16 @@ The user's personal `~/.claude/CLAUDE.md` covers general working style. This fil
 
 Read in this order before doing project work:
 
-1. [PRD.md](./PRD.md) — original vision + market analysis (target-user phasing & distribution are historical)
-2. [ROADMAP.md](./ROADMAP.md) — **live north star + build sequence** (supersedes PRD phasing)
-3. [CONTEXT.md](./CONTEXT.md) — domain glossary (surfaces, operations, action, interaction)
+All project docs live in [docs/](./docs/), which is gitignored (local-only, not in the repo).
+
+1. [docs/PRD.md](./docs/PRD.md) — original vision + market analysis (target-user phasing & distribution are historical)
+2. [docs/ROADMAP.md](./docs/ROADMAP.md) — **live north star + build sequence** (supersedes PRD phasing)
+3. [docs/CONTEXT.md](./docs/CONTEXT.md) — domain glossary (surfaces, operations, action, interaction)
 4. [docs/adr/](./docs/adr/) — locked architectural decisions (numeric order)
-5. [DESIGN.md](./DESIGN.md) — design contract
-6. [SWIFTUI-SPEC.md](./SWIFTUI-SPEC.md) — engineering contract
-7. [PRODUCT.md](./PRODUCT.md) — impeccable's product-register file
-8. [PLAN.md](./PLAN.md) — Phase 1 build plan (when it exists)
+5. [docs/DESIGN.md](./docs/DESIGN.md) — design contract
+6. [docs/SWIFTUI-SPEC.md](./docs/SWIFTUI-SPEC.md) — engineering contract
+7. [docs/PRODUCT.md](./docs/PRODUCT.md) — impeccable's product-register file
+8. [docs/PLAN.md](./docs/PLAN.md) — Phase 1 build plan (when it exists)
 
 ## Locked decisions
 
@@ -39,11 +41,11 @@ Current Phase 1 ADRs:
 
 This project follows: **grill → design → spec → plan → build**.
 
-- `grill-with-docs` skill — surfaces contradictions, locks decisions into CONTEXT.md + ADRs
-- `impeccable` skill — design vision (DESIGN-BRIEF.md sketch → DESIGN.md production)
-- `swiftui-expert-skill` — engineering spec (SWIFTUI-SPEC.md)
-- `PLAN.md` — task breakdown for execution
-- code — written against PLAN.md, atomic commits
+- `grill-with-docs` skill — surfaces contradictions, locks decisions into docs/CONTEXT.md + ADRs
+- `impeccable` skill — design vision (docs/DESIGN-BRIEF.md sketch → docs/DESIGN.md production)
+- `swiftui-expert-skill` — engineering spec (docs/SWIFTUI-SPEC.md)
+- `docs/PLAN.md` — task breakdown for execution
+- code — written against docs/PLAN.md, atomic commits
 
 Decisions get locked into ADRs **as they crystallize**, not batched at the end. If a non-trivial decision is made in a conversation, write an ADR before moving on.
 

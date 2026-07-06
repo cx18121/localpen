@@ -21,4 +21,6 @@ Localpen/Resources/llama-server
 
 # Sketches (per CLAUDE.md — throwaway; delete after PLAN.md is written)
 sketches/
-docs/superpowers/bench-results/
+
+# Local-only docs (specs, ADRs, plans — kept on disk, not in the repo)
+docs/

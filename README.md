@@ -2,7 +2,7 @@
 
 A native macOS writing companion. Local AI. Lives next to whatever you're writing in.
 
-**Working name** — see [PRD.md](./PRD.md) for the full vision and [docs/adr/0007](./docs/adr/0007-defer-final-name-keep-localpen-as-working-name.md) for the naming stance.
+**Working name** — see [PRD.md](./docs/PRD.md) for the full vision and [docs/adr/0007](./docs/adr/0007-defer-final-name-keep-localpen-as-working-name.md) for the naming stance.
 
 ## Status
 
@@ -14,16 +14,16 @@ Read the docs below in order if you're joining the project cold.
 
 | Doc | What it is |
 |---|---|
-| [PRD.md](./PRD.md) | Vision, target user, the wedge, the risks |
-| [CONTEXT.md](./CONTEXT.md) | Domain glossary — surfaces, operations, action, interaction |
+| [PRD.md](./docs/PRD.md) | Vision, target user, the wedge, the risks |
+| [CONTEXT.md](./docs/CONTEXT.md) | Domain glossary — surfaces, operations, action, interaction |
 | [docs/adr/](./docs/adr/) | Locked architectural decisions (7 ADRs as of Phase 1) |
-| [DESIGN.md](./DESIGN.md) | Design contract: tokens, panel anatomy, state catalog, motion, microcopy |
-| [SWIFTUI-SPEC.md](./SWIFTUI-SPEC.md) | Engineering contract: deployment target, architecture, view hierarchy, services |
-| [PRODUCT.md](./PRODUCT.md) | impeccable's product-register file: users, voice, anchors, anti-references |
+| [DESIGN.md](./docs/DESIGN.md) | Design contract: tokens, panel anatomy, state catalog, motion, microcopy |
+| [SWIFTUI-SPEC.md](./docs/SWIFTUI-SPEC.md) | Engineering contract: deployment target, architecture, view hierarchy, services |
+| [PRODUCT.md](./docs/PRODUCT.md) | impeccable's product-register file: users, voice, anchors, anti-references |
 | [CLAUDE.md](./CLAUDE.md) | Project-level instructions for AI tools |
-| [PLAN.md](./PLAN.md) | Phase 1 task breakdown (M0 → M9) |
-| [PHASE-1.5-BRIEF.md](./PHASE-1.5-BRIEF.md) | One-pager preview of the next phase. Grilled into a real plan only after Phase 1 ships. |
-| [DESIGN-BRIEF.md](./DESIGN-BRIEF.md) | Sketch/mid-fi exploration that fed into DESIGN.md (historical artifact) |
+| [PLAN.md](./docs/PLAN.md) | Phase 1 task breakdown (M0 → M9) |
+| [PHASE-1.5-BRIEF.md](./docs/PHASE-1.5-BRIEF.md) | One-pager preview of the next phase. Grilled into a real plan only after Phase 1 ships. |
+| [DESIGN-BRIEF.md](./docs/DESIGN-BRIEF.md) | Sketch/mid-fi exploration that fed into DESIGN.md (historical artifact) |
 
 ## Pre-launch checklist
 
