@@ -1,35 +1,34 @@
 # Localpen
 
-A native macOS notch writing assistant and knowledge tool with local AI inference.
+A writing assistant that lives in your Mac's notch and runs locally with llama.cpp.
 
-Select text in an app, press **Control + Option + Space**, and proofread, polish,
-change tone, shorten, or draft a reply. Without a selection, the notch opens a hub
-for questions, notes, people, and quick captures.
+Select some text, press Control + Option + Space, and pick what you want to do with
+it. Proofread, polish, change the tone, shorten it, or draft a reply. You can review
+the changes before pasting them back. Open it without a selection to ask questions,
+search your notes, or jot something down.
 
-**Experimental.** Built for personal use and designed around notched MacBooks.
-Setup requires a local build and a compatible llama.cpp server. Localpen is a
-working name.
+I built this for myself. It's still experimental, setup is manual, and Localpen is
+a working name. The UI is designed around notched MacBooks.
 
-## What it does
+## What else it does
 
-- Rewrites selected text and lets you review changes before pasting it back.
-- Supports follow-up conversations and learns a writing-style profile from local history.
-- Searches a local Markdown vault and uses relevant passages to ground answers.
-- Offers optional file, calendar, mail, and screen-text context.
-- Can curate vault notes and queue suggestions for review. Use a backed-up vault.
+- Keeps conversations so you can follow up, and learns your writing style from local history.
+- Searches a Markdown vault and pulls relevant passages into answers.
+- Lets you add context from files, your calendar, mail, or text on screen.
+- Can update vault notes and suggest changes for review. Keep a backup of your vault.
 
-## Build from source
+## Running it
 
-You need macOS 14 or later, full Xcode with its macOS SDK, and
-[XcodeGen](https://github.com/yonaskolb/XcodeGen). Apple Silicon is the primary
-hardware target. Command Line Tools alone are not enough to build the app.
+You'll need macOS 14 or later, full Xcode, and
+[XcodeGen](https://github.com/yonaskolb/XcodeGen). Apple Silicon is the main target.
+Command Line Tools alone won't build the app.
 
-### 1. Supply llama-server
+### Set up llama-server
 
 Build a compatible [llama.cpp server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
-using its [build instructions](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md).
-A static build (`-DBUILD_SHARED_LIBS=OFF`) avoids having to package llama.cpp's
-shared libraries separately. Copy the executable into the resource directory:
+following the [build instructions](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md).
+A static build (`-DBUILD_SHARED_LIBS=OFF`) saves you from packaging llama.cpp's
+shared libraries separately. Then copy the executable into the repo:
 
 ```sh
 cp /path/to/llama.cpp/build/bin/llama-server Localpen/Resources/llama-server
@@ -37,65 +36,58 @@ chmod +x Localpen/Resources/llama-server
 Localpen/Resources/llama-server --version
 ```
 
-The server and model weights are not checked in. If using a dynamically linked
-server, its dependent libraries must also be available at runtime. The project
-does not currently pin or automate the llama.cpp build. Check compatibility with
-the flags in `Localpen/Services/LlamaServerController.swift`.
+The server and model weights aren't checked in. If you use a dynamically linked
+server, its libraries need to be available at runtime too. I haven't pinned or
+automated the llama.cpp build yet. Check that your version supports the flags in
+`Localpen/Services/LlamaServerController.swift`.
 
-### 2. Generate and build the Xcode project
+### Build the app
 
-From the repository root:
+From the repo root:
 
 ```sh
 xcodegen generate
 open Localpen.xcodeproj
 ```
 
-Select the **Localpen** scheme and build in Xcode. Dependencies resolve through
-Swift Package Manager. The default configuration uses ad-hoc signing, without a
-personal development team or certificate. For a stable signed installation,
-configure your own signing identity locally.
+Choose the Localpen scheme and build. Xcode resolves the Swift packages for you.
+The default is ad-hoc signing, so you don't need a development team or certificate.
+For a stable signed installation, set up your own signing identity locally.
 
-On first launch, grant Accessibility access and download the default Qwen 2.5 7B
-Instruct model. Allow roughly 4.7 GB for its weights, plus working memory.
-The model catalog is `Localpen/Resources/models.toml`.
+On first launch, grant Accessibility access and download Qwen 2.5 7B Instruct.
+The weights take about 4.7 GB of disk space, and you'll need RAM to run the model.
+The model catalog is in `Localpen/Resources/models.toml`.
 
-### 3. Run tests
+### Tests
 
 ```sh
 xcodebuild test -project Localpen.xcodeproj -scheme Localpen -destination 'platform=macOS'
 ```
 
-Personal-vault integration tests are disabled by default. They require explicit
-`LOCALPEN_RUN_VAULT_TESTS=1` in the test process environment, a private vault,
-local evaluation data, and an embedding server. The ordinary tests use temporary
-fixtures. See [`scripts/bench/`](scripts/bench/) for inference benchmarks.
+The regular tests use temporary fixtures. Tests against a real vault are off by
+default. To run those, set `LOCALPEN_RUN_VAULT_TESTS=1` in the test process
+environment. You'll also need the private vault, local evaluation data, and an
+embedding server. Inference benchmarks are in [`scripts/bench/`](scripts/bench/).
 
-## Data and permissions
+## Your data
 
-Inference runs on this Mac. Model downloads access Hugging Face. Optional calendar
-feeds are fetched directly from the URLs you configure. There is no cloud model
-backend or analytics service.
+The model runs on your Mac. Downloads come from Hugging Face, and optional calendar
+feeds are fetched directly from the URLs you add. There's no cloud model backend
+or analytics service.
 
-Localpen saves interactions and conversations under
-`~/Library/Application Support/Localpen/`. Logs are under
-`~/Library/Logs/Localpen/`. These files can contain private data. History settings
-provide export and clear controls.
+Chats and interactions are saved in `~/Library/Application Support/Localpen/`.
+Logs go in `~/Library/Logs/Localpen/`. These files can contain private data. You can
+export or clear history in Settings.
 
-Accessibility enables clipboard-based selection capture and paste-back.
-Clipboard managers may retain the text copied during those operations. Optional
-mail and screen context require the corresponding macOS privacy grants.
+Localpen uses Accessibility permission to copy selected text and paste results
+back. Clipboard managers may keep copies of that text. Mail and screen context
+need their own macOS privacy permissions.
 
-The knowledge feature is off by default. Configure its vault path in Settings
-before enabling it. The current default is `~/Documents/cxkb`. The search index is
-a local cache of your Markdown files. Curation can write to those files, so keep
-backups or version control.
+Vault search is off by default. Set your vault path in Settings before turning it
+on. It defaults to `~/Documents/cxkb`. The search index is a local cache of your
+Markdown files, but curation can write to the files themselves. Keep backups or
+use version control.
 
-## Repository contents
+## License
 
-The published tree contains app and CLI source, tests, and build scripts. Internal
-specs, plans, design notes, agent settings, personal evaluation data, and local
-signing configuration are excluded. Existing Git history has not been scrubbed
-and still contains earlier internal files.
-
-No project license has been selected yet.
+I haven't picked a license yet.
