@@ -146,7 +146,7 @@ struct VaultWriter {
     }
 
     /// A new person page seeded from the vault's schema template (cxkb/CLAUDE.md). Stub —
-    /// Charlie fills the Compiled Truth; the frontmatter + Timeline scaffold are correct.
+    /// The user fills the Compiled Truth; the frontmatter + Timeline scaffold are correct.
     private func personTemplate(name: String, today: String) -> String {
         """
         ---

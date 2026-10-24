@@ -53,9 +53,9 @@ targets:
         # single binary; required for BUNDLE_LOADER to work in the test target.
         ENABLE_DEBUG_DYLIB: NO
         CODE_SIGN_STYLE: Manual
-        DEVELOPMENT_TEAM: "2L525PQAPB"
-        CODE_SIGN_IDENTITY: B34F936CCB151247A80B25244A2BF6E35AFC66DC
-        "CODE_SIGN_IDENTITY[sdk=macosx*]": B34F936CCB151247A80B25244A2BF6E35AFC66DC
+        # Ad-hoc signing works without a developer account. Override locally for TCC stability.
+        CODE_SIGN_IDENTITY: "-"
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "-"
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         SWIFT_STRICT_CONCURRENCY: targeted
@@ -127,39 +127,15 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Localpen.app/Contents/MacOS/Localpen"
         BUNDLE_LOADER: "$(TEST_HOST)"
         CODE_SIGN_STYLE: Manual
-        DEVELOPMENT_TEAM: "2L525PQAPB"
-        CODE_SIGN_IDENTITY: B34F936CCB151247A80B25244A2BF6E35AFC66DC
-        "CODE_SIGN_IDENTITY[sdk=macosx*]": B34F936CCB151247A80B25244A2BF6E35AFC66DC
+        # Ad-hoc signing works without a developer account. Override locally for TCC stability.
+        CODE_SIGN_IDENTITY: "-"
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "-"
 
 schemes:
   Localpen:
     build:
       targets:
         Localpen: all
-      # Scheme post-action, NOT a target build phase. Critical: a target
-      # postBuildScript runs BEFORE Xcode's final code-signing step, so it can
-      # only ever copy an unsigned bundle (launchd then errors 163). A scheme
-      # post-action runs after the whole build completes — signing included — so
-      # ditto copies an already-signed, already-validated app. Fired by Xcode
-      # GUI builds (Cmd+B / Cmd+R), which is how this app is normally launched.
-      postActions:
-        - name: "Install Debug build to /Applications"
-          settingsTarget: Localpen
-          script: |
-            if [ "$CONFIGURATION" = "Debug" ]; then
-              DEST="/Applications/$PRODUCT_NAME.app"
-              # macOS protects a running executable: copying over a live instance
-              # corrupts it. Quit any instance running from THIS path first (never
-              # the Xcode/DerivedData run), then replace with ditto (cp -R strips
-              # the signature + framework symlinks). Relaunch via Raycast/Spotlight.
-              pkill -f "$DEST/Contents/MacOS/$PRODUCT_NAME" 2>/dev/null || true
-              for _ in 1 2 3 4 5 6; do
-                pgrep -f "$DEST/Contents/MacOS/$PRODUCT_NAME" >/dev/null 2>&1 || break
-                sleep 0.3
-              done
-              rm -rf "$DEST"
-              ditto "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app" "$DEST"
-            fi
     run:
       config: Debug
     test:

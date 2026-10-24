@@ -53,7 +53,7 @@ struct MCPServer {
     static let toolDefinitions: [[String: Any]] = [
         [
             "name": "kb_search",
-            "description": "Search Charlie's personal knowledge base (cxkb). Returns ranked pages with a snippet. Use to find notes, projects, people, meetings, or prior decisions.",
+            "description": "Search the user's personal knowledge base. Returns ranked pages with a snippet. Use to find notes, projects, people, meetings, or prior decisions.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
@@ -83,7 +83,7 @@ struct MCPServer {
         ],
         [
             "name": "kb_project",
-            "description": "Project-aware recall: given a repo path, return the matching cxkb project page + related notes. Use at the start of work in a repo to load what Charlie already knows about THIS project.",
+            "description": "Project-aware recall: given a repo path, return the matching cxkb project page + related notes. Use at the start of work in a repo to load what the user already knows about THIS project.",
             "inputSchema": [
                 "type": "object",
                 "properties": ["path": ["type": "string", "description": "absolute path to the repo/working dir"]],

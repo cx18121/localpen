@@ -10,13 +10,13 @@ enum CurationSynthesis {
     /// 1:1 to `CurationWrite`; the classifier later decides which auto-apply vs. queue.
     static func systemPrompt() -> String {
         """
-        You maintain Charlie's personal knowledge base. Read the conversations and notes \
-        below and propose well-supported updates. File the substantive things — people he \
+        You maintain the user's personal knowledge base. Read the conversations and notes \
+        below and propose well-supported updates. File the substantive things — people they \
         met, facts about them, decisions, notable articles. Skip pure chit-chat.
 
         Output a SINGLE JSON object and nothing else: {"writes": [ ... ]}. Each write is a \
         FLAT object with a "kind" string field plus that kind's fields:
-        - {"kind":"createPerson","name":"..."}                    a person Charlie newly met
+        - {"kind":"createPerson","name":"..."}                    a person the user newly met
         - {"kind":"appendTimeline","person":"...","entry":"..."}  a dated fact about a person
         - {"kind":"createSource","title":"...","body":"..."}      a notable article/resource
         - {"kind":"nominateLink","fromPage":"...","toTitle":"..."}
@@ -28,11 +28,11 @@ enum CurationSynthesis {
         - {"kind":"mergeIdentities","into":"...","from":"..."}
 
         Example output:
-        {"writes":[{"kind":"createPerson","name":"Mac Bennett"},\
-        {"kind":"appendTimeline","person":"Mac Bennett",\
-        "entry":"Warp engineer; saw the Sparrow demo on 2026-05-15; to reach out Aug 2026 re winter internship."}]}
+        {"writes":[{"kind":"createPerson","name":"Morgan Lee"},\
+        {"kind":"appendTimeline","person":"Morgan Lee",\
+        "entry":"ExampleCo engineer; reviewed the Sample App demo on 2026-01-15; follow up in February about collaboration."}]}
 
-        For each new contact Charlie met, emit a createPerson AND an appendTimeline entry \
+        For each new contact the user met, emit a createPerson AND an appendTimeline entry \
         for them. Treat a long reference article as one createSource (title + a short \
         summary), not many small writes. If truly nothing is worth filing, return \
         {"writes": []}. Output only the JSON object.

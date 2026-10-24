@@ -19,8 +19,44 @@ Package.resolved
 # Bundled binary (built locally per M0.8; not checked in)
 Localpen/Resources/llama-server
 
-# Sketches (per CLAUDE.md — throwaway; delete after PLAN.md is written)
-sketches/
+# Local design sketches
+/sketches/
 
-# Local-only docs (specs, ADRs, plans — kept on disk, not in the repo)
-docs/
+# Internal documentation and agent state (kept on disk, not published)
+/docs/
+/CLAUDE.md
+/AGENTS.md
+/.claude/
+/.pi/
+/project.local.yml
+
+# Former root-level internal docs. Keep them local if recreated.
+/PRD.md
+/ROADMAP.md
+/CONTEXT.md
+/DESIGN*.md
+/SWIFTUI-SPEC.md
+/PRODUCT.md
+/PLAN*.md
+/PHASE-*-BRIEF.md
+/*REVIEW.md
+
+# Personal retrieval evaluation data
+/LocalpenTests/Fixtures/retrieval_goldset.json
+
+# Local credentials, model weights, and runtime data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.gguf
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.jsonl
+*.log

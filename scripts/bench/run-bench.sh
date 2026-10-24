@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Offline inference microbenchmark for Localpen's active chat model.
 # Wraps llama.cpp's llama-bench with the flags the app actually runs, and stamps
-# the result with the *server's* real build (llama-bench's own --version is stale;
-# see docs/superpowers/plans/2026-06-07-inference-harness.md). Use this to compare
-# config changes (the inference-quickwins branch) on a controlled, repeatable bench.
+# the result with the server's build. Use this to compare configuration changes
+# on a controlled, repeatable benchmark.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-LLAMA_DIR="${LLAMA_DIR:-/Users/charliexue/School/clones/llama.cpp/build/bin}"
-BENCH="${LLAMA_BENCH:-$LLAMA_DIR/llama-bench}"
+LLAMA_DIR="${LLAMA_DIR:-}"
+BENCH="${LLAMA_BENCH:-${LLAMA_DIR:+$LLAMA_DIR/llama-bench}}"
+BENCH="${BENCH:-$(command -v llama-bench || true)}"
 SERVER="${SERVER:-${LLAMA_SERVER:-Localpen/Resources/llama-server}}"
 MODEL="${MODEL:-$HOME/Library/Application Support/Localpen/models/qwen-2.5-7b-instruct-q4-km.gguf}"
 # Two real-workload-ish shapes: rewrite (short prompt, short gen) and ask (long prompt, longer gen).
@@ -18,7 +18,7 @@ REPS="${REPS:-3}"
 FA="${FA:-1}"
 NGL="${NGL:-999}"
 
-[ -x "$BENCH" ] || { echo "✗ llama-bench not found/executable at $BENCH (set LLAMA_BENCH=)"; exit 1; }
+[ -x "$BENCH" ] || { echo "✗ llama-bench not found (set LLAMA_BENCH to its executable path, or add it to PATH)"; exit 1; }
 [ -f "$MODEL" ] || { echo "✗ model not found at $MODEL (set MODEL=)"; exit 1; }
 
 if [ -x "$SERVER" ]; then
@@ -36,7 +36,7 @@ echo "▸ llama-bench — server build $BUILD — pp=$PROMPTS tg=$GENS reps=$REP
 {
   echo "# Localpen offline bench"
   echo "# date:        $STAMP"
-  echo "# server build: $BUILD   (llama-bench binary build string is stale — ignore it)"
+  echo "# server build: $BUILD"
   echo "# model:       $(basename "$MODEL")"
   echo "# flags:       -p $PROMPTS -n $GENS -r $REPS -fa $FA -ngl $NGL"
   echo
